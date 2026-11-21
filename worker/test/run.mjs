@@ -104,7 +104,8 @@ if (process.argv[2] === 'serve') {
   globalThis.fetch = async (u) => {
     gh.calls++;
     if (gh.down) return new Response('rate limited', { status: 403 });
-    if (String(u) === 'https://api.github.com/repos/admonstrator/glinet-csa-2026-01/commits/main') return new Response(gh.commit + '\n');
+    if (String(u) === 'https://github.com/admonstrator/glinet-csa-2026-01.git/info/refs?service=git-upload-pack')
+      return new Response(`001e# service=git-upload-pack\n0000015a${'f'.repeat(40)} HEAD\0multi_ack symref=HEAD:refs/heads/main\n003d${'e'.repeat(40)} refs/heads/feature\n003f${gh.commit} refs/heads/main\n0000`);
     if (String(u) === `https://raw.githubusercontent.com/admonstrator/glinet-csa-2026-01/${gh.commit}/gl-helper-triage.sh`) return new Response(SH(gh.commit[0]));
     return new Response('not found', { status: 404 });
   };

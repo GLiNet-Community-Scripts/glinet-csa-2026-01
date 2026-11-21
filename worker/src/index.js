@@ -145,7 +145,9 @@ async function dashboard(request, env, data) {
 // The script itself, served from here instead of raw.githubusercontent.com, which keeps
 // a file for five minutes after a push. The worker only ever takes the script from the
 // main branch of the official repository: it asks GitHub which commit main points to and
-// fetches the file by that commit, an address GitHub does not cache. Anyone may call
+// fetches the file by that commit, an address GitHub does not cache. The commit comes from
+// the address git itself uses (info/refs); GitHub's API limits anonymous calls per IP
+// address, and workers share theirs with many others. Anyone may call
 // /refresh; it can only bring the copy here in line with main, at most twice a minute.
 const REPO = 'admonstrator/glinet-csa-2026-01';
 const SCRIPT = 'gl-helper-triage.sh';
@@ -157,11 +159,9 @@ async function refreshScript(env, force) {
   if (have && !force && Date.now() - have.checked < 600_000) return have;
   if (have && Date.now() - have.checked < 30_000) return have;
   try {
-    const head = await fetch(`https://api.github.com/repos/${REPO}/commits/main`, {
-      headers: { accept: 'application/vnd.github.sha', 'user-agent': 'csa-2026-01-worker' },
-    });
-    const commit = (await head.text()).trim();
-    if (!head.ok || !/^[0-9a-f]{40}$/.test(commit)) throw new Error('no commit');
+    const refs = await fetch(`https://github.com/${REPO}.git/info/refs?service=git-upload-pack`, { headers: { 'user-agent': 'git/2.43.0' } });
+    const commit = ((await refs.text()).match(/([0-9a-f]{40}) refs\/heads\/main\n/) || [])[1];
+    if (!refs.ok || !commit) throw new Error('no commit');
     let body = have && have.commit === commit ? have.body : null;
     if (body === null) {
       const raw = await fetch(`https://raw.githubusercontent.com/${REPO}/${commit}/${SCRIPT}`);

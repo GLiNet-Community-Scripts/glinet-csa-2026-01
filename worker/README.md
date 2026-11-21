@@ -72,7 +72,8 @@ change is available at once. (A redirect to `raw.githubusercontent.com` shows th
 file for up to five minutes after a push.)
 
 The worker takes the script only from the `main` branch of this repository. It asks
-GitHub which commit `main` points to, fetches `gl-helper-triage.sh` by that commit and
+GitHub which commit `main` points to (the way `git` does, not through the API with its
+limit on anonymous calls), fetches `gl-helper-triage.sh` by that commit and
 keeps it in KV. The response header `x-script-commit` says which commit is served.
 
 - `.github/workflows/publish-script.yml` calls `POST /csa-2026-01-fix/refresh` after every
