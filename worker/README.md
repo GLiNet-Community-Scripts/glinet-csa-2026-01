@@ -67,8 +67,14 @@ when nothing was found.
 
 ## Dashboard for the team
 
-`https://app.gl-i.net/csa-2026-01-report/dashboard` shows all reports as a table with a
-few counts on top (models, firmware, kinds of findings, shell start times, file hashes).
+`https://app.gl-i.net/csa-2026-01-report/dashboard` shows what the reports add up to:
+how many devices have traces and of which kind, when it started, which models and
+firmware versions, the malware's files by fingerprint, and the commands, autostart lines
+and firewall rules the attacker left, with identical ones grouped. Below that every
+report is one line in plain words that opens to its details.
+
+The page is `src/dashboard.html`. The worker imports `src/dashboard.js`, which
+`node build.mjs` generates from it; run that after every change to the page.
 It is for the team only. Cloudflare Access sits in front of it, and the worker checks the
 signature Access adds to every request. Until both settings below are present, the
 dashboard answers "not found" for everyone.

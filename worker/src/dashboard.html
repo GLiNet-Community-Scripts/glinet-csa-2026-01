@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>CSA-2026-01 reports</title>
+<style>
+:root {
+  --bg: #f4f6f5; --surface: #fff; --surface-2: #edf1ef; --text: #17201c; --text-2: #5d6a64; --grid: rgba(16, 40, 30, .1);
+  --accent: #16774c; --border: rgba(16, 40, 30, .12); --danger: #b42318; --danger-bg: rgba(217, 45, 32, .08);
+  --warn: #9a5b00; --warn-bg: rgba(255, 159, 10, .14);
+  --bar: #16774c; --bar-dim: rgba(22, 119, 76, .28);
+  --s1: #2a78d6; --s2: #eb6834; --term-bg: #13201a; --term-fg: #e4ede8;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0c0b; --surface: #161a18; --surface-2: #212623; --text: #f1f4f2; --text-2: #9ba6a1; --grid: rgba(255, 255, 255, .1);
+    --accent: #4cc38a; --border: rgba(255, 255, 255, .12); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .13);
+    --warn: #ffb340; --warn-bg: rgba(255, 159, 10, .16);
+    --bar: #3fae7a; --bar-dim: rgba(76, 195, 138, .28);
+    --s1: #3987e5; --s2: #d95926; --term-bg: #0c120f;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 60px; overflow-x: clip; }
+h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
+h2 { margin: 0; font-size: 16px; letter-spacing: -.01em; }
+p { margin: 0; }
+.sub { color: var(--text-2); }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+
+/* filters: one row above everything they change */
+.filters { margin: 18px 0; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; font-size: 14px; }
+.filters input[type=search] { flex: 1; min-width: 220px; font: inherit; padding: 9px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); }
+.seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--surface-2); }
+.seg button { border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--text-2); padding: 5px 12px; border-radius: 8px; cursor: pointer; }
+.seg button[aria-pressed=true] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+
+.grid { display: grid; gap: 14px; }
+.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.two { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px; min-width: 0; }
+.card > .sub { margin-top: 2px; font-size: 13.5px; }
+.kpi .label { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.kpi .value { margin-top: 2px; font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi .value small { font-size: 16px; font-weight: 600; color: var(--text-2); letter-spacing: 0; }
+.kpi .note { margin-top: 4px; font-size: 13px; color: var(--text-2); }
+.kpi.lead .value { color: var(--danger); }
+
+/* the two ways in: a thin segmented bar above its legend with the figures */
+.split { margin-top: 12px; display: flex; gap: 2px; height: 10px; }
+.split i { display: block; border-radius: 3px; min-width: 3px; }
+.legend { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13.5px; }
+.legend li { display: flex; align-items: center; gap: 7px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; }
+.legend b { font-variant-numeric: tabular-nums; }
+
+/* column chart: when it started */
+.chart { margin-top: 16px; position: relative; }
+.cols { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: end; height: 170px; border-bottom: 1px solid var(--grid); background: linear-gradient(var(--grid), var(--grid)) 0 0 / 100% 1px no-repeat, linear-gradient(var(--grid), var(--grid)) 0 50% / 100% 1px no-repeat; }
+.col { height: 100%; display: flex; align-items: flex-end; justify-content: center; padding: 0 1px; cursor: default; }
+.col i { display: block; width: 100%; max-width: 24px; background: var(--bar); border-radius: 4px 4px 0 0; }
+.col:hover i, .col:focus-visible i { filter: brightness(1.18); }
+.xaxis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin-top: 6px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.xaxis span { white-space: nowrap; }
+.ymax { position: absolute; top: -8px; left: 0; font-size: 12px; color: var(--text-2); background: var(--surface); padding-right: 6px; }
+.peak { margin-top: 12px; font-size: 14px; }
+
+/* ranked bars */
+.rank { margin: 14px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, max-content) minmax(60px, 1fr) max-content; gap: 9px 12px; align-items: center; font-size: 14px; }
+.rank li { display: contents; }
+.rank .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.rank .name small { color: var(--text-2); }
+.rank .track { height: 12px; }
+.rank .track i { display: block; height: 100%; min-width: 3px; background: var(--bar); border-radius: 0 4px 4px 0; }
+.rank .num { font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; }
+
+/* small tables */
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-size: 12.5px; font-weight: 600; color: var(--text-2); padding: 8px 10px 8px 0; white-space: nowrap; }
+td { padding: 9px 10px 9px 0; border-top: 1px solid var(--border); vertical-align: top; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: 0; }
+.mono { font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.dim { color: var(--text-2); }
+pre { margin: 6px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--term-bg); color: var(--term-fg); font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.count { display: inline-block; min-width: 24px; padding: 0 7px; border-radius: 980px; background: var(--surface-2); font-size: 12.5px; font-weight: 650; text-align: center; font-variant-numeric: tabular-nums; }
+.stack > * + * { margin-top: 12px; }
+
+/* the reports */
+.reports { margin-top: 26px; }
+.reports > .head { margin-bottom: 10px; }
+.rep { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+.rep + .rep { margin-top: 8px; }
+.rep summary { list-style: none; cursor: pointer; padding: 13px 18px; display: grid; grid-template-columns: 150px 190px minmax(0, 1fr) 150px 20px; gap: 6px 16px; align-items: start; }
+.rep summary::-webkit-details-marker { display: none; }
+.rep summary::after { content: '›'; font-size: 20px; line-height: 1; color: var(--text-2); transition: rotate .15s; justify-self: end; }
+.rep[open] summary::after { rotate: 90deg; }
+.rep .when { font-variant-numeric: tabular-nums; }
+.rep .when small, .rep .dev small { display: block; font-size: 12.5px; color: var(--text-2); }
+.rep .dev b { font-weight: 650; }
+.rep .what { font-size: 14.5px; }
+.tags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 5px; }
+.tag { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 980px; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--text-2); }
+.tag.bad { background: var(--danger-bg); color: var(--danger); }
+.tag.warn { background: var(--warn-bg); color: var(--warn); }
+.tag i { width: 8px; height: 8px; border-radius: 2px; }
+.rep .state { font-size: 13px; color: var(--text-2); }
+.rep .body { padding: 2px 18px 16px; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 28px; }
+.rep .body h3 { margin: 14px 0 0; font-size: 12.5px; font-weight: 650; color: var(--text-2); }
+.rep .body .full { grid-column: 1 / -1; }
+.kv { margin: 6px 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 14px; font-size: 13.5px; }
+.kv dt { color: var(--text-2); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+#hashes, .rep .body .full { overflow-x: auto; }
+.xaxis { overflow: hidden; }
+.foot { margin-top: 18px; font-size: 13px; color: var(--text-2); }
+
+#tip { position: fixed; z-index: 10; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 600; white-space: nowrap; opacity: 0; translate: -50% -130%; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+@media (max-width: 900px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .two { grid-template-columns: 1fr; }
+  .rep summary { grid-template-columns: minmax(0, 1fr) 20px; }
+  .rep summary > :not(:first-child):not(:last-child) { grid-column: 1; }
+  .rep .body { grid-template-columns: 1fr; }
+  .xaxis span { font-size: 10.5px; }
+  .rank .name { max-width: 150px; }
+  main { padding: 20px 14px 48px; }
+  .kpi .value { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <h1>CSA-2026-01 reports</h1>
+    <p class="sub" id="status"></p>
+  </div>
+
+  <div class="filters">
+    <input type="search" id="q" placeholder="Filter: model, firmware, path, hash, port, text in a command …" aria-label="Filter reports">
+    <div class="seg" id="scope" role="group" aria-label="Which reports">
+      <button type="button" data-v="hit" aria-pressed="true">With traces</button>
+      <button type="button" data-v="clean" aria-pressed="false">Clean</button>
+      <button type="button" data-v="all" aria-pressed="false">All</button>
+    </div>
+    <label><input type="checkbox" id="hideTests" checked> Hide our tests</label>
+  </div>
+
+  <section class="grid kpis" id="kpis"></section>
+
+  <section class="card" style="margin-top:14px">
+    <h2>When it started</h2>
+    <p class="sub">First trace per device, by hour (UTC): start of the remote shell, or the time on the malware’s files.</p>
+    <div class="chart"><span class="ymax" id="ymax"></span><div class="cols" id="cols"></div><div class="xaxis" id="xaxis"></div></div>
+    <p class="peak" id="peak"></p>
+  </section>
+
+  <section class="grid two">
+    <div class="card"><h2>Which devices</h2><p class="sub">Model and firmware of the devices with traces.</p><ul class="rank" id="devices"></ul></div>
+    <div class="card"><h2>What was found</h2><p class="sub">Devices per kind of trace. One device can have several.</p><ul class="rank" id="kinds"></ul></div>
+  </section>
+
+  <section class="grid two">
+    <div class="card"><h2>Malware files</h2><p class="sub">Same fingerprint means the same file on every device.</p><div id="hashes"></div></div>
+    <div class="card"><h2>What the attacker ran and left</h2><p class="sub">Identical lines are grouped. Port numbers are replaced by “PORT” for grouping.</p><div class="stack" id="left" style="margin-top:12px"></div></div>
+  </section>
+
+  <section class="reports">
+    <div class="head"><h2>Reports</h2><p class="sub" id="shown"></p></div>
+    <div id="list"></div>
+  </section>
+
+  <p class="foot">Reports are anonymous and not verified: anyone can send one. Look for patterns, not single reports. All times are UTC.</p>
+</main>
+<div id="tip" role="status"></div>
+
+<script>
+/* ---------- the page ---------- */
+const $ = (id) => document.getElementById(id);
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+const ts = (s) => (s ? Date.parse(s.replace(' UTC', 'Z').replace(' ', 'T')) : NaN);
+const short = (s) => (s ? s.slice(5, 16).replace('-', '/') : '');
+const day = (ms) => new Date(ms).toISOString().slice(5, 16).replace('T', ' ').replace('-', '/');
+const ATTACK = Date.parse('2026-11-20T00:00:00Z');
+
+// plain words for the kinds of findings
+const KIND = {
+  'marker': 'Malware files on the device', 'applet-hijack': 'System tool replaced', 'persist-ref': 'Autostart entry starts the malware',
+  'keep-ref': 'Survives a firmware update', 'persistence': 'rc.local or crontab changed', 'process implant': 'Malware process running',
+  'process remote-shell': 'Remote shell running', 'process quick-check': 'GL.iNet’s crond indicator running', 'process replaced-tool': 'Replaced tool running',
+  'pipe': 'Remote shell’s pipe left behind', 'connection': 'Open connection to the attacker', 'fw-rule': 'Firewall rule left by the attack',
+};
+const kindOf = (f) => { const w = f.split(' '); return w[0] === 'process' ? w[0] + ' ' + w[1] : w[0]; };
+
+function shape(x) {
+  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', ...x.report };
+  r.received = x.received;
+  r.kinds = [...new Set(r.findings.map(kindOf))];
+  r.isTest = r.model === 'unknown' && r.platform === 'unknown' && r.ioc === 0;
+  r.kvm = r.platform.startsWith('glkvm');
+  r.shell = r.kinds.some((k) => ['process remote-shell', 'pipe', 'connection', 'fw-rule'].includes(k));
+  r.implant = r.kinds.some((k) => ['marker', 'applet-hijack', 'persist-ref', 'keep-ref', 'process implant'].includes(k));
+  r.upSince = ts(r.checked_at) - r.uptime_s * 1000;
+  r.restarted = r.upSince > ATTACK;
+  const times = [ts(r.shell_started), ...r.files.map((f) => ts(f.mtime))].filter((n) => !isNaN(n));
+  r.first = times.length ? Math.min(...times) : NaN;
+  r.hay = [r.model, r.platform, r.firmware, r.tool, r.findings.join(' '), r.shell_ports.join(' '), r.files.map((f) => f.path + ' ' + f.sha256).join(' '), r.commands.join(' '), r.fw_rules.join(' '), r.persistence.map((p) => p.path + ' ' + p.lines.join(' ')).join(' ')].join(' ').toLowerCase();
+  return r;
+}
+function story(r) {
+  if (r.ioc === 0) return 'Nothing known found.';
+  const s = [];
+  if (r.kinds.includes('process remote-shell')) s.push(`Remote shell running since ${short(r.shell_started)}${r.shell_ports.length ? ', port ' + r.shell_ports.join(', ') : ''}.`);
+  else if (r.kinds.includes('pipe')) s.push('Remote shell ran since the last restart, not running now.');
+  if (r.kinds.includes('marker')) s.push(r.kinds.includes('process implant') ? 'gl-helper malware on the device and running.' : 'gl-helper malware files on the device.');
+  if (r.kinds.includes('applet-hijack')) s.push('A system tool was replaced.');
+  if (r.kinds.includes('persist-ref') || r.kinds.includes('keep-ref')) s.push('It starts again after a restart.');
+  if (r.kinds.includes('process quick-check')) s.push('GL.iNet’s crond indicator is running.');
+  return s.join(' ') || 'Known traces found.';
+}
+const count = (rows, key) => { const m = new Map(); for (const r of rows) for (const v of [].concat(key(r))) if (v) m.set(v, (m.get(v) || 0) + 1); return [...m].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(b[0])); };
+
+let all = [], scope = 'hit';
+const tip = $('tip');
+function hover(node, text) {
+  node.tabIndex = 0; node.setAttribute('aria-label', text);
+  const show = (x, y) => { tip.textContent = text; tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.style.opacity = 1; };
+  node.addEventListener('pointermove', (e) => show(e.clientX, e.clientY));
+  node.addEventListener('focus', () => { const b = node.getBoundingClientRect(); show(b.left + b.width / 2, b.top); });
+  for (const ev of ['pointerleave', 'blur']) node.addEventListener(ev, () => (tip.style.opacity = 0));
+}
+function rank(node, pairs, total, unit) {
+  node.replaceChildren();
+  const max = Math.max(1, ...pairs.map((p) => p[1]));
+  for (const [name, n, extra] of pairs.slice(0, 9)) {
+    const li = el('li'), a = el('span', null, 'name'), t = el('span', null, 'track'), bar = el('i');
+    a.append(name); if (extra) a.append(' ', el('small', extra)); a.title = name;
+    bar.style.width = (n / max) * 100 + '%'; t.append(bar);
+    hover(t, `${name}: ${n} ${unit}${total ? ' · ' + Math.round((n / total) * 100) + '%' : ''}`);
+    li.append(a, t, el('span', n, 'num')); node.append(li);
+  }
+  if (!pairs.length) node.append(el('li', 'Nothing to show.', 'dim'));
+}
+function kpi(label, value, small, note, lead) {
+  const c = el('div', null, 'card kpi' + (lead ? ' lead' : '')); const v = el('div', value, 'value');
+  if (small) v.append(' ', el('small', small));
+  c.append(el('div', label, 'label'), v); if (note) c.append(el('div', note, 'note'));
+  return c;
+}
+
+function render() {
+  const q = $('q').value.trim().toLowerCase();
+  const base = all.filter((r) => (!$('hideTests').checked || !r.isTest) && (!q || r.hay.includes(q)));
+  const hit = base.filter((r) => r.ioc > 0);
+  const rows = scope === 'hit' ? hit : scope === 'clean' ? base.filter((r) => r.ioc === 0) : base;
+
+  // headline numbers
+  const routers = hit.filter((r) => r.shell), kvms = hit.filter((r) => r.implant), both = hit.filter((r) => r.shell && r.implant).length;
+  const restarted = base.filter((r) => r.restarted);
+  const k1 = kpi('Devices with traces', hit.length, 'of ' + base.length + ' reports', null, true);
+  const split = el('div', null, 'split'), lg = el('ul', null, 'legend');
+  for (const [name, n, c] of [['Remote shell', routers.length, 'var(--s1)'], ['gl-helper malware', kvms.length, 'var(--s2)']]) {
+    const seg = el('i'); seg.style.cssText = `flex:${Math.max(n, .001)};background:${c}`; hover(seg, `${name}: ${n} devices`); split.append(seg);
+    const li = el('li'), sw = el('i'); sw.style.background = c; li.append(sw, name, el('b', n)); lg.append(li);
+  }
+  k1.append(split, lg); if (both) k1.append(el('div', both + ' have both.', 'note'));
+  $('kpis').replaceChildren(k1,
+    kpi('Remote shell still running', routers.filter((r) => r.kinds.includes('process remote-shell')).length, 'of ' + routers.length, 'Checked while the attacker was connected.'),
+    kpi('Comes back after a restart', hit.filter((r) => r.kinds.includes('persist-ref') || r.kinds.includes('keep-ref')).length, 'of ' + hit.length, 'An autostart entry starts the malware again.'),
+    kpi('Restarted since 20 Nov', restarted.length, 'of ' + base.length, restarted.filter((r) => r.ioc === 0).length + ' of them look clean. That proves little: memory was wiped.'));
+
+  // when it started: one column per hour
+  const firsts = hit.map((r) => r.first).filter((n) => !isNaN(n));
+  const cols = $('cols'), xa = $('xaxis'); cols.replaceChildren(); xa.replaceChildren();
+  if (firsts.length) {
+    const HOUR = 3600e3, from = Math.floor(Math.min(...firsts) / HOUR) - 2, to = Math.max(Math.floor(Math.max(...firsts) / HOUR) + 2, from + 11);
+    const bins = Array.from({ length: to - from + 1 }, (_, i) => ({ h: (from + i) * HOUR, n: 0 }));
+    for (const f of firsts) bins[Math.floor(f / HOUR) - from].n++;
+    const max = Math.max(...bins.map((b) => b.n)), top = bins.reduce((a, b) => (b.n > a.n ? b : a));
+    for (const b of bins) {
+      const c = el('div', null, 'col'), bar = el('i'); bar.style.height = b.n ? Math.max(3, (b.n / max) * 100) + '%' : '0';
+      c.append(bar); hover(c, `${day(b.h)}–${new Date(b.h + HOUR).toISOString().slice(11, 16)} UTC: ${b.n} device${b.n === 1 ? '' : 's'}`); cols.append(c);
+      xa.append(el('span', new Date(b.h).getUTCHours() % 3 === 0 ? day(b.h).slice(-5) === '00:00' ? day(b.h).slice(0, 5) : day(b.h).slice(-5) : ''));
+    }
+    $('ymax').textContent = max;
+    $('peak').textContent = `${top.n} of ${firsts.length} devices with a known start fall into the hour from ${day(top.h)} UTC. ${hit.length - firsts.length} report${hit.length - firsts.length === 1 ? ' has' : 's have'} no time.`;
+  } else { $('ymax').textContent = ''; $('peak').textContent = 'No report with a start time.'; }
+
+  rank($('devices'), count(hit, (r) => r.model + ' ' + r.firmware).map(([k, n]) => [k.split(' ')[0], n, k.split(' ')[1] === 'unknown' ? 'firmware unknown' : k.split(' ')[1]]), hit.length, 'devices');
+  rank($('kinds'), count(hit, (r) => r.kinds).map(([k, n]) => [KIND[k] || k, n]), hit.length, 'devices');
+
+  // malware files, grouped by fingerprint
+  const fm = new Map();
+  for (const r of hit) for (const f of r.files) { const k = f.sha256 + ' ' + f.path; const g = fm.get(k) || { ...f, n: 0, first: Infinity }; g.n++; g.first = Math.min(g.first, ts(f.mtime)); fm.set(k, g); }
+  const hs = $('hashes'); hs.replaceChildren();
+  if (fm.size) {
+    const tb = el('table'), hd = el('tr'); for (const [t, c] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Size', 'n'], ['First seen', 'n'], ['Devices', 'n']]) hd.append(el('th', t, c));
+    tb.append(hd);
+    for (const g of [...fm.values()].sort((a, b) => a.path.localeCompare(b.path) || b.n - a.n)) {
+      const tr = el('tr'), h = el('td', g.sha256.slice(0, 16) + '…', 'mono dim'); h.title = g.sha256;
+      tr.append(el('td', g.path, 'mono'), h, el('td', g.size.toLocaleString('en') + ' B', 'n'), el('td', day(g.first), 'n'), el('td', g.n, 'n')); tb.append(tr);
+    }
+    hs.append(tb);
+    const paths = count([...fm.values()], (g) => g.path).filter((p) => p[1] > 1);
+    if (paths.length) hs.append(el('p', `${paths.map((p) => p[0]).join(', ')}: ${paths[0][1]} different versions seen.`, 'peak'));
+  } else hs.append(el('p', 'No report with file fingerprints yet (needs script 2.2 or newer).', 'peak dim'));
+
+  // what the attacker ran and left, identical lines grouped
+  const norm = (s) => s.replace(/(170\.39\.226\.\d+)[ :]\d+/g, '$1 PORT');
+  const left = $('left'); left.replaceChildren();
+  const block = (title, pairs) => { if (!pairs.length) return; const d = el('div'); d.append(el('h3', title, 'dim')); d.firstChild.style.cssText = 'margin:0;font-size:12.5px;font-weight:650';
+    for (const [line, n] of pairs.slice(0, 4)) { const p = el('pre', line); const c = el('span', n + '×', 'count'); c.style.cssText = 'float:right;margin-left:10px;color:var(--text)'; p.prepend(c); d.append(p); } left.append(d); };
+  block('Commands of its processes', count(hit, (r) => [...new Set(r.commands.map(norm))]));
+  block('Lines in autostart files', count(hit, (r) => [...new Set(r.persistence.flatMap((p) => p.lines.map((l) => p.path + ':  ' + l)))]));
+  block('Firewall chain SDWAN_IP_MAPPING', count(hit, (r) => [...new Set(r.fw_rules)]));
+  if (!left.children.length) left.append(el('p', 'No report with this content yet (needs script 2.3 or newer).', 'dim'));
+
+  // the reports
+  const list = $('list'); list.replaceChildren();
+  for (const r of rows.sort((a, b) => (a.received < b.received ? 1 : -1))) {
+    const d = el('details', null, 'rep'), s = el('summary');
+    const when = el('div', null, 'when'); when.append(r.received.slice(5, 16).replace('T', ' ').replace('-', '/'), el('small', 'received'));
+    const dev = el('div', null, 'dev'); dev.append(el('b', r.model), el('small', (r.kvm ? 'KVM' : r.platform === 'openwrt' ? 'Router' : r.platform) + (r.firmware !== 'unknown' ? ' · firmware ' + r.firmware : '')));
+    const what = el('div', null, 'what'); what.append(story(r)); const tags = el('div', null, 'tags');
+    if (r.shell) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s1)'; t.append(i, 'Remote shell'); tags.append(t); }
+    if (r.implant) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s2)'; t.append(i, 'gl-helper malware'); tags.append(t); }
+    if (r.restarted) tags.append(el('span', 'Restarted since the attack', 'tag warn'));
+    if (r.persist) tags.append(el('span', 'rc.local or crontab changed', 'tag'));
+    if (tags.children.length) what.append(tags);
+    const st = el('div', null, 'state'); st.append(isNaN(r.first) ? 'start unknown' : 'started ' + day(r.first), el('br'), 'up since ' + day(r.upSince));
+    s.append(when, dev, what, st); d.append(s);
+    const b = el('div', null, 'body');
+    const sec = (title, node, full) => { const w = el('div', null, full ? 'full' : ''); w.append(el('h3', title), node); b.append(w); };
+    const kv = el('dl', null, 'kv'); for (const [k, v] of [['Checked', r.checked_at], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Platform', r.platform], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['Shell pipe, last data', r.pipe_time], ['Cloud handler last ran', r.state_file_time]]) if (v) kv.append(el('dt', k), el('dd', v));
+    sec('Device and check', kv);
+    const fl = el('dl', null, 'kv'); for (const f of r.findings) { const k = kindOf(f); fl.append(el('dt', KIND[k] || k), el('dd', f.slice(k.length + 1) || '–', 'mono')); }
+    sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'));
+    if (r.files.length) { const t = el('table'); for (const f of r.files) { const tr = el('tr'); tr.append(el('td', f.path, 'mono'), el('td', f.sha256, 'mono dim'), el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', f.mtime.replace(' UTC', ''), 'n')); t.append(tr); } sec('Files', t, true); }
+    if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
+    if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines in autostart files that are not in the firmware', w, true); }
+    if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);
+    d.append(b); list.append(d);
+  }
+  if (!rows.length) list.append(el('p', 'No report matches.', 'dim'));
+  $('shown').textContent = `${rows.length} shown`;
+  const last = all.map((r) => r.received).sort().pop();
+  $('status').textContent = `${all.filter((r) => !r.isTest).length} reports · last one ${last ? last.slice(5, 16).replace('T', ' ').replace('-', '/') + ' UTC' : '–'}`;
+}
+
+for (const b of $('scope').children) b.addEventListener('click', () => { scope = b.dataset.v; for (const o of $('scope').children) o.setAttribute('aria-pressed', String(o === b)); render(); });
+for (const id of ['q', 'hideTests']) $(id).addEventListener('input', render);
+(async () => {
+  $('status').textContent = 'Loading …';
+  try {
+    let cursor = '';
+    do {
+      const res = await fetch(location.pathname.replace(/\/$/, '') + '/data' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''));
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const page = await res.json();
+      all.push(...page.items.map(shape)); cursor = page.cursor; render();
+    } while (cursor);
+    if (!all.length) render();
+  } catch (e) { $('status').textContent = 'Could not load the reports: ' + e.message; }
+})();
+</script>
+</body>
+</html>
