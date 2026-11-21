@@ -1,0 +1,27 @@
+# Tells the worker behind https://app.gl-i.net/csa-2026-01-fix that main has changed, so
+# the download serves the new script at once. The worker fetches the script from this
+# repository itself; this call only says "look now" and needs no secret.
+name: Publish script
+
+on:
+  push:
+    branches: [main]
+    paths: [gl-helper-triage.sh]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the worker to fetch main
+        run: |
+          for try in 1 2 3 4; do
+            served=$(curl -fsS -m 30 -X POST https://app.gl-i.net/csa-2026-01-fix/refresh || true)
+            echo "worker serves commit: ${served:-none}"
+            [ "$served" = "$GITHUB_SHA" ] && exit 0
+            sleep 35
+          done
+          echo "::warning::The worker does not serve $GITHUB_SHA. A newer push may have overtaken this one; otherwise check the worker."

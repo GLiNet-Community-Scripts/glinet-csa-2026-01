@@ -65,6 +65,41 @@ header `x-next-cursor` has the value for `?cursor=`.
 To test a full round, run the script on a device with `--report`. It sends a report even
 when nothing was found.
 
+## Serving the script
+
+The worker also serves the script itself at `https://app.gl-i.net/csa-2026-01-fix`, so a
+change is available at once. (A redirect to `raw.githubusercontent.com` shows the old
+file for up to five minutes after a push.)
+
+The worker takes the script only from the `main` branch of this repository. It asks
+GitHub which commit `main` points to, fetches `gl-helper-triage.sh` by that commit and
+keeps it in KV. The response header `x-script-commit` says which commit is served.
+
+- `.github/workflows/publish-script.yml` calls `POST /csa-2026-01-fix/refresh` after every
+  push that changes the script. The call needs no secret: it can only bring the copy in
+  line with `main`, and the worker answers it at most every 30 seconds.
+- Without that call the worker checks by itself when its copy is older than 10 minutes.
+- If GitHub cannot be reached, the stored copy keeps being served.
+
+To switch over, add a second route in `wrangler.toml` and deploy:
+
+```toml
+routes = [
+  { pattern = "app.gl-i.net/csa-2026-01-report*", zone_name = "gl-i.net" },
+  { pattern = "app.gl-i.net/csa-2026-01-fix*", zone_name = "gl-i.net" },
+]
+```
+
+Then remove the redirect rule that sends `/csa-2026-01-fix` to GitHub. As long as it
+exists, Cloudflare answers with the redirect and the worker is never asked.
+
+```bash
+curl -sI https://app.gl-i.net/csa-2026-01-fix
+```
+
+shows `x-script-commit` when the worker answers, and `location:` when the redirect is
+still in place.
+
 ## Dashboard for the team
 
 `https://app.gl-i.net/csa-2026-01-report/dashboard` shows what the reports add up to:

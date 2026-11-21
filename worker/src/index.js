@@ -142,9 +142,63 @@ async function dashboard(request, env, data) {
   });
 }
 
+// The script itself, served from here instead of raw.githubusercontent.com, which keeps
+// a file for five minutes after a push. The worker only ever takes the script from the
+// main branch of the official repository: it asks GitHub which commit main points to and
+// fetches the file by that commit, an address GitHub does not cache. Anyone may call
+// /refresh; it can only bring the copy here in line with main, at most twice a minute.
+const REPO = 'admonstrator/glinet-csa-2026-01';
+const SCRIPT = 'gl-helper-triage.sh';
+const SCRIPT_KEY = 'script/csa-2026-01-fix';
+const RAW_MAIN = `https://raw.githubusercontent.com/${REPO}/main/${SCRIPT}`;
+
+async function refreshScript(env, force) {
+  const have = JSON.parse((await env.REPORTS.get(SCRIPT_KEY)) || 'null');
+  if (have && !force && Date.now() - have.checked < 600_000) return have;
+  if (have && Date.now() - have.checked < 30_000) return have;
+  try {
+    const head = await fetch(`https://api.github.com/repos/${REPO}/commits/main`, {
+      headers: { accept: 'application/vnd.github.sha', 'user-agent': 'csa-2026-01-worker' },
+    });
+    const commit = (await head.text()).trim();
+    if (!head.ok || !/^[0-9a-f]{40}$/.test(commit)) throw new Error('no commit');
+    let body = have && have.commit === commit ? have.body : null;
+    if (body === null) {
+      const raw = await fetch(`https://raw.githubusercontent.com/${REPO}/${commit}/${SCRIPT}`);
+      body = await raw.text();
+      if (!raw.ok || !body.startsWith('#!/bin/sh') || body.length < 1000 || body.length > 500_000) throw new Error('no script');
+    }
+    const next = { commit, body, checked: Date.now() };
+    await env.REPORTS.put(SCRIPT_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    // GitHub not reachable or rate limited: keep what we have, try again later
+    if (have) await env.REPORTS.put(SCRIPT_KEY, JSON.stringify({ ...have, checked: Date.now() - 570_000 }));
+    return have;
+  }
+}
+
+async function script(request, env, ctx, pathname) {
+  if (pathname.endsWith('/refresh')) {
+    if (request.method !== 'POST') return text('method not allowed', 405);
+    const now = await refreshScript(env, true);
+    return now ? text(now.commit) : text('could not reach GitHub', 502);
+  }
+  if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
+  let have = JSON.parse((await env.REPORTS.get(SCRIPT_KEY)) || 'null');
+  if (!have) have = await refreshScript(env, true);
+  else if (Date.now() - have.checked > 600_000) ctx.waitUntil(refreshScript(env, false));
+  // nothing stored and GitHub not reachable from here: send the client to GitHub itself
+  if (!have) return Response.redirect(RAW_MAIN, 302);
+  return new Response(request.method === 'HEAD' ? null : have.body, {
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-script-commit': have.commit },
+  });
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const { pathname } = new URL(request.url);
+    if (/\/csa-2026-01-fix(\/|$)/.test(pathname)) return script(request, env, ctx, pathname);
     if (request.method === 'POST') return submit(request, env);
     if (request.method === 'GET' && pathname.endsWith('/export')) return exportReports(request, env);
     if (request.method === 'GET' && /\/dashboard\/?$/.test(pathname)) return dashboard(request, env, false);

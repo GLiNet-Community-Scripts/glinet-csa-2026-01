@@ -26,8 +26,8 @@ const good3 = {
   fw_rules: ['nat: -A SDWAN_IP_MAPPING -d 127.0.0.1/32 -j DNAT --to-destination 127.0.0.1'],
   commands: ['sh -c iptables -t nat -A SDWAN_IP_MAPPING -d 127.0.0.1 -j DNAT --to-destination 127.0.0.1;(while true;do rm -f /tmp/f;done) "x" \\ &'],
 };
-const call = (method, body, headers = {}, path = '/') =>
-  worker.fetch(new Request(`https://example.org${path}`, { method, body, headers }), env);
+const call = (method, body, headers = {}, path = '/csa-2026-01-report') =>
+  worker.fetch(new Request(`https://example.org${path}`, { method, body, headers }), env, { waitUntil() {} });
 
 if (process.argv[2] === 'serve') {
   http.createServer(async (req, res) => {
@@ -63,8 +63,8 @@ if (process.argv[2] === 'serve') {
   expect('refuses more than 12 files', validate({ ...good2, files: Array(13).fill(file) }) !== null);
   expect('refuses text that is not JSON', (await call('POST', 'hello')).status === 400);
   expect('nothing but the good report was stored', store.size === 1);
-  expect('export needs the token', (await call('GET', undefined, {}, '/export')).status === 404);
-  const exp = await call('GET', undefined, { authorization: 'Bearer test-token' }, '/export');
+  expect('export needs the token', (await call('GET', undefined, {}, '/csa-2026-01-report/export')).status === 404);
+  const exp = await call('GET', undefined, { authorization: 'Bearer test-token' }, '/csa-2026-01-report/export');
   expect('export returns the report', exp.status === 200 && (await exp.text()).includes('GL-AXT1800'));
   expect('GET explains the address', (await (await call('GET')).text()).includes('anonymous reports'));
 
@@ -96,6 +96,43 @@ if (process.argv[2] === 'serve') {
   expect('data needs the token too', (await dash(undefined, '/csa-2026-01-report/dashboard/data')).status === 404);
   expect('data returns the reports', data.status === 200 && (await data.json()).items[0].report.model === 'GL-AXT1800');
   globalThis.fetch = realFetch;
+
+  // the script, served from the worker
+  const SH = (n) => '#!/bin/sh\n# version ' + n + '\n' + 'x'.repeat(1200);
+  const gh = { commit: 'a'.repeat(40), calls: 0, down: false };
+  const before = globalThis.fetch;
+  globalThis.fetch = async (u) => {
+    gh.calls++;
+    if (gh.down) return new Response('rate limited', { status: 403 });
+    if (String(u) === 'https://api.github.com/repos/admonstrator/glinet-csa-2026-01/commits/main') return new Response(gh.commit + '\n');
+    if (String(u) === `https://raw.githubusercontent.com/admonstrator/glinet-csa-2026-01/${gh.commit}/gl-helper-triage.sh`) return new Response(SH(gh.commit[0]));
+    return new Response('not found', { status: 404 });
+  };
+  const waits = [];
+  const ctx = { waitUntil: (p) => waits.push(p) };
+  const fix = (method = 'GET', path = '/csa-2026-01-fix') => worker.fetch(new Request(`https://example.org${path}`, { method }), env, ctx);
+  const age = (ms) => { const v = JSON.parse(store.get('script/csa-2026-01-fix')); v.checked -= ms; store.set('script/csa-2026-01-fix', JSON.stringify(v)); };
+  let r = await fix();
+  expect('first download fetches the script from main', r.status === 200 && (await r.text()).startsWith('#!/bin/sh\n# version a') && r.headers.get('x-script-commit') === gh.commit);
+  expect('it is not cached by clients', r.headers.get('cache-control') === 'no-store');
+  const calls = gh.calls; await fix();
+  expect('later downloads come from the store, no call to GitHub', gh.calls === calls);
+  gh.commit = 'b'.repeat(40);
+  r = await fix('POST', '/csa-2026-01-fix/refresh');
+  expect('refresh within 30 seconds does nothing', (await r.text()).trim() === 'a'.repeat(40));
+  age(31_000); r = await fix('POST', '/csa-2026-01-fix/refresh');
+  expect('refresh picks up the new commit', r.status === 200 && (await r.text()).trim() === gh.commit && (await (await fix()).text()).includes('# version b'));
+  gh.commit = 'c'.repeat(40); age(601_000); r = await fix(); await Promise.all(waits);
+  expect('an old copy is served at once and renewed in the background', (await r.text()).includes('# version b') && (await (await fix()).text()).includes('# version c'));
+  gh.down = true; age(601_000); r = await fix(); await Promise.all(waits);
+  expect('GitHub down: the stored copy keeps being served', r.status === 200 && (await r.text()).includes('# version c') && (await fix()).status === 200);
+  store.delete('script/csa-2026-01-fix'); r = await fix();
+  expect('nothing stored and GitHub down: redirect to GitHub', r.status === 302 && r.headers.get('location').includes('raw.githubusercontent.com'));
+  gh.down = false;
+  expect('a report cannot be posted to the script address', (await worker.fetch(new Request('https://example.org/csa-2026-01-fix', { method: 'POST', body: JSON.stringify(good) }), env, ctx)).status === 405);
+  expect('the stored script is not listed as a report', !(await (await call('GET', undefined, { authorization: 'Bearer test-token' }, '/csa-2026-01-report/export')).text()).includes('#!/bin/sh'));
+  expect('reports still work', (await call('POST', JSON.stringify(good))).status === 200);
+  globalThis.fetch = before;
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);
 }
