@@ -1,19 +1,63 @@
-# GL.iNet CSA-2026-01: gl-helper triage
+<div align="center">
 
-On 2026-11-20 GL.iNet published a [security notice](https://www.gl-inet.com/blogs/blog/glinet-security-notice-2026-11-20):
+<img src="images/logo.svg" width="300" alt="A seal resting on a patched-up router">
+
+## gl-helper Triage for GL.iNet Routers and KVMs
+
+**Check a device for the malware from GL.iNet's security notice of 20 November 2026, save the evidence, then clean up.**
+
+[![Advisory CSA-2026-01](https://img.shields.io/badge/Advisory-CSA--2026--01-b3261e?style=for-the-badge)](https://gl-i.net/security/csa-2026-01/) [![Website](https://img.shields.io/badge/Website-Guide-16774c?style=for-the-badge)](https://admonstrator.github.io/glinet-csa-2026-01/) [![License](https://img.shields.io/github/license/admonstrator/glinet-csa-2026-01?style=for-the-badge)](LICENSE) [![Last Commit](https://img.shields.io/github/last-commit/admonstrator/glinet-csa-2026-01?style=for-the-badge&logo=github)](https://github.com/admonstrator/glinet-csa-2026-01/commits) [![Issues](https://img.shields.io/github/issues/admonstrator/glinet-csa-2026-01?style=for-the-badge&logo=github)](https://github.com/admonstrator/glinet-csa-2026-01/issues) [![Stars](https://img.shields.io/github/stars/admonstrator/glinet-csa-2026-01?style=for-the-badge&logo=github)](https://github.com/admonstrator/glinet-csa-2026-01/stargazers)
+
+</div>
+
+---
+
+> [!WARNING]
+> **Community work, not an official GL.iNet tool.** GL.iNet has not reviewed or endorsed it.
+> It finds and removes only the indicators we know of, and it **does not replace the factory
+> reset** GL.iNet recommends. Use it at your own risk.
+
+---
+
+## 📖 About
+
+On 20 November 2026 GL.iNet published a [security notice](https://www.gl-inet.com/blogs/blog/glinet-security-notice-2026-11-20):
 its cloud remote management service had been abused to install malware on a subset of
-GL.iNet routers and KVM devices.
+GL.iNet routers and KVM devices. The community advisory is
+[CSA-2026-01](https://gl-i.net/security/csa-2026-01/).
 
-This repository contains a triage script that
+This repository contains a triage script for the implant known as "gl-helper". It runs on
+GL.iNet KVMs (RM1 family, buildroot based) and on GL.iNet / OpenWrt routers.
 
-1. **checks** a device for the known indicators of that implant ("gl-helper"),
-2. **archives** evidence before anything is changed, and
-3. **removes** the known implant files and their persistence on request.
+Created by [Admon](https://forum.gl-inet.com/u/admon/) for the GL.iNet community.
 
-It runs on GL.iNet KVMs (RM1 family, buildroot based) and on GL.iNet / OpenWrt routers.
-It is a community tool and not affiliated with GL.iNet. It does not replace a factory reset.
+> 🎖️ **Community Maintained** – Part of the [GL.iNet Toolbox](https://github.com/Admonstrator/glinet-toolbox) project  
+> ⚠️ **Independent Project** – Not affiliated with GL.iNet
 
-## Indicators
+---
+
+## ✨ Features
+
+- 🔎 **Check** – Read-only detection of the known indicators of the implant
+- 📦 **Archive** – Saves evidence before anything is changed. No archive, no changes.
+- 🧹 **Fix** – Removes the known implant files and their persistence on request
+- 🛡️ **Trusted tools** – Uses the busybox from the read-only base image, not the tools an attacker may have replaced
+- 👀 **Review list** – Reports other unusual changes for a human to judge and never touches them
+- 🖥️ **Routers and KVMs** – GL.iNet / OpenWrt routers and GL.iNet KVMs (RM1 family)
+
+---
+
+## 📋 Requirements
+
+| Requirement | Details |
+|-------------|---------|
+| **Device** | GL.iNet KVM (RM1 family) or GL.iNet / OpenWrt router, with root SSH access |
+| **On the device** | busybox `sh`/`ash` or bash, nothing to install |
+| **On your computer** | Only for `triage-remote.sh`: Linux with bash, ssh, tar and sha256sum |
+
+---
+
+## 🔎 Indicators
 
 The indicators come from the cleanup GL.iNet shipped in RM1PE firmware **1.10.2**
 (`/etc/init.d/S08overlayfs`, built 2026-11-21). At boot it scrubs the writable overlay
@@ -42,31 +86,61 @@ It also lists other overlay changes as `REVIEW` for a human to judge: new or mod
 binaries, new init scripts, `authorized_keys`, extra uid 0 accounts, hidden files and
 processes running from deleted binaries.
 
-**Do not run `netstat` on a device you suspect.** It may be the implant's replacement.
-The script never calls it and uses the busybox from the read-only base image (`/rom`)
-for its own tools.
+> ⚠️ **Do not run `netstat` on a device you suspect.** It may be the implant's replacement.
+> The script never calls it and uses the busybox from the read-only base image (`/rom`)
+> for its own tools.
 
-## Quick start
+---
 
-From a Linux machine with SSH access to the device (bash, ssh, tar, sha256sum):
+## 🚀 Quick Start
 
-```sh
+Run the check on the device (SSH as root), without cloning the repository:
+
+```bash
+wget -q https://app.gl-i.net/csa-2026-01-fix -O gl-helper-triage.sh ; sh gl-helper-triage.sh
+```
+
+This only reads. It changes nothing and prints a report.
+
+> ⚠️ **Read the script before you run it.** It runs as root on a device you suspect is compromised.
+
+If the report shows indicators, save the evidence and then clean up:
+
+```bash
+sh gl-helper-triage.sh --archive
+```
+
+```bash
+sh gl-helper-triage.sh --fix
+```
+
+`--fix` writes the evidence archive first and aborts if that fails. On the device `/tmp`
+is RAM: copy the archive to your computer before you reboot.
+
+### From Your Computer
+
+`triage-remote.sh` runs the check over SSH, streams the evidence archive to `./evidence/`
+on your computer, verifies it and only then runs `--fix`. It needs Linux with bash, ssh,
+tar and sha256sum. Several devices can be given at once.
+
+```bash
+git clone https://github.com/admonstrator/glinet-csa-2026-01.git
+cd glinet-csa-2026-01
 ./triage-remote.sh root@192.168.8.1          # check + pull the evidence archive
 ./triage-remote.sh --fix root@192.168.8.1    # also remediate if indicators are found
 ```
 
-`triage-remote.sh` runs the check, streams the evidence archive to `./evidence/`,
-verifies it and only then runs `--fix`. Several devices can be given at once.
+Or pipe the script through SSH yourself, so nothing is stored on the device:
 
-Directly on the device:
-
-```sh
+```bash
 ssh root@DEVICE 'sh -s -- --check' < gl-helper-triage.sh
 ssh root@DEVICE 'sh -s -- --archive --stdout' < gl-helper-triage.sh > evidence.tar.gz
 ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 ```
 
-## Modes
+---
+
+## 🎛️ Modes
 
 | Option | Effect |
 |---|---|
@@ -86,7 +160,9 @@ Findings are labeled:
 - `REVIEW`: unusual change. Archived and reported, never modified.
 - `INFO`: context, for example files installed by a package.
 
-## What `--fix` does
+---
+
+## 🧹 What `--fix` Does
 
 1. Writes and verifies the evidence archive. No archive, no changes.
 2. Stops implant processes (SIGSTOP all, then SIGKILL).
@@ -101,7 +177,9 @@ Findings are labeled:
 Changes go through the merged root filesystem, so the overlay stays consistent while it
 is mounted. `REVIEW` items are never touched.
 
-## Evidence archive
+---
+
+## 📦 Evidence Archive
 
 `gl-triage-<host>-<time>.tar.gz` contains the report, the findings, a listing and
 SHA-256 hashes of the whole overlay upper layer, a full copy of the upper layer (up to
@@ -109,13 +187,16 @@ SHA-256 hashes of the whole overlay upper layer, a full copy of the upper layer 
 connections, `/proc/<pid>/` data and the binary of implant processes, kernel and system
 logs, and a `MANIFEST.sha256`.
 
-**The archive contains device configuration, possibly including Wi-Fi keys, VPN keys and
-other secrets.** Treat it as sensitive and do not post it publicly. Password hashes are
-not included; the archive only records whether a hash differs from the base image.
+> ⚠️ **The archive contains device configuration, possibly including Wi-Fi keys, VPN keys and
+> other secrets.** Treat it as sensitive and do not post it publicly.
+
+Password hashes are not included; the archive only records whether a hash differs from the base image.
 
 On the device `/tmp` is RAM. Copy the archive off the device before rebooting.
 
-## After triage
+---
+
+## ✅ After Triage
 
 - Keep the evidence archive.
 - KVM: update to fixed firmware. RM1PE 1.10.2 runs the vendor cleanup at every boot.
@@ -125,7 +206,9 @@ On the device `/tmp` is RAM. Copy the archive off the device before rebooting.
 - Check the computer attached to a KVM, and the clients behind a router.
 - Change the device password, the GL.iNet cloud account password and SSH keys.
 
-## Firmware notes
+---
+
+## 🧬 Firmware Notes
 
 From the firmware images we compared (1.10.1 vs 1.10.2; both 1.10.2 builds are from 2026-11-21):
 
@@ -135,7 +218,9 @@ From the firmware images we compared (1.10.1 vs 1.10.2; both 1.10.2 builds are f
   and `-x/--insecure` options are gone, the CA path `/var/run/gl-rtty/ca.crt` is built
   in, and `S99rtty` no longer reads a `tls` setting from the cloud-provided config.
 
-## Tests
+---
+
+## 🧪 Tests
 
 The tests mount real overlay filesystems in an unprivileged user namespace, plant an
 infection and run check, archive and fix:
@@ -149,7 +234,9 @@ Without `KVM_LOWER` only the OpenWrt scenarios run (synthetic base image). The s
 was also run in check and archive mode on a GL.iNet router with firmware 4.11
 (OpenWrt 25.12).
 
-## Limitations
+---
+
+## 🚧 Limitations
 
 - Only known indicators are remediated. A different implant variant, or other changes
   an attacker made, may remain. Read the `REVIEW` items.
@@ -158,6 +245,41 @@ was also run in check and archive mode on a GL.iNet router with firmware 4.11
 - The script cannot see anything outside the device, such as changes on an attached
   computer or on the cloud account.
 
-## License
+---
 
-MIT, see [LICENSE](LICENSE).
+## 💡 Getting Help
+
+- 🛡️ [Advisory CSA-2026-01 on gl-i.net](https://gl-i.net/security/csa-2026-01/) – What happened and what GL.iNet recommends
+- 💬 [GL.iNet's notice in the forum](https://forum.gl-inet.com/t/2026-11-20-gl-inet-security-notice-goodcloud-kvm-routers/73056) – Discussion and updates from GL.iNet
+- 🐛 [Report issues on GitHub](https://github.com/admonstrator/glinet-csa-2026-01/issues) – Bugs and false positives. Never attach an evidence archive.
+- 📧 GL.iNet support (support@gl-inet.com) – If you are not sure whether your device is affected
+
+---
+
+## ⚠️ Disclaimer
+
+This script is provided **as-is** without any warranty. Use it at your own risk.
+
+It changes files on your device when you run it with `--fix`. It is a stopgap: it cannot
+prove that a device is clean, and a factory reset is still recommended.
+
+In a business network, talk to your cyber insurer or incident response provider before you
+change or reset the device.
+
+---
+
+## 📜 License
+
+This project is licensed under the **MIT License** – see the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+
+## 🧰 Part of the GL.iNet Toolbox
+
+[![GL.iNet Toolbox](https://img.shields.io/badge/🧰_GL.iNet_Toolbox-Explore_All_Tools-blue?style=for-the-badge)](https://github.com/Admonstrator/glinet-toolbox)
+
+**Made with ❤️ by [Admon](https://github.com/Admonstrator) for the GL.iNet Community**
+
+</div>
