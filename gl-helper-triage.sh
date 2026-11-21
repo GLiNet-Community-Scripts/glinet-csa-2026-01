@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.12
+VERSION=2.13
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -491,6 +491,20 @@ proc_start() {
 
 # Time a file was last written, in UTC.
 file_time() { date -u -r "$1" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null; }
+
+# Time the kernel last changed a file's entry (ctime), in UTC. Unlike the time above it
+# cannot be set back by touch or by unpacking an archive, so the two together show whether
+# a file brought its time along. Empty where neither stat nor ls can tell.
+file_ctime() {
+	local t
+	t=$(stat -c %Z "$1" 2>/dev/null)
+	case $t in
+	'' | *[!0-9]*) ;;
+	*) date -u -d "@$t" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null && return 0 ;;
+	esac
+	TZ=UTC0 ls -lcd --full-time "$1" 2>/dev/null |
+		sed -n 's/.* \([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\) \([0-9][0-9]:[0-9][0-9]:[0-9][0-9]\)[.0-9]* +0000 .*/\1 \2 UTC/p' | head -n 1
+}
 
 # Process scan (live system only). Also maps socket inodes to pids for the net output.
 check_procs() {
@@ -1077,9 +1091,9 @@ build_report() {
 	files=$(awk -F '\t' '$1=="IOC" && ($2=="marker" || $2=="applet-hijack") {print $3}' "$FIND" | sort -u | head -n 12 |
 		while IFS= read -r f; do
 			[ -f "$(r "${f#/}")" ] && [ ! -L "$(r "${f#/}")" ] || continue
-			printf '{"path": %s, "sha256": %s, "size": %s, "mtime": %s},' "$(jstr "$f" 120)" \
+			printf '{"path": %s, "sha256": %s, "size": %s, "mtime": %s, "ctime": %s},' "$(jstr "$f" 120)" \
 				"$(jstr "$(sha256sum "$(r "${f#/}")" 2>/dev/null | cut -c1-64)")" \
-				"$(cat "$(r "${f#/}")" 2>/dev/null | wc -c | tr -d ' ')" "$(jstr "$(file_time "$(r "${f#/}")")")"
+				"$(cat "$(r "${f#/}")" 2>/dev/null | wc -c | tr -d ' ')" "$(jstr "$(file_time "$(r "${f#/}")")")" "$(jstr "$(file_ctime "$(r "${f#/}")")")"
 		done | sed 's/,$//')
 	stime=
 	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)")
@@ -1117,7 +1131,7 @@ build_report() {
 	fi
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 4,
+"schema": 5,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),

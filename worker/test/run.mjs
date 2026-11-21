@@ -167,6 +167,11 @@ if (process.argv[2] === 'serve') {
   expect('a schema 4 report is valid, with or without an id', validate(good4) === null && validate({ ...good4, device_id: '' }) === null);
   expect('refuses a device id that is not 16 hex characters', validate({ ...good4, device_id: 'aa:bb:cc:dd:ee:ff' }) !== null && validate({ ...good4, device_id: '0123456789ABCDEF' }) !== null);
   expect('schema 3 must not carry a device id', validate({ ...good3, device_id: '' }) !== null);
+  // ctime of the files (schema 5)
+  const good5 = { ...good4, schema: 5, tool: '2.13', files: [{ ...file, ctime: '2026-11-20 21:40:31 UTC' }] };
+  expect('a schema 5 report is valid, with or without a ctime', validate(good5) === null && validate({ ...good5, files: [{ ...file, ctime: '' }] }) === null);
+  expect('schema 5 needs the ctime, schema 4 must not carry it', validate({ ...good5, files: [file] }) !== null && validate({ ...good4, files: good5.files }) !== null);
+  expect('refuses a ctime that is not a time', validate({ ...good5, files: [{ ...file, ctime: '<b>' }] }) !== null);
   await call('POST', JSON.stringify(good4));
   expect('without the secret the id is dropped', lastReport().device_id === '');
   env.DEVICE_SALT = 'test-salt';

@@ -255,8 +255,11 @@ The report contains: script version, platform, model, firmware version, time of 
 check, uptime, the number of findings per label, the kind and path of each `IOC` and
 `PERSIST` finding, whether GL.iNet's quick check hit, and for the reported remote shell
 its start time, the remote port and the time of its pipe. For the implant's own files and
-for replaced system tools it adds the SHA-256, size and time of the file, and it gives
-the time of the cloud handler's state file.
+for replaced system tools it adds the SHA-256, size and two times of the file: when it
+was last written (mtime) and when the kernel last changed its entry (ctime). The first
+can come with the file, from an archive or a copy, or be set back with `touch`; the second
+cannot, so the two together show when the file really arrived. It also gives the time of
+the cloud handler's state file.
 
 When indicators were found, it also contains what the attacker left, as text:
 

@@ -16,7 +16,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4,
+  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -36,9 +36,10 @@ const FIELDS = {
 // Since script 2.2 (schema 2): fingerprints of the implant's files and the time of the
 // cloud handler's state file.
 const FILE = { path: str(120), sha256: (v) => typeof v === 'string' && /^([0-9a-f]{64})?$/.test(v), size: int, mtime: time };
-const isFile = (v) =>
+const isFileOf = (shape) => (v) =>
   v !== null && typeof v === 'object' && !Array.isArray(v) &&
-  Object.keys(v).length === Object.keys(FILE).length && Object.entries(FILE).every(([k, ok]) => ok(v[k]));
+  Object.keys(v).length === Object.keys(shape).length && Object.entries(shape).every(([k, ok]) => ok(v[k]));
+const isFile = isFileOf(FILE);
 const FIELDS_V2 = { ...FIELDS, state_file_time: time, files: list(12, isFile) };
 
 // Since script 2.3 (schema 3): what the attacker left, as free text: changed lines of
@@ -57,6 +58,10 @@ const FIELDS_V3 = { ...FIELDS_V2, persistence: list(6, isPersist), fw_rules: lis
 // DEVICE_SALT, shortened. Without that secret the id is dropped.
 const FIELDS_V4 = { ...FIELDS_V3, device_id: (v) => typeof v === 'string' && /^([0-9a-f]{16})?$/.test(v) };
 
+// Since script 2.13 (schema 5): each file also carries its ctime, the time the kernel last
+// changed the file's entry. touch and tar can set the written time back, not this one.
+const FIELDS_V5 = { ...FIELDS_V4, files: list(12, isFileOf({ ...FILE, ctime: time })) };
+
 async function sealDeviceId(env, id) {
   if (!env.DEVICE_SALT || !id) return '';
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DEVICE_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -69,7 +74,7 @@ const text = (body, status = 200) =>
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  const fields = report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
+  const fields = report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
   for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
   for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;

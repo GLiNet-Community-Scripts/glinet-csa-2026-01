@@ -319,7 +319,7 @@ tr.row.fresh td { background: var(--accent-soft); }
   </section>
 
   <section class="grid two">
-    <div class="card"><h2>Malware files</h2><p class="sub">Same fingerprint means the same file on every device.</p><div class="scroll" id="hashes"></div></div>
+    <div class="card"><h2>Malware files</h2><p class="sub">Same fingerprint means the same file on every device. The file time is the time it was written; it can come with the file, so the last column counts where it did.</p><div class="scroll" id="hashes"></div></div>
     <div class="card"><h2>What the attacker ran and left</h2><p class="sub">Identical lines are grouped. Port numbers are replaced by “PORT” for grouping.</p><div class="stack" id="left" style="margin-top:10px"></div></div>
   </section>
 
@@ -398,6 +398,10 @@ function fwShort(fw) {
 }
 const verKey = (v) => v.replace(/(\d+)/g, (n) => n.padStart(5, '0'));
 const median = (a) => { const s = a.filter((n) => isFinite(n)).sort((x, y) => x - y); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
+// a file whose entry changed on the device long after its written time: the time was
+// brought along (archive, copy) or set back. Minutes apart are normal: download, then chmod.
+const LAG = 10 * 60000;
+const lag = (f) => ts(f.ctime) - ts(f.mtime);
 const dur = (ms) => { if (!isFinite(ms)) return '–'; const m = Math.round(ms / 60000); return m < 1 ? 'under a minute' : m < 90 ? m + ' min' : m < 48 * 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : Math.round(m / 1440) + ' days'; };
 
 function shape(x) {
@@ -761,17 +765,17 @@ function render() {
   rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && r.ioc > 0), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
 
   const fm = new Map();
-  for (const r of hit) for (const f of r.files) { const k = f.sha256 + ' ' + f.path, g = fm.get(k) || { ...f, n: 0, times: [] }; g.n++; g.times.push(ts(f.mtime)); fm.set(k, g); }
+  for (const r of hit) for (const f of r.files) { const k = f.sha256 + ' ' + f.path, g = fm.get(k) || { ...f, n: 0, times: [] }; g.n++; g.times.push(ts(f.mtime)); if (f.ctime) { g.known = (g.known || 0) + 1; if (lag(f) > LAG) g.old = (g.old || 0) + 1; } fm.set(k, g); }
   // the middle value: one device with its clock at 1970 must not set the date for all
   for (const g of fm.values()) g.first = g.times.sort((a, b) => a - b)[Math.floor((g.times.length - 1) / 2)];
   const hs = $('hashes'); hs.replaceChildren();
   if (fm.size) {
-    const tb = el('table'), hd = el('tr'); for (const [t, c] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Size', 'n'], ['Typical file time (UTC)', 'n'], ['Devices', 'n']]) hd.append(el('th', t, c));
+    const tb = el('table'), hd = el('tr'); for (const [t, c] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Typical time (UTC)', 'n'], ['Devices', 'n'], ['Old time', 'n']]) hd.append(el('th', t, c));
     tb.append(hd);
     for (const g of [...fm.values()].sort((a, b) => a.path.localeCompare(b.path) || b.n - a.n).slice(0, 12)) {
-      const tr = el('tr'), h = el('td', g.sha256.slice(0, 16) + '…', 'mono dim'); h.title = g.sha256; h.style.cursor = 'pointer';
+      const tr = el('tr'), h = el('td', g.sha256.slice(0, 10) + '…', 'mono dim'); h.title = g.sha256; h.style.cursor = 'pointer';
       h.addEventListener('click', () => { F.q = g.sha256; $('q').value = g.sha256; page = 0; render(); });
-      tr.append(el('td', g.path, 'mono'), h, el('td', g.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(g.first), 'n'), el('td', g.n, 'n')); tb.append(tr);
+      tr.append(el('td', g.path, 'mono'), h, el('td', fmt(g.first), 'n'), el('td', g.n, 'n')); const o = el('td', g.known ? (g.old || 0) + ' of ' + g.known : '–', 'n'); o.title = g.known ? 'Devices where the written time is more than 10 minutes older than the change on the device (ctime): the time came with the file or was set back. Counted over reports that carry a ctime (script 2.13 and later).' : 'No report with a ctime yet (script 2.13 and later).'; tr.append(o); tb.append(tr);
     }
     hs.append(tb);
     const multi = count([...fm.values()], (g) => g.path).filter((p) => p[1] > 1);
@@ -841,7 +845,7 @@ function detail(r) {
   for (const f of r.findings) { const k = kindOf(f), li = el('li'), b = el('span', KIND[k] || k, 'ev'); if (WHY[k]) { b.append(el('i', 'i')); hover(b, WHY[k]); } li.append(b, el('span', f.slice(k.length + 1), 'mono')); fl.append(li); }
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
   if (r.odd.length) { const w = el('div'); for (const [k, v] of r.odd) w.append(el('pre', k + ':  ' + v)); sec('Only on this device', w, true); }
-  if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); row.append(el('td', f.path, 'mono'), el('td', f.sha256, 'mono dim'), el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); t.append(row); } sec('Files', t, true); }
+  if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); const fp = el('td', f.sha256.slice(0, 24) + '…', 'mono dim'); fp.title = f.sha256; row.append(el('td', f.path, 'mono'), fp, el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); const c = el('td', null, 'n'); if (f.ctime) { c.textContent = fmt(ts(f.ctime)); c.title = 'Changed on the device (ctime): the kernel sets it, touch and tar cannot set it back.'; if (lag(f) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(f)) + ' older than the change on the device. It came with the file (archive, copy) or was set back. The right-hand time is the one to trust.'; c.append(' ', g); } } row.append(c); t.append(row); } const hd = el('tr'); for (const [x, k] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Size', 'n'], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n']]) hd.append(el('th', x, k)); t.prepend(hd); sec('Files', t, true); }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
   if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
   if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);
