@@ -181,5 +181,22 @@ expect "opkg package netstat is INFO, exit 0" '[ $rc = 0 ] && grep -q "installed
 expect "no stray heading in the report" '! grep -q -- "== -n" "$D/check.txt"'
 umount "$D/m"
 
+echo; echo "=== 7. OpenWrt, firewall config changed and a new nftables include"
+mkdir -p "$OWL/etc/config"
+printf "config defaults\n\toption input 'REJECT'\n" >"$OWL/etc/config/firewall"
+D=$(mkscen fw "$OWL"); U=$D/u
+mkdir -p "$U/etc/config" "$U/etc/nftables.d"
+printf "config defaults\n\toption input 'REJECT'\n\nconfig redirect\n\toption name 'evil'\n\toption dest_ip '10.9.9.9'\n" >"$U/etc/config/firewall"
+printf '# comment\nchain x { tcp dport 22 accept }\n' >"$U/etc/nftables.d/10-x.nft"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+sed -n '/== Firewall/,/== Result/p' "$D/check.txt"
+expect "changed firewall config = REVIEW with 3 new lines, exit 0" '[ $rc = 0 ] && grep -q "REVIEW  *fw-config  *\/etc\/config\/firewall" "$D/check.txt" && grep -q "3 lines that are not in it" "$D/check.txt"'
+expect "new lines are listed, unchanged ones are not" 'grep -q "option dest_ip .10.9.9.9." "$D/check.txt" && ! grep -q "option input" "$D/check.txt"'
+expect "new nftables include = REVIEW, comment not listed" 'grep -q "REVIEW  *fw-config  *\/etc\/nftables.d\/10-x.nft" "$D/check.txt" && grep -q "tcp dport 22 accept" "$D/check.txt" && ! grep -q "# comment" "$D/check.txt"'
+run "$D" "$OWL" --archive >/dev/null
+expect "firewall config is in the archive" 'tar -tzf "$(ls "$D"/out/*.tar.gz)" | grep -q "files/merged/etc/config/firewall"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

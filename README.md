@@ -100,7 +100,22 @@ or differ from it, are listed as `REVIEW` (`INFO` when a package installed them)
 that a shell from the base image runs, like the remote shell above, is not caught this
 way; only the patterns above find it.
 
-These are all checks of what is running **right now**. `/tmp` is RAM: after a restart these
+### Firewall
+
+The running firewall rules are generated from configuration when the firewall starts, so
+no single rule "comes from the firmware". What the script compares with the firmware
+image is that configuration (`/etc/config/firewall`, `/etc/firewall.user`,
+`/etc/nftables.d/` and similar): every file that differs is a `REVIEW` finding, and the
+lines that are not in the image are printed under "Firewall". Your own port forwards and
+rules show up there too.
+
+From the running rules the report prints the ones that redirect traffic (`DNAT`,
+`REDIRECT` and the chain `SDWAN_IP_MAPPING`). The complete rule set (`iptables-save`,
+`nft list ruleset`) goes into the evidence archive. A rule in `SDWAN_IP_MAPPING` that
+redirects `127.0.0.1` to `127.0.0.1` is what the command of the user-reported remote
+shell leaves behind; the script reports it as `IOC` and `--fix` deletes it.
+
+The process and rule checks show what is running **right now**. `/tmp` is RAM: after a restart these
 traces are gone, and a clean result does not show that a device was never compromised.
 `--fix` stops the processes. It cannot tell what started them.
 
@@ -198,7 +213,9 @@ Findings are labeled:
 5. Restores replaced applets from the base image and removes other autostart files that
    start the implant, including OpenWrt `rc.d` links to removed init scripts.
 6. Removes only the implant lines from sysupgrade keep lists.
-7. Restarts cron and checks again.
+7. Deletes the firewall rule that the command of the user-reported remote shell left
+   behind. Other firewall rules and the firewall configuration are not changed.
+8. Restarts cron and checks again.
 
 Changes go through the merged root filesystem, so the overlay stays consistent while it
 is mounted. `REVIEW` items are never touched.
@@ -210,7 +227,7 @@ is mounted. `REVIEW` items are never touched.
 `gl-triage-<host>-<time>.tar.gz` contains the report, the findings, a listing and
 SHA-256 hashes of the whole overlay upper layer, a full copy of the upper layer (up to
 64 MiB), copies of all finding paths, process list with socket owners, decoded TCP
-connections, `/proc/<pid>/` data and the binary of implant processes, kernel and system
+connections, the firewall rules and configuration, `/proc/<pid>/` data and the binary of implant processes, kernel and system
 logs, and a `MANIFEST.sha256`.
 
 > ⚠️ **The archive contains device configuration, possibly including Wi-Fi keys, VPN keys and

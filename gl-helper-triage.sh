@@ -33,7 +33,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.5
+VERSION=1.6
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -43,6 +43,11 @@ REVIEW_PATHS="etc/init.d etc/rc.d etc/inittab etc/profile etc/profile.d etc/hotp
 etc/uci-defaults etc/kvmd/user/scripts etc/crontabs root/.ssh etc/dropbear
 etc/sysupgrade.conf lib/upgrade/keep.d"
 IOC_RE='gl-helper|/\.gl/|/\.cache/gb'
+# Firewall configuration: files that fw3/fw4 and GL.iNet's scripts build the rules from.
+FW_PATHS="etc/config/firewall etc/firewall.user etc/firewall.d etc/nftables.d usr/share/nftables.d"
+# The command users found started with this rule (see SHELL_RE below): it is what is left
+# in the firewall after that command ran.
+FW_RULE_RE='^-A SDWAN_IP_MAPPING .*-d 127\.0\.0\.1(/32)? .*--to-destination 127\.0\.0\.1'
 # Running processes. PROC_RE is GL.iNet's own quick check for routers (forum, 2026-11-21):
 # "ps | grep tmp" shows "crond -i /tmp/.log". SHELL_RE is a remote root shell that users
 # reported in the same thread (a loop around a pipe at /tmp/f and nc to SHELL_IP); GL.iNet
@@ -458,6 +463,56 @@ check_tmp() {
 	return 0
 }
 
+# Firewall. The running rules are generated from configuration, so no rule "comes from
+# the firmware image" as such. What can be compared with the image is that configuration:
+# every line of it that the image does not contain is listed. The running rules are
+# saved for the archive, and the ones that redirect traffic are shown in the report.
+check_firewall() {
+	local base p e f rel n
+	: >"$TMP/fw-added"
+	: >"$TMP/fw-ioc"
+	if [ -n "$UPPER" ]; then base=$UPPER; elif [ -n "$LOWER" ]; then base=${ROOT%/}; else base=; fi
+	if [ -n "$base" ]; then
+		for p in $FW_PATHS; do
+			e="$base/$p"
+			exists "$e" || continue
+			find "$e" -xdev -type f 2>/dev/null | while IFS= read -r f; do
+				rel=${f#"${base%/}"/}
+				same_as_lower "$rel" && continue
+				[ -n "$(pkg_owner "/$rel")" ] && continue
+				if [ -n "$LOWER" ] && [ -f "$(l "$rel")" ]; then
+					grep -vxFf "$(l "$rel")" "$f" 2>/dev/null | grep -v '^[[:space:]]*\(#.*\)\{0,1\}$' >"$TMP/fw-lines"
+					n=$(wc -l <"$TMP/fw-lines" | tr -d ' ')
+					add REVIEW fw-config "/$rel" "differs from the firmware image: $n lines that are not in it (listed under Firewall)"
+				else
+					grep -v '^[[:space:]]*\(#.*\)\{0,1\}$' "$f" >"$TMP/fw-lines" 2>/dev/null
+					add REVIEW fw-config "/$rel" "not in the firmware image (content listed under Firewall)"
+				fi
+				{ echo "/$rel"; sed 's/^/    /' "$TMP/fw-lines"; } >>"$TMP/fw-added"
+			done
+		done
+	fi
+	[ "$LIVE" = 1 ] || return 0
+	: >"$TMP/fw-redirect"
+	if command -v iptables-save >/dev/null 2>&1 && iptables-save >"$TMP/iptables-save.txt" 2>/dev/null; then
+		command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save >"$TMP/ip6tables-save.txt" 2>/dev/null
+		awk '/^\*/ {t=substr($0,2); next} /^-A / {print t "\t" $0}' "$TMP/iptables-save.txt" >"$TMP/fw-rules"
+		awk -F '\t' '$2 ~ /-j (DNAT|REDIRECT)/ || $2 ~ /^-A SDWAN_IP_MAPPING / {print $1 ": " $2}' "$TMP/fw-rules" >>"$TMP/fw-redirect"
+		awk -F '\t' -v re="$FW_RULE_RE" '$2 ~ re' "$TMP/fw-rules" >"$TMP/fw-ioc"
+		while IFS="$TAB" read -r p f; do
+			add IOC fw-rule "$p:SDWAN_IP_MAPPING" "rule left by the command of the reported remote shell, not confirmed by GL.iNet: $f"
+		done <"$TMP/fw-ioc"
+	fi
+	if command -v nft >/dev/null 2>&1 && nft list ruleset >"$TMP/nft-ruleset.txt" 2>/dev/null; then
+		# with iptables-nft the same rules appear in both; show the nft view only without iptables
+		[ -s "$TMP/iptables-save.txt" ] || grep -E 'dnat|redirect|SDWAN_IP_MAPPING' "$TMP/nft-ruleset.txt" | sed 's/^[[:space:]]*/nft: /' >>"$TMP/fw-redirect"
+		if [ ! -s "$TMP/fw-ioc" ] && grep -qE 'daddr 127\.0\.0\.1 .*dnat to 127\.0\.0\.1' "$TMP/nft-ruleset.txt"; then
+			add REVIEW fw-rule "nft" "a rule redirects 127.0.0.1 to 127.0.0.1, like the command of the reported remote shell (see Firewall)"
+		fi
+	fi
+	return 0
+}
+
 decode_tcp() {
 	# established IPv4 connections from /proc/net/tcp with the owning process
 	awk 'function h(s,  i,n){n=0; s=toupper(s); for(i=1;i<=length(s);i++) n=n*16+index("0123456789ABCDEF",substr(s,i,1))-1; return n}
@@ -476,6 +531,7 @@ detect() {
 	check_persist
 	check_procs
 	check_tmp
+	check_firewall
 	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ] && decode_tcp | grep -F -- "-> $SHELL_IP:" >"$TMP/shellconn"; then
 		while IFS= read -r line; do add IOC connection "$SHELL_IP" "open connection to the address of the reported remote shell: $line"; done <"$TMP/shellconn"
 	fi
@@ -529,6 +585,21 @@ report() {
 		[ "$n_conn" -gt 40 ] && say "   ${D}... $((n_conn - 40)) more in the archive${N}"
 		pat=$(awk -F '\t' '$1=="IOC" && $2=="process" {printf "%s  %s/", sep, $3; sep="|"}' "$FIND")
 		[ -n "$pat" ] && grep -E "$pat" "$TMP/established" | sed "s/^/   ${RED}IOC process connection:${N} /" >&3
+	fi
+	if [ -s "$TMP/fw-added" ] || [ -s "$TMP/fw-redirect" ]; then
+		section "Firewall"
+		if [ -s "$TMP/fw-added" ]; then
+			say "   Configuration that is not in the firmware image ${D}(your own port forwards and rules are here too)${N}"
+			head -n 60 "$TMP/fw-added" | awk -v b="$B" -v n="$N" '{ if ($0 ~ /^\//) printf "   %s%s%s\n", b, $0, n; else printf "   %s\n", $0 }' >&3
+			[ "$(wc -l <"$TMP/fw-added")" -gt 60 ] && say "   ${D}... more in the archive${N}"
+		fi
+		if [ -s "$TMP/fw-redirect" ]; then
+			[ -s "$TMP/fw-added" ] && say ""
+			say "   Running rules that redirect traffic: $(wc -l <"$TMP/fw-redirect" | tr -d ' ') ${D}(all rules are in the archive)${N}"
+			head -n 40 "$TMP/fw-redirect" | awk -v re="$FW_RULE_RE" -v red="$RED" -v n="$N" \
+				'{ r = $0; sub(/^[^:]*: /, "", r); if (r ~ re) printf "   %s%s%s\n", red, $0, n; else printf "   %s\n", $0 }' >&3
+			[ "$(wc -l <"$TMP/fw-redirect")" -gt 40 ] && say "   ${D}... more in the archive${N}"
+		fi
 	fi
 	section "Result"
 	say "   Summary: $(tally IOC) $(tally PERSIST) $(tally REVIEW) $(tally INFO)"
@@ -595,7 +666,7 @@ collect() {
 	# Always copy the finding paths (merged view) and key files.
 	list=$TMP/copylist
 	awk -F '\t' '$3 ~ /^\// {print substr($3,2)}' "$FIND" >"$list"
-	for f in $MARKER_DIRS $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
+	for f in $FW_PATHS $MARKER_DIRS $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
 		etc/passwd etc/group etc/sysupgrade.conf lib/upgrade/keep.d; do echo "$f"; done >>"$list"
 	mkdir -p "$E/files/merged"
 	sort -u "$list" | while IFS= read -r f; do
@@ -626,6 +697,9 @@ collect() {
 		done
 		for f in tcp tcp6 udp udp6 raw raw6 unix route arp; do cat "/proc/net/$f" >"$E/net/$f" 2>/dev/null; done
 		decode_tcp >"$E/net/tcp-established.txt"
+		for f in iptables-save.txt ip6tables-save.txt nft-ruleset.txt; do
+			[ -s "$TMP/$f" ] && cp "$TMP/$f" "$E/net/$f"
+		done
 		dmesg >"$E/logs/dmesg.txt" 2>/dev/null
 		command -v logread >/dev/null 2>&1 && logread >"$E/logs/logread.txt" 2>/dev/null
 		for f in /var/log/messages /var/log/messages.0 /var/log/messages.1 /userdata/log/messages; do
@@ -715,7 +789,19 @@ fix() {
 		cat "$TMP/keep.new" >"$f" && act "removed gl-helper lines from /$p" || echo fail >>"$TMP/fixfail"
 	done
 	[ -f "$TMP/fixfail" ] && failed=1
-	# 7. make cron forget a removed crontab (KVM: S50crond, OpenWrt: cron)
+	# 7. the firewall rule that the command of the reported remote shell left behind
+	if [ "$LIVE" = 1 ] && [ -s "$TMP/fw-ioc" ]; then
+		while IFS="$TAB" read -r p f; do
+			# shellcheck disable=SC2086 # the saved rule is a list of iptables arguments
+			if iptables -t "$p" $(printf '%s' "$f" | sed 's/^-A /-D /') 2>/dev/null; then
+				act "removed firewall rule ($p): $f"
+			else
+				echo fail >>"$TMP/fixfail"
+			fi
+		done <"$TMP/fw-ioc"
+	fi
+	[ -f "$TMP/fixfail" ] && failed=1
+	# 8. make cron forget a removed crontab (KVM: S50crond, OpenWrt: cron)
 	if [ "$LIVE" = 1 ]; then
 		for s in /etc/init.d/S50crond /etc/init.d/cron; do
 			[ -x "$s" ] && "$s" restart >/dev/null 2>&1 && act "restarted cron ($s)" && break
