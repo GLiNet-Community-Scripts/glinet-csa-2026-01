@@ -55,6 +55,35 @@ if (process.argv[2] === 'serve') {
   const exp = await call('GET', undefined, { authorization: 'Bearer test-token' }, '/export');
   expect('export returns the report', exp.status === 200 && (await exp.text()).includes('GL-AXT1800'));
   expect('GET explains the address', (await (await call('GET')).text()).includes('anonymous reports'));
+
+  // dashboard: only with a valid Cloudflare Access token
+  const { publicKey, privateKey } = await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+  const jwk = { ...(await crypto.subtle.exportKey('jwk', publicKey)), kid: 'k1' };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u) => new Response(JSON.stringify({ keys: String(u).startsWith('https://team.cloudflareaccess.com/') ? [jwk] : [] }));
+  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const token = async (claims, key = privateKey) => {
+    const data = `${enc({ alg: 'RS256', kid: 'k1' })}.${enc(claims)}`;
+    return `${data}.${Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, Buffer.from(data))).toString('base64url')}`;
+  };
+  const claims = { iss: 'https://team.cloudflareaccess.com', aud: ['aud-1'], exp: Date.now() / 1000 + 600, email: 'a@example.org' };
+  const dash = (jwt, path = '/csa-2026-01-report/dashboard') => call('GET', undefined, jwt ? { 'cf-access-jwt-assertion': jwt } : {}, path);
+  expect('dashboard does not exist while Access is not configured', (await dash(await token(claims))).status === 404);
+  env.ACCESS_TEAM_DOMAIN = 'team.cloudflareaccess.com'; env.ACCESS_AUD = 'aud-1';
+  expect('dashboard without a token: not found', (await dash()).status === 404);
+  expect('dashboard with a valid token', (await dash(await token(claims))).status === 200);
+  expect('wrong audience is refused', (await dash(await token({ ...claims, aud: ['other'] }))).status === 404);
+  expect('expired token is refused', (await dash(await token({ ...claims, exp: Date.now() / 1000 - 5 }))).status === 404);
+  expect('wrong issuer is refused', (await dash(await token({ ...claims, iss: 'https://evil.example' }))).status === 404);
+  const other = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+  expect('token signed with another key is refused', (await dash(await token(claims, other.privateKey))).status === 404);
+  const forged = (await token(claims)).split('.'); forged[0] = enc({ alg: 'none', kid: 'k1' });
+  expect('alg none is refused', (await dash(forged.join('.'))).status === 404);
+  const data = await dash(await token(claims), '/csa-2026-01-report/dashboard/data');
+  expect('data needs the token too', (await dash(undefined, '/csa-2026-01-report/dashboard/data')).status === 404);
+  expect('data returns the reports', data.status === 200 && (await data.json()).items[0].report.model === 'GL-AXT1800');
+  globalThis.fetch = realFetch;
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);
 }

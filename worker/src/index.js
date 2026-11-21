@@ -3,6 +3,8 @@
 // were found, when). The worker stores exactly the fields listed below and nothing
 // about the sender: no IP address, no country, no headers.
 
+import { DASHBOARD } from './dashboard.js';
+
 const MAX_BYTES = 8192;
 const SAFE = /^[A-Za-z0-9 ._:\/+@=,()-]*$/;
 const TIME = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)?$/;
@@ -78,11 +80,66 @@ async function exportReports(request, env) {
   });
 }
 
+// The dashboard is for the team only. Cloudflare Access sits in front of it and signs
+// every request it lets through; the worker checks that signature itself, so the page
+// stays closed when Access is missing or covers the wrong path. Without ACCESS_TEAM_DOMAIN
+// and ACCESS_AUD the dashboard does not exist.
+let accessKeys = { at: 0, keys: [] };
+const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+
+export async function accessUser(request, env) {
+  if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) return null;
+  const [head, body, sig] = (request.headers.get('cf-access-jwt-assertion') || '').split('.');
+  if (!sig) return null;
+  try {
+    const header = JSON.parse(new TextDecoder().decode(b64(head)));
+    const claims = JSON.parse(new TextDecoder().decode(b64(body)));
+    const issuer = `https://${env.ACCESS_TEAM_DOMAIN}`;
+    if (header.alg !== 'RS256' || claims.iss !== issuer || !(claims.exp > Date.now() / 1000)) return null;
+    if (![].concat(claims.aud).includes(env.ACCESS_AUD)) return null;
+    if (Date.now() - accessKeys.at > 600_000 || !accessKeys.keys.some((k) => k.kid === header.kid)) {
+      const res = await fetch(`${issuer}/cdn-cgi/access/certs`);
+      accessKeys = { at: Date.now(), keys: (await res.json()).keys || [] };
+    }
+    const jwk = accessKeys.keys.find((k) => k.kid === header.kid);
+    if (!jwk) return null;
+    const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+    const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64(sig), new TextEncoder().encode(`${head}.${body}`));
+    return ok ? claims.email || 'signed in' : null;
+  } catch {
+    return null;
+  }
+}
+
+async function dashboard(request, env, data) {
+  if (!(await accessUser(request, env))) return text('not found', 404);
+  if (!data) {
+    return new Response(DASHBOARD, {
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'no-referrer',
+      },
+    });
+  }
+  const cursor = new URL(request.url).searchParams.get('cursor') || undefined;
+  const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: 100, cursor });
+  const values = await Promise.all(page.keys.map((k) => env.REPORTS.get(k.name)));
+  const items = values.filter(Boolean).map((v) => JSON.parse(v));
+  return new Response(JSON.stringify({ items, cursor: page.list_complete ? '' : page.cursor }), {
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
     if (request.method === 'POST') return submit(request, env);
     if (request.method === 'GET' && pathname.endsWith('/export')) return exportReports(request, env);
+    if (request.method === 'GET' && /\/dashboard\/?$/.test(pathname)) return dashboard(request, env, false);
+    if (request.method === 'GET' && pathname.endsWith('/dashboard/data')) return dashboard(request, env, true);
     if (request.method === 'GET') {
       return text(
         'This address receives the short, anonymous reports of the community script for CSA-2026-01.\n' +

@@ -65,6 +65,41 @@ header `x-next-cursor` has the value for `?cursor=`.
 To test a full round, run the script on a device with `--report`. It sends a report even
 when nothing was found.
 
+## Dashboard for the team
+
+`https://app.gl-i.net/csa-2026-01-report/dashboard` shows all reports as a table with a
+few counts on top (models, firmware, kinds of findings, shell start times, file hashes).
+It is for the team only. Cloudflare Access sits in front of it, and the worker checks the
+signature Access adds to every request. Until both settings below are present, the
+dashboard answers "not found" for everyone.
+
+1. In the Cloudflare dashboard open **Zero Trust → Access → Applications** and add a
+   **self-hosted** application:
+   - domain `app.gl-i.net`, path `csa-2026-01-report/dashboard`
+   - a policy with action **Allow** that lists the e-mail addresses of the team
+
+   Only this path. The address the script posts to must stay open, or routers cannot
+   send reports.
+2. Note two values: the **Application Audience (AUD) tag** of the application, and your
+   **team domain** (Zero Trust → Settings, it looks like `yourteam.cloudflareaccess.com`).
+3. Add them to `wrangler.toml`, above the first `[section]`, and deploy:
+
+   ```toml
+   [vars]
+   ACCESS_TEAM_DOMAIN = "yourteam.cloudflareaccess.com"
+   ACCESS_AUD = "the AUD tag"
+   ```
+
+   A `[vars]` block is a section of its own: put it after `routes = ...` and before or
+   after the other sections, not inside `[[kv_namespaces]]`.
+
+   ```bash
+   npx wrangler deploy
+   ```
+
+Team members open the address, sign in with the one-time code Access mails them, and see
+the table. The names of the menus in the Cloudflare dashboard change now and then.
+
 ## Protect it
 
 Anyone can send made-up reports; the worker only checks their shape and size (4 KB). In
