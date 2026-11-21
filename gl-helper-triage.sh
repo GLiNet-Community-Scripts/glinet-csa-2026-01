@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.9
+VERSION=2.10
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -1150,7 +1150,7 @@ send_report() {
 # few lines what the report holds. The lines taken from the user's own files and firewall
 # are always shown word for word: they are the only part that can hold a secret of theirs.
 offer_report() {
-	local answer n ioc
+	local answer n ioc extra
 	[ "$LIVE" = 1 ] && [ "$REPORT" != no ] && [ -s "$TMP/report.json" ] || return 0
 	if [ "$REPORT" = show ]; then
 		section "Anonymous report (not sent)"
@@ -1159,35 +1159,33 @@ offer_report() {
 	fi
 	ioc=$(sed -n 's/^"ioc": \(.*\),$/\1/p' "$TMP/report.json")
 	section "Anonymous report (optional)"
-	if [ "$ioc" = 0 ]; then
-		say "   No known traces here. That is worth knowing too: reports from clean devices show"
-		say "   which models and firmware versions were not hit. The report would contain:"
-	else
-		say "   Help the community see which devices were hit and how. The report would contain:"
-	fi
-	say "   - the device: $(sed -n 's/^"model": "\(.*\)",$/\1/p' "$TMP/report.json"), firmware $(sed -n 's/^"firmware": "\(.*\)",$/\1/p' "$TMP/report.json"), time of this check, uptime"
-	if [ "$ioc" = 0 ]; then
-		say "   - that no known traces were found, and how many other findings there were"
-	else
-		say "   - the $ioc known traces found above (kind and path), and how many other findings"
-	fi
-	grep -q '^"shell_started": "..*",$' "$TMP/report.json" && say "   - when the remote shell started and which port it used"
+	# yellow, so the offer stands apart from the result above; short, "v" shows everything
+	ysay() { say "   ${YEL}$*${N}"; }
+	extra=''
+	grep -q '^"shell_started": "..*",$' "$TMP/report.json" && extra="$extra, start and port of the remote shell"
 	n=$(grep -o '"sha256"' "$TMP/report.json" | wc -l | tr -d ' ')
-	[ "$n" -gt 0 ] && say "   - fingerprint, size and time of $n malware file(s), not the files themselves"
-	grep -q '^"commands": \[\],$' "$TMP/report.json" || say "   - the command lines of the attacker's processes"
-	if [ -s "$TMP/rlines" ]; then
-		say "   - these lines from your autostart files and firewall, word for word:"
-		sed 's/^/        /' "$TMP/rlines" >&3
-		say "     ${YEL}If one of them is a password or token of yours, do not send.${N}"
+	[ "$n" -gt 0 ] && extra="$extra, fingerprints of $n malware file(s)"
+	grep -q '^"commands": \[\],$' "$TMP/report.json" || extra="$extra, the attacker's command lines"
+	if [ "$ioc" = 0 ]; then
+		ysay "Nothing known was found. Sending that helps too: it shows which devices were not hit."
+		ysay "Sent: model, firmware, time of the check and that no known traces were found."
+	else
+		ysay "Help the community see which devices were hit and how."
+		ysay "Sent: model, firmware, time of the check and the $ioc known traces above."
+		[ -n "$extra" ] && ysay "Also: ${extra#, }."
 	fi
-	grep -q '^"device_id": "..*"$' "$TMP/report.json" && say "   - a device ID, so that several reports from this device count once: a hash of a" &&
-		say "     hardware address, not the address. The server hashes it again before storing it."
-	say "   ${D}Not included: host name, IP or MAC addresses, keys of this device, any other file. The sender's${N}"
-	say "   ${D}address is not stored. It goes to $REPORT_URL${N}"
+	grep -q '^"device_id": "..*"$' "$TMP/report.json" && ysay "And a device ID (a hash, not an address), so repeated reports count once."
+	if [ -s "$TMP/rlines" ]; then
+		ysay "And these lines from your autostart files and firewall, word for word:"
+		sed 's/^/        /' "$TMP/rlines" >&3
+		ysay "If one of them is a password or token of yours, do not send."
+	fi
+	ysay "Not sent: host name, IP or MAC addresses, keys, any other file."
 	if [ "$REPORT" != yes ]; then
 		if [ -t 0 ] && [ -t 3 ]; then
 			while :; do
-				printf '   Send it? [y/N, v = show the complete report] ' >&3
+				say ""
+				printf '   %sSend it? [y/N, v = show the complete report]%s ' "$B" "$N" >&3
 				read -r answer || answer=
 				case $answer in
 				v | V) sed 's/^/      /' "$TMP/report.json" >&3 ;;
@@ -1196,6 +1194,7 @@ offer_report() {
 				esac
 			done
 		else
+			say ""
 			say "   Not sent. To send it, run the script again with --report (--show-report prints all of it)."
 			return 0
 		fi
