@@ -117,6 +117,13 @@ pre { margin: 6px 0 0; padding: 10px 12px; border-radius: 10px; background: var(
 .kv dt { color: var(--text-2); } .kv dd { margin: 0; overflow-wrap: anywhere; }
 #hashes, .rep .body .full { overflow-x: auto; }
 .xaxis { overflow: hidden; }
+.why { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); max-width: 78ch; }
+.glossary { margin-top: 14px; }
+.glossary summary { cursor: pointer; font-weight: 650; font-size: 16px; letter-spacing: -.01em; }
+.glossary dl { margin: 14px 0 0; display: grid; grid-template-columns: minmax(0, 250px) minmax(0, 1fr); gap: 12px 24px; font-size: 14px; }
+.glossary dt b { display: block; font-weight: 650; }
+.glossary dd { margin: 0; color: var(--text-2); }
+@media (max-width: 900px) { .glossary dl { grid-template-columns: 1fr; gap: 2px 0; } .glossary dd { margin-bottom: 12px; } }
 .foot { margin-top: 18px; font-size: 13px; color: var(--text-2); }
 
 #tip { position: fixed; z-index: 10; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 600; white-space: nowrap; opacity: 0; translate: -50% -130%; }
@@ -171,6 +178,11 @@ pre { margin: 6px 0 0; padding: 10px 12px; border-radius: 10px; background: var(
     <div class="card"><h2>What the attacker ran and left</h2><p class="sub">Identical lines are grouped. Port numbers are replaced by “PORT” for grouping.</p><div class="stack" id="left" style="margin-top:12px"></div></div>
   </section>
 
+  <details class="card glossary" id="glossary">
+    <summary>What each kind of evidence means</summary>
+    <dl id="glossaryList"></dl>
+  </details>
+
   <section class="reports">
     <div class="head"><h2>Reports</h2><p class="sub" id="shown"></p></div>
     <div id="list"></div>
@@ -195,6 +207,26 @@ const KIND = {
   'keep-ref': 'Survives a firmware update', 'persistence': 'rc.local or crontab changed', 'process implant': 'Malware process running',
   'process remote-shell': 'Remote shell running', 'process quick-check': 'GL.iNet’s crond indicator running', 'process replaced-tool': 'Replaced tool running',
   'pipe': 'Remote shell’s pipe left behind', 'connection': 'Open connection to the attacker', 'fw-rule': 'Firewall rule left by the attack',
+};
+// what each kind of evidence is and why it counts
+const WHY = {
+  'marker': 'One of the four files the malware puts on a device: gl-helper or gb in /etc/config/.gl/ or /etc/glinet/.cache/. GL.iNet’s own cleanup in the KVM firmware looks for exactly these.',
+  'applet-hijack': 'A system tool such as netstat was swapped for another program, so its output can no longer be trusted. GL.iNet’s cleanup for KVMs removes a replaced netstat.',
+  'persist-ref': 'An autostart file (rc.local, the root crontab, an init script) has a line that points to the malware’s paths. It starts the malware again at every boot.',
+  'keep-ref': 'The list of files that a firmware update keeps names the malware’s paths. An update with “keep settings” would carry the malware over.',
+  'persistence': 'rc.local or the root crontab differs from the firmware image but does not point to the malware. Often the owner’s own change; it counts as “persistence”, not as a known trace.',
+  'process implant': 'A program started from one of the malware’s paths was running during the check.',
+  'process remote-shell': 'A root shell connected to the attacker’s server was running: a loop that pipes /bin/sh through /tmp/f and nc to 170.39.226.x. The attacker can type commands on the device.',
+  'process quick-check': 'The process GL.iNet named in its forum check was running: crond -i /tmp/.log.',
+  'process replaced-tool': 'A system tool that had been swapped for another program was running.',
+  'pipe': '/tmp/f is the named pipe the remote shell talks through. It stays until the next restart, so it shows that the shell ran since the last boot, even when it is no longer running.',
+  'connection': 'An open TCP connection to 170.39.226.0/24, the network of the server the remote shells connect to.',
+  'fw-rule': 'nat:SDWAN_IP_MAPPING is a chain in the NAT table of the firewall. GL.iNet’s cloud client fills it for the AstroWarp / SD-WAN IP mapping. The attack came in as a made-up “address” for such a rule, which the client passed to the shell unchecked. The leftover rule that maps 127.0.0.1 to 127.0.0.1 shows that the injected command ran. This cause is one forum user’s analysis, not confirmed by GL.iNet.',
+};
+const FIELD_WHY = {
+  'Shell pipe, last data': 'Time on /tmp/f: the last moment data went through the remote shell.',
+  'Cloud handler last ran': 'Time on /etc/mp_ip_mapping_info, the state file the cloud client rewrites each time it handles an IP mapping. The attack came through that handler. Normal on devices that use AstroWarp.',
+  'Counts': 'Known traces are matches for what we know of this malware. Persistence is a changed rc.local or crontab without a link to it. “To review” are other unusual changes, usually the owner’s own.',
 };
 const kindOf = (f) => { const w = f.split(' '); return w[0] === 'process' ? w[0] + ' ' + w[1] : w[0]; };
 
@@ -238,9 +270,9 @@ function hover(node, text) {
 function rank(node, pairs, total, unit) {
   node.replaceChildren();
   const max = Math.max(1, ...pairs.map((p) => p[1]));
-  for (const [name, n, extra] of pairs.slice(0, 9)) {
+  for (const [name, n, extra, why] of pairs.slice(0, 12)) {
     const li = el('li'), a = el('span', null, 'name'), t = el('span', null, 'track'), bar = el('i');
-    a.append(name); if (extra) a.append(' ', el('small', extra)); a.title = name;
+    a.append(name); if (extra) a.append(' ', el('small', extra)); a.title = why || name;
     bar.style.width = (n / max) * 100 + '%'; t.append(bar);
     hover(t, `${name}: ${n} ${unit}${total ? ' · ' + Math.round((n / total) * 100) + '%' : ''}`);
     li.append(a, t, el('span', n, 'num')); node.append(li);
@@ -293,7 +325,7 @@ function render() {
   } else { $('ymax').textContent = ''; $('peak').textContent = 'No report with a start time.'; }
 
   rank($('devices'), count(hit, (r) => r.model + ' ' + r.firmware).map(([k, n]) => [k.split(' ')[0], n, k.split(' ')[1] === 'unknown' ? 'firmware unknown' : k.split(' ')[1]]), hit.length, 'devices');
-  rank($('kinds'), count(hit, (r) => r.kinds).map(([k, n]) => [KIND[k] || k, n]), hit.length, 'devices');
+  rank($('kinds'), count(hit, (r) => r.kinds).map(([k, n]) => [KIND[k] || k, n, null, WHY[k]]), hit.length, 'devices');
 
   // malware files, grouped by fingerprint
   const fm = new Map();
@@ -337,10 +369,10 @@ function render() {
     s.append(when, dev, what, st); d.append(s);
     const b = el('div', null, 'body');
     const sec = (title, node, full) => { const w = el('div', null, full ? 'full' : ''); w.append(el('h3', title), node); b.append(w); };
-    const kv = el('dl', null, 'kv'); for (const [k, v] of [['Checked', r.checked_at], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Platform', r.platform], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['Shell pipe, last data', r.pipe_time], ['Cloud handler last ran', r.state_file_time]]) if (v) kv.append(el('dt', k), el('dd', v));
+    const kv = el('dl', null, 'kv'); for (const [k, v] of [['Checked', r.checked_at], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Platform', r.platform], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['Shell pipe, last data', r.pipe_time], ['Cloud handler last ran', r.state_file_time]]) if (v) { const dd = el('dd', v); if (FIELD_WHY[k]) dd.append(el('small', FIELD_WHY[k], 'why')); kv.append(el('dt', k), dd); }
     sec('Device and check', kv);
-    const fl = el('dl', null, 'kv'); for (const f of r.findings) { const k = kindOf(f); fl.append(el('dt', KIND[k] || k), el('dd', f.slice(k.length + 1) || '–', 'mono')); }
-    sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'));
+    const fl = el('dl', null, 'kv'); for (const f of r.findings) { const k = kindOf(f); const dd = el('dd'); dd.append(el('span', f, 'mono')); if (WHY[k]) dd.append(el('small', WHY[k], 'why')); fl.append(el('dt', KIND[k] || k), dd); }
+    sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
     if (r.files.length) { const t = el('table'); for (const f of r.files) { const tr = el('tr'); tr.append(el('td', f.path, 'mono'), el('td', f.sha256, 'mono dim'), el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', f.mtime.replace(' UTC', ''), 'n')); t.append(tr); } sec('Files', t, true); }
     if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
     if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines in autostart files that are not in the firmware', w, true); }
@@ -353,6 +385,10 @@ function render() {
   $('status').textContent = `${all.filter((r) => !r.isTest).length} reports · last one ${last ? last.slice(5, 16).replace('T', ' ').replace('-', '/') + ' UTC' : '–'}`;
 }
 
+for (const k of Object.keys(WHY)) {
+  const dt = el('dt'); dt.append(el('b', KIND[k]), el('span', k === 'fw-rule' ? 'fw-rule nat:SDWAN_IP_MAPPING' : k === 'pipe' ? 'pipe /tmp/f' : k, 'mono dim'));
+  $('glossaryList').append(dt, el('dd', WHY[k]));
+}
 for (const b of $('scope').children) b.addEventListener('click', () => { scope = b.dataset.v; for (const o of $('scope').children) o.setAttribute('aria-pressed', String(o === b)); render(); });
 for (const id of ['q', 'hideTests']) $(id).addEventListener('input', render);
 (async () => {
