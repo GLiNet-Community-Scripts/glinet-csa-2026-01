@@ -37,7 +37,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.3
+VERSION=2.4
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -734,7 +734,7 @@ collect() {
 			id 2>/dev/null
 		fi
 	} >"$E/meta/info.txt"
-	for f in etc/version etc/glversion etc/os-release etc/openwrt_release etc/openwrt_version etc/manifest; do
+	for f in etc/version etc/glversion etc/version.type etc/version.build etc/version.date etc/os-release etc/openwrt_release etc/openwrt_version etc/manifest; do
 		[ -f "$(r "$f")" ] && cp "$(r "$f")" "$E/meta/$(echo "$f" | tr / _)"
 	done
 	if [ "$LIVE" = 1 ]; then
@@ -943,7 +943,14 @@ build_report() {
 	local model fw up quick started ports ptime list files stime f persist rules cmds kind
 	model=$(cat /proc/gl-hw-info/model 2>/dev/null)
 	[ -n "$model" ] || model=$(cat /tmp/sysinfo/model 2>/dev/null)
+	# GL.iNet re-issues builds under the same version number, so the build tells them
+	# apart: "4.8.3 release2 build 1024 2026-05-29"
 	fw=$(cat "$(r etc/glversion)" 2>/dev/null)
+	if [ -n "$fw" ]; then
+		f=$(cat "$(r etc/version.type)" 2>/dev/null); [ -n "$f" ] && fw="$fw $f"
+		f=$(cat "$(r etc/version.build)" 2>/dev/null); [ -n "$f" ] && fw="$fw build $f"
+		f=$(cut -c1-10 "$(r etc/version.date)" 2>/dev/null); [ -n "$f" ] && fw="$fw $f"
+	fi
 	up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
 	quick=false
 	grep -q "^IOC${TAB}process${TAB}[0-9]*${TAB}GL.iNet's quick check" "$FIND" && quick=true
