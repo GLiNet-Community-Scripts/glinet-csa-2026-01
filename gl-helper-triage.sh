@@ -33,7 +33,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.7
+VERSION=1.8
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -128,6 +128,21 @@ palette "$COLOR"
 section() { say ""; say "${B}== $*${N}"; }
 kv() { printf '   %s%-14s%s %s\n' "$D" "$1" "$N" "$2" >&3; }
 act() { say "   ${GRN}$*${N}"; }
+# Progress while the checks run, so the screen is not empty until the report is ready.
+# On a terminal one line is overwritten and removed at the end; otherwise (pipe, ssh
+# without a terminal) each step is a line of its own.
+STEPS=8
+TTY=0
+[ -t 3 ] && [ "${TERM:-dumb}" != dumb ] && TTY=1
+progress() {
+	STEP=$((STEP + 1))
+	if [ "$TTY" = 1 ]; then
+		printf '\r\033[K   %sChecking %s/%s: %s ...%s' "$D" "$STEP" "$STEPS" "$1" "$N" >&3
+	else
+		say "   ${D}checking $STEP/$STEPS: $1${N}"
+	fi
+}
+progress_end() { [ "$TTY" = 1 ] && printf '\r\033[K' >&3; return 0; }
 umask 077
 
 TMP=${TMPDIR:-/tmp}/.gl-triage.$$
@@ -533,12 +548,14 @@ decode_tcp() {
 detect() {
 	FIND=$1
 	: >"$FIND"
-	check_markers
-	check_applets
-	check_persist
-	check_procs
-	check_tmp
-	check_firewall
+	STEP=0
+	progress "marker files of the malware"; check_markers
+	progress "replaced system tools"; check_applets
+	progress "autostart entries"; check_persist
+	progress "running processes"; check_procs
+	progress "files in /tmp"; check_tmp
+	progress "firewall"; check_firewall
+	progress "network connections"
 	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ]; then
 		decode_tcp >"$TMP/conns"
 		grep -F -- "-> $SHELL_IP:" "$TMP/conns" | while IFS= read -r line; do
@@ -548,7 +565,8 @@ detect() {
 			add REVIEW connection "${line##* }" "connection held by a shell or a netcat-like tool: $line"
 		done
 	fi
-	check_review
+	progress "other changes in the overlay"; check_review
+	progress_end
 }
 
 count() { grep -c "^$1${TAB}" "$FIND"; }
@@ -564,9 +582,10 @@ tally() {
 	if [ "$n" -gt 0 ]; then printf '%s%s=%s%s' "$(level_color "$1")" "$1" "$n" "$N"; else printf '%s%s=0%s' "$D" "$1" "$N"; fi
 }
 
-report() {
-	local n_ioc lvl pat n_conn
-	n_ioc=$(count IOC)
+# The head is printed before the checks start, the body when they are done.
+report() { report_head; report_body; }
+
+report_head() {
 	say "${B}== gl-helper triage $VERSION${N}  ${D}(CSA-2026-01)${N}"
 	kv Host "$HOST"
 	kv Platform "$PLATFORM"
@@ -578,6 +597,12 @@ report() {
 	kv "Trusted tools" "$TRUSTED"
 	[ "$TRUSTED" = no ] && say "   ${YEL}WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered${N}"
 	[ -z "$UPPER" ] && say "   ${YEL}NOTE: overlay upper layer unknown, results are less precise${N}"
+	return 0
+}
+
+report_body() {
+	local n_ioc lvl pat n_conn
+	n_ioc=$(count IOC)
 	if [ -s "$FIND" ]; then
 		section "Findings"
 		for lvl in IOC PERSIST REVIEW INFO; do
@@ -844,29 +869,30 @@ recommend() {
 }
 
 # ---------------------------------------------------------------- main
+report_head
 detect "$TMP/findings"
 case $MODE in
 check)
-	report
+	report_body
 	[ "$(count IOC)" -gt 0 ] && { recommend; exit 1; }
 	exit 0
 	;;
 archive)
-	report
+	report_body
 	collect
 	[ "$(count IOC)" -gt 0 ] && exit 1
 	exit 0
 	;;
 fix)
-	report
+	report_body
 	collect
 	{ [ -n "$ARCHIVE" ] && [ -s "$ARCHIVE" ]; } || die "no verified archive, refusing to change anything"
 	[ "$(count IOC)" -gt 0 ] || { fix; exit 0; }
 	fix
 	FIXRC=$?
 	sleep 2
-	detect "$TMP/findings.after"
 	section "Re-check after remediation"
+	detect "$TMP/findings.after"
 	if [ "$(count IOC)" -gt 0 ]; then
 		grep "^IOC${TAB}" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
 		say "   ${RED}Verdict: remediation INCOMPLETE${N}"

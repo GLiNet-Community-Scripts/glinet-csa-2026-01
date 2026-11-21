@@ -197,7 +197,8 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
 `4` error.
 
-The report groups its findings by label and ends with a summary and a verdict. The copy
+The head of the report appears at once. While the checks run, a line shows which of the
+eight steps is in progress. The report groups its findings by label and ends with a summary and a verdict. The copy
 in the evidence archive is always plain text.
 
 Findings are labeled:
