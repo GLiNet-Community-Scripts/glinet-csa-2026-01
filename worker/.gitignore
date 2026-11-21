@@ -1,0 +1,4 @@
+# Your own settings (KV id, routes, Access values, D1 id). Copy wrangler.example.toml.
+wrangler.toml
+.wrangler/
+node_modules/

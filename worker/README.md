@@ -12,6 +12,13 @@ itself still sees the connection, as with every website behind it.
 Needs a Cloudflare account and Node.js. All commands run in this folder.
 
 ```bash
+cp wrangler.example.toml wrangler.toml
+```
+
+`wrangler.toml` holds your own settings and is not in git, so `git pull` never collides
+with it. To update the worker later: `git pull`, then `npx wrangler deploy`.
+
+```bash
 npx wrangler login
 ```
 

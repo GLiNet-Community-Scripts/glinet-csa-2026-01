@@ -1,3 +1,7 @@
+# Template. Copy it to wrangler.toml and fill in your values; wrangler.toml is not in git,
+# so a "git pull" never touches your settings.
+#   cp wrangler.example.toml wrangler.toml
+#
 # Cloudflare Worker for the anonymous reports of gl-helper-triage.sh. See worker/README.md.
 name = "csa-2026-01-report"
 main = "src/index.js"
