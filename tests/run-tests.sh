@@ -167,5 +167,19 @@ grep -E '^ +(IOC|PERSIST|REVIEW|INFO) |Summary' "$D/check.txt"
 expect "package netstat is INFO, exit 0" '[ $rc = 0 ] && grep -q "installed by package net-tools-netstat" "$D/check.txt"'
 umount "$D/m"
 
+echo; echo "=== 6. OpenWrt with opkg (firmware 4.x), netstat installed by a package -> INFO only"
+OWO=$BASE/openwrt-rom-opkg
+cp -a "$OWL" "$OWO"; rm -rf "$OWO/lib/apk"; mkdir -p "$OWO/usr/lib/opkg/info"
+D=$(mkscen opkg "$OWO"); U=$D/u
+mkdir -p "$U/usr/bin" "$U/usr/lib/opkg/info"
+printf 'real netstat\n' >"$U/usr/bin/netstat"
+printf '/usr/bin/netstat\n' >"$U/usr/lib/opkg/info/net-tools-netstat.list"
+mnt "$D" "$OWO"
+run "$D" "$OWO" --check >"$D/check.txt"; rc=$?
+grep -E '^ +(IOC|PERSIST|REVIEW|INFO) |Summary' "$D/check.txt"
+expect "opkg package netstat is INFO, exit 0" '[ $rc = 0 ] && grep -q "installed by package net-tools-netstat" "$D/check.txt"'
+expect "no stray heading in the report" '! grep -q -- "== -n" "$D/check.txt"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

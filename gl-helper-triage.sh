@@ -33,7 +33,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.4
+VERSION=1.5
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -115,7 +115,8 @@ if [ "$COLOR" = auto ]; then
 	[ -t 3 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ] && COLOR=1
 fi
 palette "$COLOR"
-head() { say ""; say "${B}== $*${N}"; }
+# Not called "head": that would hide the command of that name.
+section() { say ""; say "${B}== $*${N}"; }
 kv() { printf '   %s%-14s%s %s\n' "$D" "$1" "$N" "$2" >&3; }
 act() { say "   ${GRN}$*${N}"; }
 umask 077
@@ -495,7 +496,7 @@ tally() {
 }
 
 report() {
-	local n_ioc lvl pat
+	local n_ioc lvl pat n_conn
 	n_ioc=$(count IOC)
 	say "${B}== gl-helper triage $VERSION${N}  ${D}(CSA-2026-01)${N}"
 	kv Host "$HOST"
@@ -509,7 +510,7 @@ report() {
 	[ "$TRUSTED" = no ] && say "   ${YEL}WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered${N}"
 	[ -z "$UPPER" ] && say "   ${YEL}NOTE: overlay upper layer unknown, results are less precise${N}"
 	if [ -s "$FIND" ]; then
-		head "Findings"
+		section "Findings"
 		for lvl in IOC PERSIST REVIEW INFO; do
 			[ "$(count "$lvl")" -gt 0 ] || continue
 			say ""
@@ -519,12 +520,17 @@ report() {
 	fi
 	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ]; then
 		decode_tcp >"$TMP/established"
-		head "Network"
-		say "   Established IPv4 TCP connections: $(wc -l <"$TMP/established" | tr -d ' ') ${D}(full list in the archive)${N}"
+		section "Network"
+		n_conn=$(wc -l <"$TMP/established" | tr -d ' ')
+		say "   Established IPv4 TCP connections: $n_conn ${D}(local -> remote, owning process)${N}"
+		# aligned columns, connections to the reported shell address in red, at most 40 lines
+		head -n 40 "$TMP/established" | awk -v ip="$SHELL_IP" -v red="$RED" -v n="$N" -v d="$D" \
+			'{c = (index($3, ip ":") == 1) ? red : ""; printf "   %s%-21s -> %-21s%s %s%s%s\n", c, $1, $3, (c == "" ? "" : n), d, $4, n}' >&3
+		[ "$n_conn" -gt 40 ] && say "   ${D}... $((n_conn - 40)) more in the archive${N}"
 		pat=$(awk -F '\t' '$1=="IOC" && $2=="process" {printf "%s  %s/", sep, $3; sep="|"}' "$FIND")
 		[ -n "$pat" ] && grep -E "$pat" "$TMP/established" | sed "s/^/   ${RED}IOC process connection:${N} /" >&3
 	fi
-	head "Result"
+	section "Result"
 	say "   Summary: $(tally IOC) $(tally PERSIST) $(tally REVIEW) $(tally INFO)"
 	[ "$(count IOC)" -gt 0 ] && say "   ${RED}IOC${N}      a known trace of the implant. --fix removes it."
 	[ "$(count PERSIST)" -gt 0 ] && say "   ${YEL}PERSIST${N}  a changed rc.local or root crontab. --fix resets it only when an IOC was found."
@@ -639,7 +645,7 @@ collect() {
 	tar -C "$TMP" -czf "$ARCHIVE" evidence || { rm -f "$ARCHIVE"; die "writing $ARCHIVE failed"; }
 	tar -tzf "$ARCHIVE" >/dev/null 2>&1 || die "archive verification failed: $ARCHIVE"
 	(cd "$OUTDIR" && sha256sum "${ARCHIVE##*/}" >"${ARCHIVE##*/}.sha256")
-	head "Evidence archive"
+	section "Evidence archive"
 	kv File "${B}$ARCHIVE${N}"
 	kv sha256 "$(cut -d ' ' -f1 "$ARCHIVE.sha256")"
 	case $OUTDIR in /tmp | /tmp/* | /var/run* | /run* | /var/tmp*)
@@ -666,7 +672,7 @@ fix() {
 		say "   No IOC found, nothing to remediate. REVIEW items were not touched."
 		return 0
 	fi
-	head "Remediation"
+	section "Remediation"
 	# 1. processes: freeze all first so they cannot restart each other, then kill
 	awk -F '\t' '$1=="IOC" && $2=="process" {print $3}' "$FIND" | sort -u >"$TMP/pids"
 	while read -r pid; do kill -STOP "$pid" 2>/dev/null; done <"$TMP/pids"
@@ -720,7 +726,7 @@ fix() {
 }
 
 recommend() {
-	head "Next steps"
+	section "Next steps"
 	say "   - Copy the evidence archive off the device and keep it."
 	case $PLATFORM in
 	openwrt)
@@ -761,7 +767,7 @@ fix)
 	FIXRC=$?
 	sleep 2
 	detect "$TMP/findings.after"
-	head "Re-check after remediation"
+	section "Re-check after remediation"
 	if [ "$(count IOC)" -gt 0 ]; then
 		grep "^IOC${TAB}" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
 		say "   ${RED}Verdict: remediation INCOMPLETE${N}"
