@@ -59,11 +59,71 @@ curl https://app.gl-i.net/csa-2026-01-report
 curl -H "Authorization: Bearer <EXPORT_TOKEN>" https://app.gl-i.net/csa-2026-01-report/export
 ```
 
-The export returns up to 40 reports as JSON lines. When there are more, the response
+The export returns a page of reports as JSON lines (500 from D1, 40 from KV). When there are more, the response
 header `x-next-cursor` has the value for `?cursor=`.
 
 To test a full round, run the script on a device with `--report`. It sends a report even
 when nothing was found.
+
+## Moving the reports to D1
+
+KV on the free plan allows 1,000 writes and listings a day, which is a few hundred
+reports. D1, Cloudflare's database, allows 100,000 written rows a day, and the dashboard
+gets all reports with a few queries instead of one read per report. The worker uses D1
+as soon as a database is bound as `DB`, and KV until then. The KV namespace stays: the
+script download keeps its copy there.
+
+1. Create the database. The command prints a `database_id`.
+
+   ```bash
+   npx wrangler d1 create csa-2026-01
+   ```
+
+2. Create the table.
+
+   ```bash
+   npx wrangler d1 execute csa-2026-01 --remote --file=schema.sql
+   ```
+
+3. Add the database to `wrangler.toml`, as a section of its own at the end, and deploy.
+
+   ```toml
+   [[d1_databases]]
+   binding = "DB"
+   database_name = "csa-2026-01"
+   database_id = "the id from step 1"
+   ```
+
+   ```bash
+   npx wrangler deploy
+   ```
+
+   From now on new reports go to D1. The dashboard shows only those until step 4 is done.
+
+4. Copy the reports that are in KV. Each call copies 40 and says how to go on; repeat it
+   with the `cursor` it returns until `cursor` is empty. Calling it again does no harm:
+   a report that is already in the table is skipped. KV is not changed.
+
+   ```bash
+   curl -X POST -H "Authorization: Bearer <EXPORT_TOKEN>" "https://app.gl-i.net/csa-2026-01-report/migrate"
+   ```
+
+   ```bash
+   curl -X POST -H "Authorization: Bearer <EXPORT_TOKEN>" "https://app.gl-i.net/csa-2026-01-report/migrate?cursor=<cursor from the answer>"
+   ```
+
+   The answer looks like `{"copied":40,"in_database":40,"cursor":"..."}`.
+
+5. Check: the dashboard shows the same number of reports as before, and
+
+   ```bash
+   npx wrangler d1 execute csa-2026-01 --remote --command "SELECT count(*) FROM reports"
+   ```
+
+   gives the same number.
+
+To go back, remove the `[[d1_databases]]` block and deploy: the worker uses KV again.
+Reports that arrived in D1 in the meantime are then not shown.
 
 ## Serving the script
 
@@ -115,15 +175,13 @@ attack, and by free text. Bars and chart columns set a filter when clicked. "Exp
 downloads the reports that match. All times are UTC, to the minute.
 
 The page keeps itself up to date: every 20 seconds it asks for the time of the newest
-report (one small KV read) and fetches new reports only when that has moved. New rows
-are highlighted, an open report stays open, and "Live: off" stops it. Polling pauses
-while the tab is in the background. KV is eventually consistent, so a new report can take
-up to a minute to appear. Each stored report costs two KV writes (the report and the
-marker); on the free plan KV allows 1,000 writes a day, which is about 500 reports.
+report and fetches new reports only when that has moved. New rows are highlighted, an
+open report stays open, and "Live: off" stops it. Polling pauses while the tab is in the
+background.
 
-The page loads all reports into the browser, 40 per request (the free Workers plan allows
-50 subrequests per request, and every KV read is one). That is fine for a few
-thousand; beyond that the worker should pre-aggregate.
+The page loads all reports into the browser: 500 per request from D1, 40 from KV (the
+free Workers plan allows 50 subrequests per request, and every KV read is one). With KV
+a new report can take up to a minute to appear and costs two writes.
 
 The page is `src/dashboard.html`. The worker imports `src/dashboard.js`, which
 `node build.mjs` generates from it; run that after every change to the page.

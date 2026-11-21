@@ -3,7 +3,20 @@
 import worker, { validate } from '../src/index.js';
 import http from 'node:http';
 
+import { readFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 const store = new Map(), meta = new Map();
+// D1 as the worker sees it, backed by a real SQLite database with the real schema
+function d1() {
+  const db = new DatabaseSync(':memory:'); db.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8'));
+  const stmt = (sql, args = []) => ({
+    bind: (...a) => stmt(sql, a),
+    run: async () => void db.prepare(sql).run(...args),
+    all: async () => ({ results: db.prepare(sql).all(...args) }),
+    first: async (col) => { const r = db.prepare(sql).get(...args); return r ? (col ? r[col] : r) : null; },
+  });
+  return { prepare: (sql) => stmt(sql), batch: async (list) => { for (const s of list) await s.run(); }, raw: db };
+}
 const env = {
   EXPORT_TOKEN: 'test-token',
   REPORTS: {
@@ -147,6 +160,36 @@ if (process.argv[2] === 'serve') {
   expect('the stored script is not listed as a report', !(await (await call('GET', undefined, { authorization: 'Bearer test-token' }, '/csa-2026-01-report/export')).text()).includes('#!/bin/sh'));
   expect('reports still work', (await call('POST', JSON.stringify(good))).status === 200);
   globalThis.fetch = before;
+
+  // ---- the same worker on D1
+  const kvReports = [...store.keys()].filter((k) => k.startsWith('csa-2026-01/')).length;
+  const auth = { authorization: 'Bearer test-token' }, mig = (q = '') => call('POST', undefined, auth, '/csa-2026-01-report/migrate' + q);
+  expect('migrate refuses without a database', (await mig()).status === 400);
+  env.DB = d1();
+  expect('migrate needs the token', (await call('POST', undefined, {}, '/csa-2026-01-report/migrate')).status === 404);
+  const m1 = await (await mig()).json();
+  expect('migrate copies the KV reports', m1.copied === kvReports && m1.in_database === kvReports && m1.cursor === '');
+  const m2 = await (await mig()).json();
+  expect('migrate can be repeated without duplicates', m2.in_database === kvReports);
+  expect('KV is left as it was', [...store.keys()].filter((k) => k.startsWith('csa-2026-01/')).length === kvReports);
+  const dtok = await (async () => { globalThis.fetch = async () => new Response(JSON.stringify({ keys: [jwk] })); return token(claims); })();
+  const d = (path) => call('GET', undefined, { 'cf-access-jwt-assertion': dtok }, '/csa-2026-01-report/dashboard/' + path);
+  const all1 = (await (await d('data')).json());
+  expect('dashboard reads the moved reports from D1', all1.items.length === kvReports && all1.cursor === '' && all1.items[0].report.model === 'GL-AXT1800');
+  const writesBefore = store.size;
+  expect('a new report goes to D1', (await call('POST', JSON.stringify({ ...good3, model: 'GL-D1' }))).status === 200 && store.size === writesBefore);
+  const latest1 = (await (await d('latest')).json()).latest, newer = (await (await d('data?since=' + all1.items.at(-1).received)).json()).items;
+  expect('latest and since work on D1', newer.length === 1 && newer[0].report.model === 'GL-D1' && newer[0].received === latest1 && newer[0].report.persistence.length === 1);
+  expect('nothing newer than the newest on D1', (await (await d('data?since=' + latest1)).json()).items.length === 0);
+  const ins = env.DB.raw.prepare('INSERT INTO reports (id, received, report) VALUES (?, ?, ?)');
+  for (let i = 0; i < 1100; i++) ins.run('bulk' + String(i).padStart(5, '0'), '2026-11-22T10:00:00.' + String(i % 1000).padStart(3, '0') + 'Z', JSON.stringify(good));
+  let cur = '', got = 0, pages = 0; const ids = new Set();
+  do { const pg = await (await d('data' + (cur ? '?cursor=' + encodeURIComponent(cur) : ''))).json(); pg.items.forEach((x) => ids.add(x.id)); got += pg.items.length; cur = pg.cursor; pages++; } while (cur && pages < 10);
+  expect('paging on D1 returns every report once, also with equal times', got === kvReports + 1 + 1100 && ids.size === got && pages === 3);
+  const ex = await call('GET', undefined, auth, '/csa-2026-01-report/export');
+  expect('export works on D1', ex.status === 200 && (await ex.text()).split('\n').filter(Boolean).length === 500 && ex.headers.get('x-next-cursor') !== '');
+  expect('a bad report is still refused on D1', (await call('POST', JSON.stringify({ ...good, hostname: 'x' }))).status === 400);
+  globalThis.fetch = realFetch;
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);
 }

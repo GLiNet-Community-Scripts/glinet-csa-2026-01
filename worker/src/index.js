@@ -61,10 +61,70 @@ export function validate(report) {
   return null;
 }
 
+// ---------------------------------------------------------------- storage
+// Reports live in D1 (a table, one row per report) when the binding DB exists, and in KV
+// as before when it does not, so the worker can be deployed before the database is set
+// up. D1 fits the job better: one write per report, the whole dashboard in a few
+// queries, and no daily limit of 1,000 writes and listings.
 const LATEST_KEY = 'meta/csa-2026-01-latest';
 // On the free Workers plan one request may make 50 subrequests, and every KV read is one.
-// Reports are therefore handed out 40 at a time.
+// From KV, reports are therefore handed out 40 at a time. A D1 query is one subrequest.
 const PAGE = 40;
+const DB_PAGE = 500;
+const row = (r) => ({ id: r.id, received: r.received, report: JSON.parse(r.report) });
+const kvLoad = async (env, names) =>
+  (await Promise.all(names.map(async (name) => [name, await env.REPORTS.get(name)]))).filter((x) => x[1]).map(([id, v]) => ({ id, ...JSON.parse(v) }));
+
+const reports = {
+  async add(env, received, report) {
+    if (env.DB) {
+      await env.DB.prepare('INSERT INTO reports (id, received, report) VALUES (?1, ?2, ?3)').bind(crypto.randomUUID(), received, JSON.stringify(report)).run();
+      return;
+    }
+    // The time of receipt also goes into the key's metadata, so the live view can find
+    // new reports from a key listing, and into one marker key that dashboards poll.
+    await env.REPORTS.put(`csa-2026-01/${received.slice(0, 10)}/${crypto.randomUUID()}`, JSON.stringify({ received, report }), { metadata: { received } });
+    try {
+      await env.REPORTS.put(LATEST_KEY, received);
+    } catch {
+      // the report is stored; the live view just notices it later
+    }
+  },
+  // all reports, oldest first, a page at a time
+  async page(env, cursor) {
+    if (env.DB) {
+      const [received = '', id = ''] = (cursor || '').split(' ');
+      const { results } = await env.DB.prepare('SELECT id, received, report FROM reports WHERE (received, id) > (?1, ?2) ORDER BY received, id LIMIT ?3').bind(received, id, DB_PAGE).all();
+      const last = results[results.length - 1];
+      return { items: results.map(row), cursor: results.length === DB_PAGE ? `${last.received} ${last.id}` : '' };
+    }
+    const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: PAGE, cursor: cursor || undefined });
+    return { items: await kvLoad(env, page.keys.map((k) => k.name)), cursor: page.list_complete ? '' : page.cursor };
+  },
+  // reports received after "since", oldest first, one page
+  async since(env, since) {
+    if (env.DB) {
+      const { results } = await env.DB.prepare('SELECT id, received, report FROM reports WHERE received > ?1 ORDER BY received, id LIMIT ?2').bind(since, DB_PAGE).all();
+      return results.map(row);
+    }
+    // KV keys are grouped by day, so only the days from then until now are listed (three at most)
+    const names = [];
+    for (let day = Date.parse(since.slice(0, 10)), n = 0; day <= Date.now() && n < 3; day += 86_400_000, n++) {
+      let cursor;
+      do {
+        const page = await env.REPORTS.list({ prefix: `csa-2026-01/${new Date(day).toISOString().slice(0, 10)}/`, cursor });
+        for (const k of page.keys) if (k.metadata && k.metadata.received > since) names.push({ name: k.name, received: k.metadata.received });
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+    }
+    names.sort((a, b) => (a.received < b.received ? -1 : 1));
+    return kvLoad(env, names.slice(0, PAGE).map((n) => n.name));
+  },
+  async latest(env) {
+    if (env.DB) return (await env.DB.prepare('SELECT max(received) AS latest FROM reports').first('latest')) || '';
+    return (await env.REPORTS.get(LATEST_KEY)) || '';
+  },
+};
 
 async function submit(request, env) {
   const raw = await request.text();
@@ -77,27 +137,35 @@ async function submit(request, env) {
   }
   const problem = validate(report);
   if (problem) return text(problem, 400);
-  const received = new Date().toISOString();
-  // The time of receipt also goes into the key's metadata, so the live view can find new
-  // reports from a key listing, and into one marker key that dashboards poll.
-  await env.REPORTS.put(`csa-2026-01/${received.slice(0, 10)}/${crypto.randomUUID()}`, JSON.stringify({ received, report }), { metadata: { received } });
-  try {
-    await env.REPORTS.put(LATEST_KEY, received);
-  } catch {
-    // the report is stored; the live view just notices it later
-  }
+  await reports.add(env, new Date().toISOString(), report);
   return text('stored, thank you');
 }
 
-// For the maintainers: all reports as JSON lines, 40 per call. Only with the secret
+const maintainer = (request, env) => Boolean(env.EXPORT_TOKEN) && request.headers.get('authorization') === `Bearer ${env.EXPORT_TOKEN}`;
+
+// For the maintainers: all reports as JSON lines, a page per call. Only with the secret
 // EXPORT_TOKEN; without that secret the address does not exist.
 async function exportReports(request, env) {
-  if (!env.EXPORT_TOKEN || request.headers.get('authorization') !== `Bearer ${env.EXPORT_TOKEN}`) return text('not found', 404);
-  const cursor = new URL(request.url).searchParams.get('cursor') || undefined;
-  const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: PAGE, cursor });
-  const lines = await Promise.all(page.keys.map((k) => env.REPORTS.get(k.name)));
-  return new Response(lines.filter(Boolean).join('\n') + '\n', {
-    headers: { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'x-next-cursor': page.list_complete ? '' : page.cursor },
+  if (!maintainer(request, env)) return text('not found', 404);
+  const page = await reports.page(env, new URL(request.url).searchParams.get('cursor'));
+  return new Response(page.items.map((x) => JSON.stringify({ received: x.received, report: x.report })).join('\n') + '\n', {
+    headers: { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'x-next-cursor': page.cursor },
+  });
+}
+
+// One-off move from KV to D1, 40 reports per call, for the maintainers. It copies and
+// leaves KV as it is; a report that is already in the table is skipped, so the call can
+// be repeated. The answer says how to continue.
+async function migrate(request, env) {
+  if (!maintainer(request, env)) return text('not found', 404);
+  if (!env.DB) return text('no D1 database bound as DB', 400);
+  const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: PAGE, cursor: new URL(request.url).searchParams.get('cursor') || undefined });
+  const items = await kvLoad(env, page.keys.map((k) => k.name));
+  const insert = env.DB.prepare('INSERT OR IGNORE INTO reports (id, received, report) VALUES (?1, ?2, ?3)');
+  if (items.length) await env.DB.batch(items.map((x) => insert.bind(x.id, x.received, JSON.stringify(x.report))));
+  const total = await env.DB.prepare('SELECT count(*) AS n FROM reports').first('n');
+  return new Response(JSON.stringify({ copied: items.length, in_database: total, cursor: page.list_complete ? '' : page.cursor }) + '\n', {
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 }
 
@@ -147,29 +215,14 @@ async function dashboard(request, env, data) {
   }
   const json = (body) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
   const params = new URL(request.url).searchParams;
-  const load = async (names) => (await Promise.all(names.map(async (name) => [name, await env.REPORTS.get(name)]))).filter((x) => x[1]).map(([id, v]) => ({ id, ...JSON.parse(v) }));
-  if (data === 'latest') return json({ latest: (await env.REPORTS.get(LATEST_KEY)) || '' });
+  if (data === 'latest') return json({ latest: await reports.latest(env) });
   const since = params.get('since');
   if (since) {
-    // live view: only reports received after "since". Keys are grouped by day, so only
-    // the days from then until now are listed (three at most).
+    // live view: only reports received after "since"
     if (!/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(since)) return text('bad since', 400);
-    const names = [];
-    for (let day = Date.parse(since.slice(0, 10)), n = 0; day <= Date.now() && n < 3; day += 86_400_000, n++) {
-      let cursor;
-      do {
-        const page = await env.REPORTS.list({ prefix: `csa-2026-01/${new Date(day).toISOString().slice(0, 10)}/`, cursor });
-        for (const k of page.keys) if (k.metadata && k.metadata.received > since) names.push({ name: k.name, received: k.metadata.received });
-        cursor = page.list_complete ? undefined : page.cursor;
-      } while (cursor);
-    }
-    // oldest first, so that a caller who gets a full page can ask again from the last one
-    names.sort((a, b) => (a.received < b.received ? -1 : 1));
-    return json({ items: await load(names.slice(0, PAGE).map((n) => n.name)), cursor: '' });
+    return json({ items: await reports.since(env, since), cursor: '' });
   }
-  const cursor = params.get('cursor') || undefined;
-  const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: PAGE, cursor });
-  return json({ items: await load(page.keys.map((k) => k.name)), cursor: page.list_complete ? '' : page.cursor });
+  return json(await reports.page(env, params.get('cursor')));
 }
 
 // The script itself, served from here instead of raw.githubusercontent.com, which keeps
@@ -229,6 +282,7 @@ export default {
   async fetch(request, env, ctx) {
     const { pathname } = new URL(request.url);
     if (/\/csa-2026-01-fix(\/|$)/.test(pathname)) return script(request, env, ctx, pathname);
+    if (request.method === 'POST' && pathname.endsWith('/migrate')) return migrate(request, env);
     if (request.method === 'POST') return submit(request, env);
     if (request.method === 'GET' && pathname.endsWith('/export')) return exportReports(request, env);
     if (request.method === 'GET' && /\/dashboard\/?$/.test(pathname)) return dashboard(request, env, false);
