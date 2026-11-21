@@ -33,7 +33,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.6
+VERSION=1.7
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -50,10 +50,14 @@ FW_PATHS="etc/config/firewall etc/firewall.user etc/firewall.d etc/nftables.d us
 FW_RULE_RE='^-A SDWAN_IP_MAPPING .*-d 127\.0\.0\.1(/32)? .*--to-destination 127\.0\.0\.1'
 # Running processes. PROC_RE is GL.iNet's own quick check for routers (forum, 2026-11-21):
 # "ps | grep tmp" shows "crond -i /tmp/.log". SHELL_RE is a remote root shell that users
-# reported in the same thread (a loop around a pipe at /tmp/f and nc to SHELL_IP); GL.iNet
-# has not confirmed that it belongs to the incident.
+# reported in the same thread (a loop around a pipe at /tmp/f and nc to SHELL_IP). GL.iNet
+# staff recommends checking for it and for the tools in TOOL_RE, with
+#   ps ww | grep -E '[n]c |[n]etcat|[s]ocat|[/]bin/sh -i|[m]kfifo'
+# and for connections held by a shell or by such a tool (netstat -tnp).
 PROC_RE='crond -i /tmp/\.log'
 SHELL_IP='170.39.226.219'
+TOOL_RE='(^|[ /])(nc|netcat|socat) |/bin/sh -i|mkfifo'
+CONN_RE='/(nc|netcat|socat|sh|ash|bash)$'
 SHELL_RE="170\\.39\\.226\\.219|/tmp/f([ ;|>]|\$)"
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
@@ -403,8 +407,11 @@ check_procs() {
 			continue
 		fi
 		if printf '%s\n' "$cmd" | grep -qE "$SHELL_RE"; then
-			add IOC process "$pid" "remote shell reported by users, not confirmed by GL.iNet: comm=$comm cmd=$cmd"
+			add IOC process "$pid" "remote shell reported by users (GL.iNet staff: treat the router as compromised): comm=$comm cmd=$cmd"
 			continue
+		fi
+		if printf '%s\n' "$cmd" | grep -qE "$TOOL_RE"; then
+			add REVIEW process "$pid" "tool that remote shells use (GL.iNet staff's process check): comm=$comm cmd=$cmd"
 		fi
 		if [ -n "$exe" ] && grep -q "^IOC${TAB}applet-hijack${TAB}${exe}${TAB}" "$FIND"; then
 			add IOC process "$pid" "runs replaced applet: comm=$comm exe=$exe cmd=$cmd"
@@ -500,7 +507,7 @@ check_firewall() {
 		awk -F '\t' '$2 ~ /-j (DNAT|REDIRECT)/ || $2 ~ /^-A SDWAN_IP_MAPPING / {print $1 ": " $2}' "$TMP/fw-rules" >>"$TMP/fw-redirect"
 		awk -F '\t' -v re="$FW_RULE_RE" '$2 ~ re' "$TMP/fw-rules" >"$TMP/fw-ioc"
 		while IFS="$TAB" read -r p f; do
-			add IOC fw-rule "$p:SDWAN_IP_MAPPING" "rule left by the command of the reported remote shell, not confirmed by GL.iNet: $f"
+			add IOC fw-rule "$p:SDWAN_IP_MAPPING" "rule left by the command of the reported remote shell: $f"
 		done <"$TMP/fw-ioc"
 	fi
 	if command -v nft >/dev/null 2>&1 && nft list ruleset >"$TMP/nft-ruleset.txt" 2>/dev/null; then
@@ -532,8 +539,14 @@ detect() {
 	check_procs
 	check_tmp
 	check_firewall
-	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ] && decode_tcp | grep -F -- "-> $SHELL_IP:" >"$TMP/shellconn"; then
-		while IFS= read -r line; do add IOC connection "$SHELL_IP" "open connection to the address of the reported remote shell: $line"; done <"$TMP/shellconn"
+	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ]; then
+		decode_tcp >"$TMP/conns"
+		grep -F -- "-> $SHELL_IP:" "$TMP/conns" | while IFS= read -r line; do
+			add IOC connection "$SHELL_IP" "open connection to the address of the reported remote shell: $line"
+		done
+		grep -vF -- "-> $SHELL_IP:" "$TMP/conns" | grep -E "$CONN_RE" | while IFS= read -r line; do
+			add REVIEW connection "${line##* }" "connection held by a shell or a netcat-like tool: $line"
+		done
 	fi
 	check_review
 }

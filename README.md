@@ -90,8 +90,15 @@ script runs the same check and reports the process as `IOC`.
 
 In the same thread users reported a remote root shell on GL-AXT1800 routers (firmware
 4.8.3): a loop around a pipe at `/tmp/f` that connects `/bin/sh -i` through `nc` to
-`170.39.226.219`. GL.iNet has not confirmed that it belongs to this incident. The script
-reports such processes and open connections to that address as `IOC` and says so.
+`170.39.226.219`. GL.iNet staff [recommends checking for it](https://forum.gl-inet.com/t/quickly-check-if-your-router-is-under-attack/73070/32)
+and says to treat a router with such a shell as compromised. The script reports these
+processes and open connections to that address as `IOC`.
+
+The same post adds two wider checks, which the script runs as well and reports as
+`REVIEW`: processes that look like `nc`, `netcat`, `socat`, `/bin/sh -i` or `mkfifo`, and
+established connections held by a shell or by such a tool. The post uses `netstat -tnp`
+for the connections. The script reads the kernel's list in `/proc/net/tcp` instead,
+because the implant is known to replace `netstat`.
 
 The script also looks at where every running program comes from. A program started
 from a RAM disk (`/tmp`, `/var`, `/run`) is in neither the base image nor the overlay, so
