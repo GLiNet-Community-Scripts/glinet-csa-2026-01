@@ -105,9 +105,17 @@ still in place.
 
 `https://app.gl-i.net/csa-2026-01-report/dashboard` shows what the reports add up to:
 how many devices have traces and of which kind, when it started, which models and
-firmware versions, the malware's files by fingerprint, and the commands, autostart lines
-and firewall rules the attacker left, with identical ones grouped. Below that every
-report is one line in plain words that opens to its details.
+firmware builds, the malware's files by fingerprint, and the commands, autostart lines
+and firewall rules the attacker left, with identical ones grouped. Below that is a
+sortable, paged table of the reports; a row opens to its details.
+
+Everything can be filtered: by device, firmware and kind of evidence (lists with counts),
+by result, device type, time received and whether the device was restarted since the
+attack, and by free text. Bars and chart columns set a filter when clicked. "Export CSV"
+downloads the reports that match. All times are UTC, to the minute.
+
+The page loads all reports into the browser, 100 per request. That is fine for a few
+thousand; beyond that the worker should pre-aggregate.
 
 The page is `src/dashboard.html`. The worker imports `src/dashboard.js`, which
 `node build.mjs` generates from it; run that after every change to the page.
