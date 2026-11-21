@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.11
+VERSION=2.12
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -219,7 +219,7 @@ WHEN=$(printf '%s' "$STAMP" | sed 's/^\(....\)\(..\)\(..\)T\(..\)\(..\)\(..\)Z$/
 
 filecmp() {
 	if command -v cmp >/dev/null 2>&1; then cmp -s "$1" "$2"; return; fi
-	[ "$(sha256sum <"$1")" = "$(sha256sum <"$2")" ]
+	[ "$(cat "$1" 2>/dev/null | sha256sum)" = "$(cat "$2" 2>/dev/null | sha256sum)" ] && [ -r "$1" ] && [ -r "$2" ]
 }
 
 # ---------------------------------------------------------------- findings
@@ -502,10 +502,13 @@ check_procs() {
 	for d in /proc/[0-9]*; do
 		pid=${d#/proc/}
 		[ "$pid" = $$ ] && continue
-		exe=$(readlink "$d/exe" 2>/dev/null)
+		# A process can end between the listing and these reads (this script's own helpers
+		# do all the time). Read through cat, whose error can be silenced; with "<file" the
+		# shell itself reports a missing file. A process that is gone is skipped.
 		comm=$(cat "$d/comm" 2>/dev/null)
-		cmd=$(tr '\0' ' ' <"$d/cmdline" 2>/dev/null)
 		[ -n "$comm" ] || continue
+		exe=$(readlink "$d/exe" 2>/dev/null)
+		cmd=$(cat "$d/cmdline" 2>/dev/null | tr '\0' ' ')
 		printf '%s\t%s\t%s\t%s\n' "$pid" "$comm" "$exe" "$cmd" >>"$TMP/procs"
 		# shellcheck disable=SC2012 # fd names are numbers
 		ls -l "$d/fd" 2>/dev/null | awk -v p="$pid" -v c="$comm" \
@@ -587,7 +590,7 @@ check_tmp() {
 	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(file_time "$f")"
 	f=$(r etc/mp_ip_mapping_info)
 	if [ -f "$f" ]; then
-		add REVIEW state-file /etc/mp_ip_mapping_info "written $(file_time "$f"), $(wc -c <"$f" | tr -d ' ') bytes: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
+		add REVIEW state-file /etc/mp_ip_mapping_info "written $(file_time "$f"), $(cat "$f" 2>/dev/null | wc -c | tr -d ' ') bytes: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
 	fi
 	return 0
 }
@@ -1076,7 +1079,7 @@ build_report() {
 			[ -f "$(r "${f#/}")" ] && [ ! -L "$(r "${f#/}")" ] || continue
 			printf '{"path": %s, "sha256": %s, "size": %s, "mtime": %s},' "$(jstr "$f" 120)" \
 				"$(jstr "$(sha256sum "$(r "${f#/}")" 2>/dev/null | cut -c1-64)")" \
-				"$(wc -c <"$(r "${f#/}")" 2>/dev/null | tr -d ' ')" "$(jstr "$(file_time "$(r "${f#/}")")")"
+				"$(cat "$(r "${f#/}")" 2>/dev/null | wc -c | tr -d ' ')" "$(jstr "$(file_time "$(r "${f#/}")")")"
 		done | sed 's/,$//')
 	stime=
 	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)")
