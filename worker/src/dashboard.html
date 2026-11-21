@@ -184,6 +184,7 @@ tr.row.fresh td { background: var(--accent-soft); }
 .mx { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 12px; font-size: 13.5px; }
 .mx caption { text-align: left; font-size: 12px; font-weight: 650; color: var(--text-2); padding: 0 0 6px; }
 .mx thead th { padding: 6px 6px; text-align: center; font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); white-space: nowrap; }
+.mx th.q { color: var(--text-2); font-weight: 600; cursor: help; }
 .mx tbody th { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; font-weight: 650; padding: 5px 12px 5px 0; white-space: nowrap; }
 .mx td { padding: 3px; border: 0; text-align: center; }
 .mx td button { width: 100%; min-width: 52px; border: 0; border-radius: 7px; padding: 5px 4px; font: 600 12.5px -apple-system, 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; cursor: pointer; color: var(--text-2); background: var(--surface-2); }
@@ -191,6 +192,15 @@ tr.row.fresh td { background: var(--accent-soft); }
 .mx td button.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mx td button small { font-weight: 500; opacity: .75; }
 .tag.odd { background: var(--warn-bg); color: var(--warn); }
+/* blocks can be folded; the heading is the switch */
+.fold { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font: inherit; letter-spacing: inherit; }
+.fold::before { content: '▾'; font-size: 12px; color: var(--text-2); transition: rotate .15s; }
+.card.closed .fold::before { rotate: -90deg; }
+.fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.card.closed { align-self: start; }
+.card.closed > :not(h2):not(.chead), .card.closed > .chead > :not(h2) { display: none; }
+.card.closed.reports .chead { padding-bottom: 14px; }
+@media (prefers-reduced-motion: reduce) { .fold::before { transition: none; } }
 .foot { margin-top: 16px; font-size: 12.5px; color: var(--text-2); }
 #tip { position: fixed; z-index: 10; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 550; line-height: 1.45; white-space: pre-line; width: max-content; max-width: 400px; opacity: 0; translate: -50% calc(-100% - 12px); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -267,8 +277,8 @@ tr.row.fresh td { background: var(--accent-soft); }
   </section>
 
   <section class="card" style="margin-top:12px">
-    <div class="chead"><h2>Models and firmware</h2><span class="grow"></span><button class="btn" type="button" id="yamlBtn">Copy as advisory YAML</button></div>
-    <p class="sub">Devices with traces out of all reports for that model and firmware version. Click a cell to filter. An empty cell means no report, not “not affected”.</p>
+    <div class="chead"><h2>Models and firmware</h2><span class="grow"></span><button class="btn" type="button" id="gridAll" hidden>Show every version</button><button class="btn" type="button" id="yamlBtn">Copy as advisory YAML</button></div>
+    <p class="sub">Devices with traces out of all reports for that model and firmware version. Test builds count with their version. Versions and models without any trace are folded into one column and one row. Click a cell to filter. An empty cell means no report, not “not affected”.</p>
     <div id="matrix"></div>
   </section>
 
@@ -632,37 +642,59 @@ function ports(hit) {
 }
 // Models down, firmware versions across; routers and KVMs apart because their versions differ.
 const NAMES = { 'GL-BE9300': 'Flint 3', 'GL-MT6000': 'Flint 2', 'GL-MT5000': 'Brume 3', 'GL-MT3000': 'Beryl AX', 'GL-MT2500': 'Brume 2', 'GL-AXT1800': 'Slate AX', 'GL-AX1800': 'Flint', 'GL-E5800': 'Mudi 7', 'GL-X3000': 'Spitz AX', 'GL-XE3000': 'Puli AX', 'GL-A1300': 'Slate Plus', 'GL-RM1': 'Comet', 'GL-RM1PE': 'Comet PoE', 'GL-RM10': 'Comet Pro' };
-let grid = [];
+let grid = [], gridAll = false;
+// The grid would grow a column for every beta and a row for every model that ever reported.
+// So test builds count with their version ("4.9.0 beta4" under 4.9.0), and versions and
+// models without a single trace are folded into one column and one row. "Show every
+// version" unfolds both.
+const fwBase = (v) => v.replace(/ (beta|rc|alpha|snapshot|test).*$/, '');
 function matrix() {
   const box = $('matrix'); box.replaceChildren(); grid = [];
   // every filter applies except the three this grid sets itself
   const scope = pool.filter((r) => { const m = F.model, f = F.firmware, res = F.result; F.model = new Set(); F.firmware = new Set(); F.result = 'all'; const ok = pass(r); F.model = m; F.firmware = f; F.result = res; return ok; });
+  let folded = 0;
   for (const [title, kvm] of [['Routers', false], ['KVM devices', true]]) {
     const part = scope.filter((r) => r.kvm === kvm && r.model !== 'unknown'); if (!part.length) continue;
-    const vers = [...new Set(part.map((r) => r.fw))].sort((a, b) => verKey(a).localeCompare(verKey(b))), models = count(part.filter((r) => r.ioc > 0), (r) => r.model).map((x) => x[0]);
-    for (const m of new Set(part.map((r) => r.model))) if (!models.includes(m)) models.push(m);
-    const max = Math.max(1, ...models.flatMap((m) => vers.map((v) => part.filter((r) => r.model === m && r.fw === v && r.ioc > 0).length)));
+    const hitOf = (rows) => rows.filter((r) => r.ioc > 0).length;
+    const allVers = [...new Set(part.map((r) => fwBase(r.fw)))].sort((x, y) => verKey(x).localeCompare(verKey(y)));
+    const allModels = [...count(part.filter((r) => r.ioc > 0), (r) => r.model).map((x) => x[0])];
+    for (const m of [...new Set(part.map((r) => r.model))].sort()) if (!allModels.includes(m)) allModels.push(m);
+    const quietV = allVers.filter((v) => !hitOf(part.filter((r) => fwBase(r.fw) === v))), quietM = allModels.filter((m) => !hitOf(part.filter((r) => r.model === m)));
+    const foldV = !gridAll && quietV.length > 1, foldM = !gridAll && quietM.length > 1; folded += (foldV ? quietV.length : 0) + (foldM ? quietM.length : 0);
+    const cols = allVers.filter((v) => !foldV || !quietV.includes(v)).map((v) => ({ label: v, vers: [v] }));
+    if (foldV) cols.push({ label: `${quietV.length} others`, vers: quietV, quiet: true });
+    const lines = allModels.filter((m) => !foldM || !quietM.includes(m)).map((m) => ({ label: m, models: [m] }));
+    if (foldM) lines.push({ label: `${quietM.length} other models`, models: quietM, quiet: true });
+    const cellRows = (line, col) => part.filter((r) => line.models.includes(r.model) && col.vers.includes(fwBase(r.fw)));
+    const max = Math.max(1, ...lines.flatMap((l) => cols.map((c) => hitOf(cellRows(l, c)))));
     const t = el('table', null, 'mx'), hd = el('tr'); t.append(el('caption', title)); hd.append(el('th', ''));
-    for (const v of vers) hd.append(el('th', v)); const th = el('thead'); th.append(hd); t.append(th); const tb = el('tbody');
-    for (const m of models) {
-      const tr = el('tr'), h = el('th', m); h.scope = 'row'; tr.append(h); const hitVers = [];
-      for (const v of vers) {
-        const cell = part.filter((r) => r.model === m && r.fw === v), hits = cell.filter((r) => r.ioc > 0).length, td = el('td');
+    for (const c of cols) { const th = el('th', c.label, c.quiet ? 'q' : ''); if (c.quiet) hover(th, 'Versions with reports but no traces:\n' + c.vers.join(', ')); hd.append(th); }
+    const th = el('thead'); th.append(hd); t.append(th); const tb = el('tbody');
+    for (const line of lines) {
+      const tr = el('tr'), h = el('th', line.label, line.quiet ? 'q' : ''); h.scope = 'row'; if (line.quiet) hover(h, 'Models with reports but no traces:\n' + line.models.join(', ')); tr.append(h);
+      for (const c of cols) {
+        const cell = cellRows(line, c), hits = hitOf(cell), td = el('td');
         if (cell.length) {
-          const b = el('button', null, (hits ? 'h' : '') + (F.model.has(m) && F.firmware.has(v) ? ' sel' : '')); b.type = 'button'; b.style.setProperty('--w', hits / max);
-          b.append(String(hits), el('small', '/' + cell.length)); hover(b, `${m} · ${v}\n${hits} with traces of ${cell.length} report${cell.length === 1 ? '' : 's'}`);
-          b.addEventListener('click', () => { const on = F.model.has(m) && F.firmware.has(v) && F.model.size === 1 && F.firmware.size === 1; F.model = new Set(on ? [] : [m]); F.firmware = new Set(on ? [] : [v]); page = 0; render(); });
-          td.append(b); if (hits && v !== 'unknown') hitVers.push(v);
+          const fws = [...new Set(cell.map((r) => r.fw))], on = line.models.every((m) => F.model.has(m)) && fws.every((v) => F.firmware.has(v)) && F.model.size === line.models.length && F.firmware.size === fws.length;
+          const b = el('button', null, (hits ? 'h' : '') + (on ? ' sel' : '')); b.type = 'button'; b.style.setProperty('--w', hits / max);
+          b.append(String(hits), el('small', '/' + cell.length));
+          // what is inside a cell that stands for several builds
+          const split = count(cell, (r) => r.fw).map(([v, n]) => `${v}: ${hitOf(cell.filter((r) => r.fw === v))} of ${n}`);
+          hover(b, `${line.label} · ${c.label}\n${hits} with traces of ${cell.length} report${cell.length === 1 ? '' : 's'}` + (split.length > 1 ? '\n' + split.slice(0, 8).join('\n') : ''));
+          b.addEventListener('click', () => { F.model = new Set(on ? [] : line.models); F.firmware = new Set(on ? [] : fws); if (!on && !hits) F.result = 'all'; syncs.forEach((x) => x()); page = 0; render(); });
+          td.append(b);
         }
         tr.append(td);
       }
-      if (part.some((r) => r.model === m && r.ioc > 0)) grid.push({ m, kvm, vers: hitVers });
       tb.append(tr);
     }
+    for (const m of allModels) { const vers = allVers.filter((v) => v !== 'unknown' && hitOf(part.filter((r) => r.model === m && fwBase(r.fw) === v))); if (hitOf(part.filter((r) => r.model === m))) grid.push({ m, kvm, vers }); }
     t.append(tb); const wrap = el('div', null, 'scroll'); wrap.append(t); box.append(wrap);
   }
   if (!box.children.length) box.append(el('p', 'No report with a known model in this selection.', 'peak dim'));
+  const g = $('gridAll'); g.hidden = !folded && !gridAll; g.textContent = gridAll ? 'Summarise' : 'Show every version';
 }
+$('gridAll').addEventListener('click', () => { gridAll = !gridAll; matrix(); });
 $('yamlBtn').addEventListener('click', async () => {
   const sku = (m) => (/^GL-/i.test(m) ? m.toUpperCase() : 'GL-' + m.toUpperCase());
   const yaml = ['  reported:', `    as_of: ${new Date().toISOString().slice(0, 16)}Z`, '    source:', '      label: Anonymous reports of the community script', '      url: https://gl-i.net/security/csa-2026-01/fix/', '    models:',
@@ -807,6 +839,24 @@ $('csv').addEventListener('click', () => {
   const csv = [cols.map((c) => c[0]).join(','), ...current.map((r) => cols.map((c) => cell(c[1](r))).join(','))].join('\r\n');
   const a = el('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'csa-2026-01-reports.csv'; a.click(); URL.revokeObjectURL(a.href);
 });
+/* ---------- folding blocks ---------- */
+// Every block with a heading can be folded by clicking the heading. Which ones are folded
+// is kept in this browser's localStorage. That works like a cookie, but it is not sent to
+// the server with every request.
+let closed = new Set();
+try { closed = new Set(JSON.parse(localStorage.getItem('csa-folded') || '[]')); } catch { /* no storage: nothing is folded */ }
+for (const card of document.querySelectorAll('main .card')) {
+  const h = card.querySelector(':scope > h2, :scope > .chead > h2'); if (!h) continue;
+  const key = h.textContent.trim(), b = el('button', key, 'fold'); b.type = 'button'; h.replaceChildren(b);
+  const set = (shut) => { card.classList.toggle('closed', shut); b.setAttribute('aria-expanded', String(!shut)); };
+  set(closed.has(key));
+  b.addEventListener('click', () => {
+    const shut = !card.classList.contains('closed'); set(shut); shut ? closed.add(key) : closed.delete(key);
+    try { localStorage.setItem('csa-folded', JSON.stringify([...closed])); } catch { /* folded for this visit only */ }
+    if (!shut) render();   // a chart that was hidden has no size to lay its axis out on
+  });
+}
+
 /* ---------- loading, and the live view ---------- */
 const BASE = location.pathname.replace(/\/$/, ''), seen = new Set();
 let newest = '', live = true, timer;
