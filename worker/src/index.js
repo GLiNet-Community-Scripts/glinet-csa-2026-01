@@ -61,6 +61,8 @@ export function validate(report) {
   return null;
 }
 
+const LATEST_KEY = 'meta/csa-2026-01-latest';
+
 async function submit(request, env) {
   const raw = await request.text();
   if (raw.length > MAX_BYTES) return text('too large', 413);
@@ -73,7 +75,14 @@ async function submit(request, env) {
   const problem = validate(report);
   if (problem) return text(problem, 400);
   const received = new Date().toISOString();
-  await env.REPORTS.put(`csa-2026-01/${received.slice(0, 10)}/${crypto.randomUUID()}`, JSON.stringify({ received, report }));
+  // The time of receipt also goes into the key's metadata, so the live view can find new
+  // reports from a key listing, and into one marker key that dashboards poll.
+  await env.REPORTS.put(`csa-2026-01/${received.slice(0, 10)}/${crypto.randomUUID()}`, JSON.stringify({ received, report }), { metadata: { received } });
+  try {
+    await env.REPORTS.put(LATEST_KEY, received);
+  } catch {
+    // the report is stored; the live view just notices it later
+  }
   return text('stored, thank you');
 }
 
@@ -133,13 +142,29 @@ async function dashboard(request, env, data) {
       },
     });
   }
-  const cursor = new URL(request.url).searchParams.get('cursor') || undefined;
+  const json = (body) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+  const params = new URL(request.url).searchParams;
+  const load = async (names) => (await Promise.all(names.map(async (name) => [name, await env.REPORTS.get(name)]))).filter((x) => x[1]).map(([id, v]) => ({ id, ...JSON.parse(v) }));
+  if (data === 'latest') return json({ latest: (await env.REPORTS.get(LATEST_KEY)) || '' });
+  const since = params.get('since');
+  if (since) {
+    // live view: only reports received after "since". Keys are grouped by day, so only
+    // the days from then until now are listed (three at most).
+    if (!/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(since)) return text('bad since', 400);
+    const names = [];
+    for (let day = Date.parse(since.slice(0, 10)), n = 0; day <= Date.now() && n < 3; day += 86_400_000, n++) {
+      let cursor;
+      do {
+        const page = await env.REPORTS.list({ prefix: `csa-2026-01/${new Date(day).toISOString().slice(0, 10)}/`, cursor });
+        for (const k of page.keys) if (k.metadata && k.metadata.received > since) names.push(k.name);
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+    }
+    return json({ items: await load(names.slice(0, 200)), cursor: '' });
+  }
+  const cursor = params.get('cursor') || undefined;
   const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: 100, cursor });
-  const values = await Promise.all(page.keys.map((k) => env.REPORTS.get(k.name)));
-  const items = values.filter(Boolean).map((v) => JSON.parse(v));
-  return new Response(JSON.stringify({ items, cursor: page.list_complete ? '' : page.cursor }), {
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  });
+  return json({ items: await load(page.keys.map((k) => k.name)), cursor: page.list_complete ? '' : page.cursor });
 }
 
 // The script itself, served from here instead of raw.githubusercontent.com, which keeps
@@ -203,6 +228,7 @@ export default {
     if (request.method === 'GET' && pathname.endsWith('/export')) return exportReports(request, env);
     if (request.method === 'GET' && /\/dashboard\/?$/.test(pathname)) return dashboard(request, env, false);
     if (request.method === 'GET' && pathname.endsWith('/dashboard/data')) return dashboard(request, env, true);
+    if (request.method === 'GET' && pathname.endsWith('/dashboard/latest')) return dashboard(request, env, 'latest');
     if (request.method === 'GET') {
       return text(
         'This address receives the short, anonymous reports of the community script for CSA-2026-01.\n' +

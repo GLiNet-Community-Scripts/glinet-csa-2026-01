@@ -114,6 +114,13 @@ by result, device type, time received and whether the device was restarted since
 attack, and by free text. Bars and chart columns set a filter when clicked. "Export CSV"
 downloads the reports that match. All times are UTC, to the minute.
 
+The page keeps itself up to date: every 20 seconds it asks for the time of the newest
+report (one small KV read) and fetches new reports only when that has moved. New rows
+are highlighted, an open report stays open, and "Live: off" stops it. Polling pauses
+while the tab is in the background. KV is eventually consistent, so a new report can take
+up to a minute to appear. Each stored report costs two KV writes (the report and the
+marker); on the free plan KV allows 1,000 writes a day, which is about 500 reports.
+
 The page loads all reports into the browser, 100 per request. That is fine for a few
 thousand; beyond that the worker should pre-aggregate.
 

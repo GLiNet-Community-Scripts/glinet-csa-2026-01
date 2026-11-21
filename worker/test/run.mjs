@@ -3,13 +3,13 @@
 import worker, { validate } from '../src/index.js';
 import http from 'node:http';
 
-const store = new Map();
+const store = new Map(), meta = new Map();
 const env = {
   EXPORT_TOKEN: 'test-token',
   REPORTS: {
-    put: async (k, v) => void store.set(k, v),
+    put: async (k, v, o) => { store.set(k, v); if (o && o.metadata) meta.set(k, o.metadata); },
     get: async (k) => store.get(k) ?? null,
-    list: async ({ prefix }) => ({ keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true }),
+    list: async ({ prefix }) => ({ keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name, metadata: meta.get(name) })), list_complete: true }),
   },
 };
 const good = {
@@ -36,13 +36,13 @@ if (process.argv[2] === 'serve') {
     const r = await call(req.method, req.method === 'POST' ? Buffer.concat(chunks) : undefined, req.headers, req.url);
     res.writeHead(r.status, Object.fromEntries(r.headers));
     res.end(await r.text());
-    if (req.method === 'POST') console.log(r.status, [...store.values()].at(-1) ?? '');
+    if (req.method === 'POST') console.log(r.status, [...store.entries()].filter(([k]) => k.startsWith('csa-2026-01/')).at(-1)?.[1] ?? '');
   }).listen(8787, '127.0.0.1');
 } else {
   let failed = 0;
   const expect = (name, ok) => { console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}`); if (!ok) failed++; };
   expect('a complete report is valid', validate(good) === null);
-  expect('stores a good report', (await call('POST', JSON.stringify(good), { 'cf-connecting-ip': '203.0.113.9' })).status === 200 && store.size === 1);
+  expect('stores a good report', (await call('POST', JSON.stringify(good), { 'cf-connecting-ip': '203.0.113.9' })).status === 200 && store.size === 2);
   expect('stored value has only the report and a time', (() => { const v = JSON.parse([...store.values()][0]); return Object.keys(v).join() === 'received,report' && !JSON.stringify(v).includes('203.0.113.9'); })());
   expect('refuses an unknown field', (await call('POST', JSON.stringify({ ...good, hostname: 'x' }))).status === 400);
   expect('refuses a missing field', (await call('POST', JSON.stringify({ ...good, model: undefined }))).status === 400);
@@ -62,7 +62,7 @@ if (process.argv[2] === 'serve') {
   expect('refuses an extra field in a file', validate({ ...good2, files: [{ ...file, content: 'x' }] }) !== null);
   expect('refuses more than 12 files', validate({ ...good2, files: Array(13).fill(file) }) !== null);
   expect('refuses text that is not JSON', (await call('POST', 'hello')).status === 400);
-  expect('nothing but the good report was stored', store.size === 1);
+  expect('nothing but the good report and the marker was stored', store.size === 2 && store.has('meta/csa-2026-01-latest'));
   expect('export needs the token', (await call('GET', undefined, {}, '/csa-2026-01-report/export')).status === 404);
   const exp = await call('GET', undefined, { authorization: 'Bearer test-token' }, '/csa-2026-01-report/export');
   expect('export returns the report', exp.status === 200 && (await exp.text()).includes('GL-AXT1800'));
@@ -94,7 +94,20 @@ if (process.argv[2] === 'serve') {
   expect('alg none is refused', (await dash(forged.join('.'))).status === 404);
   const data = await dash(await token(claims), '/csa-2026-01-report/dashboard/data');
   expect('data needs the token too', (await dash(undefined, '/csa-2026-01-report/dashboard/data')).status === 404);
-  expect('data returns the reports', data.status === 200 && (await data.json()).items[0].report.model === 'GL-AXT1800');
+  const first = (await data.json()).items[0];
+  expect('data returns the reports, each with an id', data.status === 200 && first.report.model === 'GL-AXT1800' && first.id.startsWith('csa-2026-01/'));
+  // live view
+  const tok = await token(claims), live = (path) => dash(tok, '/csa-2026-01-report/dashboard/' + path);
+  expect('latest needs the token', (await dash(undefined, '/csa-2026-01-report/dashboard/latest')).status === 404);
+  const mark = (await (await live('latest')).json()).latest;
+  expect('latest gives the time of the newest report', mark === first.received);
+  expect('nothing is newer than the newest', (await (await live('data?since=' + mark)).json()).items.length === 0);
+  await new Promise((r) => setTimeout(r, 5));
+  await call('POST', JSON.stringify({ ...good, model: 'GL-MT6000' }));
+  const fresh = (await (await live('data?since=' + mark)).json()).items;
+  expect('a new report shows up after "since", and only that one', fresh.length === 1 && fresh[0].report.model === 'GL-MT6000');
+  expect('latest moves on', (await (await live('latest')).json()).latest === fresh[0].received);
+  expect('a bad since is refused', (await live('data?since=yesterday')).status === 400);
   globalThis.fetch = realFetch;
 
   // the script, served from the worker

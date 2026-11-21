@@ -147,7 +147,18 @@ pre { margin: 6px 0 0; padding: 9px 11px; border-radius: 9px; background: var(--
 .body .full { grid-column: 1 / -1; overflow-x: auto; }
 .kv { margin: 6px 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: 13.5px; }
 .kv dt { color: var(--text-2); } .kv dd { margin: 0; overflow-wrap: anywhere; }
-.why { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); max-width: 80ch; }
+.evs { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.evs li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.ev { display: inline-flex; align-items: center; gap: 6px; padding: 1px 6px 1px 9px; border-radius: 980px; background: var(--danger-bg); color: var(--danger); font-size: 12.5px; font-weight: 600; cursor: help; }
+.ev i, .info { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; border: 1px solid currentColor; font: italic 700 10px Georgia, serif; opacity: .75; }
+.info { margin-left: 6px; color: var(--text-2); cursor: help; vertical-align: 1px; }
+tr.row.fresh td { background: var(--accent-soft); }
+.live { display: inline-flex; align-items: center; gap: 7px; }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); }
+.live.on i { background: var(--accent); animation: pulse 2s ease-out infinite; }
+.live.err i { background: var(--danger); }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
+@media (prefers-reduced-motion: reduce) { .live.on i { animation: none; } }
 .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 18px; border-top: 1px solid var(--border); font-size: 13.5px; }
 .pager .grow { flex: 1; }
 .pager select { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 3px 6px; }
@@ -157,7 +168,7 @@ pre { margin: 6px 0 0; padding: 9px 11px; border-radius: 9px; background: var(--
 .glossary dl { margin: 12px 0 0; display: grid; grid-template-columns: minmax(0, 250px) minmax(0, 1fr); gap: 10px 24px; font-size: 13.5px; }
 .glossary dt b { display: block; font-weight: 650; } .glossary dd { margin: 0; color: var(--text-2); }
 .foot { margin-top: 16px; font-size: 12.5px; color: var(--text-2); }
-#tip { position: fixed; z-index: 10; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 600; white-space: pre; opacity: 0; translate: -50% -125%; }
+#tip { position: fixed; z-index: 10; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 550; line-height: 1.45; white-space: pre-line; width: max-content; max-width: 400px; opacity: 0; translate: -50% calc(-100% - 12px); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 @media (max-width: 1000px) {
@@ -177,6 +188,8 @@ pre { margin: 6px 0 0; padding: 9px 11px; border-radius: 9px; background: var(--
     <h1>CSA-2026-01 reports</h1>
     <p class="sub tnum" id="status"></p>
     <span class="grow"></span>
+    <span class="sub tnum live" id="live" hidden><i></i><span id="liveText"></span></span>
+    <button class="btn" type="button" id="liveBtn" aria-pressed="true" hidden>Live: on</button>
     <button class="btn" type="button" id="csv">Export CSV</button>
   </div>
 
@@ -281,6 +294,8 @@ const kindOf = (f) => { const w = f.split(' '); return w[0] === 'process' ? w[0]
 
 function shape(x) {
   const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', ...x.report };
+  r.id = x.id || x.received + JSON.stringify(x.report).length;
+  r.recvIso = x.received;
   r.recv = Date.parse(x.received);
   r.kinds = [...new Set(r.findings.map(kindOf))];
   r.isTest = r.model === 'unknown' && r.platform === 'unknown' && r.ioc === 0;
@@ -371,11 +386,12 @@ function chips() {
 const tip = $('tip');
 function hover(node, text) {
   node.tabIndex = 0; node.setAttribute('aria-label', text.replace(/\n/g, ', '));
-  const show = (x, y) => { tip.textContent = text; tip.style.left = Math.min(Math.max(x, 130), innerWidth - 130) + 'px'; tip.style.top = y + 'px'; tip.style.opacity = 1; };
+  const show = (x, y) => { tip.textContent = text; if (y < tip.offsetHeight + 20) y += tip.offsetHeight + 34; tip.style.left = Math.min(Math.max(x, tip.offsetWidth / 2 + 8), innerWidth - tip.offsetWidth / 2 - 8) + 'px'; tip.style.top = y + 'px'; tip.style.opacity = 1; };
   node.addEventListener('pointermove', (e) => show(e.clientX, e.clientY));
   node.addEventListener('focus', () => { const b = node.getBoundingClientRect(); show(b.left + b.width / 2, b.top); });
   for (const ev of ['pointerleave', 'blur']) node.addEventListener(ev, () => (tip.style.opacity = 0));
 }
+const info = (text) => { const i = el('span', 'i', 'info'); hover(i, text); return i; };
 function rank(node, more, pairs, total, key, label) {
   node.replaceChildren();
   const max = Math.max(1, ...pairs.map((p) => p[1])), top = pairs.slice(0, 8);
@@ -506,7 +522,7 @@ function render() {
   const size = +$('size').value, pages = Math.max(1, Math.ceil(rows.length / size)); page = Math.min(page, pages - 1);
   const body = $('rows'); body.replaceChildren();
   for (const r of rows.slice(page * size, (page + 1) * size)) {
-    const tr = el('tr', null, 'row'); tr.tabIndex = 0;
+    const tr = el('tr', null, 'row' + (r.fresh && Date.now() - r.fresh < 90_000 ? ' fresh' : '')); tr.tabIndex = 0;
     const dev = el('td', null, 'dev'); dev.append(el('b', r.model), el('small', r.type));
     const fw = el('td', null, 'fw'), p = r.firmware.split(' '); fw.append(p[0], el('small', p.slice(1).join(' ')));
     const res = el('td'); res.append(r.story); const tags = el('div', null, 'tags');
@@ -517,9 +533,11 @@ function render() {
     if (r.persist) tags.append(el('span', 'rc.local or crontab changed', 'tag'));
     res.append(tags);
     tr.append(el('td', fmt(r.recv), 'tnum'), dev, fw, res, el('td', fmt(r.first), 'tnum hide-s'), el('td', fmt(r.upSince), 'tnum hide-s'), el('td', '›'));
-    const toggle = () => { if (tr.nextSibling && tr.nextSibling.classList.contains('detail')) { tr.nextSibling.remove(); tr.classList.remove('open'); } else { tr.after(detail(r)); tr.classList.add('open'); } };
+    const toggle = () => { if (opened.delete(r.id)) { tr.nextSibling.remove(); tr.classList.remove('open'); } else { opened.add(r.id); tr.after(detail(r)); tr.classList.add('open'); } };
     tr.addEventListener('click', toggle); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
     body.append(tr);
+    // a report that was open stays open when the live view redraws the table
+    if (opened.has(r.id)) { tr.after(detail(r)); tr.classList.add('open'); }
   }
   if (!rows.length) { const tr = el('tr'), td = el('td', 'No report matches these filters.', 'dim'); td.colSpan = 7; tr.append(td); body.append(tr); }
   $('shown').textContent = `${rows.length.toLocaleString('en')} of ${all.filter((r) => !r.isTest).length.toLocaleString('en')} match the filters`;
@@ -531,18 +549,20 @@ function render() {
   current = rows;
 }
 let current = [];
+const opened = new Set();
 function detail(r) {
   const tr = el('tr', null, 'detail'), td = el('td'), b = el('div', null, 'body'); td.colSpan = 7; tr.append(td); td.append(b);
   const sec = (title, node, full) => { const w = el('div', null, full ? 'full' : ''); w.append(el('h3', title), node); b.append(w); };
   const kv = el('dl', null, 'kv');
   for (const [k, v] of [['Received', fmt(r.recv) + ' UTC'], ['Checked', fmt(ts(r.checked_at)) + ' UTC'], ['Device', `${r.model} · ${r.platform}`], ['Firmware', r.firmware], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Up since', fmt(r.upSince) + ' UTC' + (r.restarted ? ' (restarted since the attack)' : '')], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`]])
-    { const dd = el('dd', v); if (FIELD_WHY[k]) dd.append(el('small', FIELD_WHY[k], 'why')); kv.append(el('dt', k), dd); }
+    { const dt = el('dt', k); if (FIELD_WHY[k]) dt.append(info(FIELD_WHY[k])); kv.append(dt, el('dd', v)); }
   sec('Device and check', kv);
   const tl = el('dl', null, 'kv');
   for (const [k, v] of [['Remote shell started', r.shell_started], ['Shell pipe, last data', r.pipe_time], ['Cloud handler last ran', r.state_file_time], ['First trace', isNaN(r.first) ? '' : fmt(r.first) + ' UTC']]) if (v)
-    { const dd = el('dd', v.includes('UTC') && v.length > 20 ? fmt(ts(v)) + ' UTC' : v); if (FIELD_WHY[k]) dd.append(el('small', FIELD_WHY[k], 'why')); tl.append(el('dt', k), dd); }
+    { const dt = el('dt', k); if (FIELD_WHY[k]) dt.append(info(FIELD_WHY[k])); tl.append(dt, el('dd', v.includes('UTC') && v.length > 20 ? fmt(ts(v)) + ' UTC' : v)); }
   sec('Times', tl.children.length ? tl : el('p', 'No times in this report.', 'dim'));
-  const fl = el('dl', null, 'kv'); for (const f of r.findings) { const k = kindOf(f), dd = el('dd'); dd.append(el('span', f, 'mono')); if (WHY[k]) dd.append(el('small', WHY[k], 'why')); fl.append(el('dt', KIND[k] || k), dd); }
+  const fl = el('ul', null, 'evs');
+  for (const f of r.findings) { const k = kindOf(f), li = el('li'), b = el('span', KIND[k] || k, 'ev'); if (WHY[k]) { b.append(el('i', 'i')); hover(b, WHY[k]); } li.append(b, el('span', f.slice(k.length + 1), 'mono')); fl.append(li); }
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
   if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); row.append(el('td', f.path, 'mono'), el('td', f.sha256, 'mono dim'), el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); t.append(row); } sec('Files', t, true); }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
@@ -571,17 +591,52 @@ $('csv').addEventListener('click', () => {
   const csv = [cols.map((c) => c[0]).join(','), ...current.map((r) => cols.map((c) => cell(c[1](r))).join(','))].join('\r\n');
   const a = el('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'csa-2026-01-reports.csv'; a.click(); URL.revokeObjectURL(a.href);
 });
+/* ---------- loading, and the live view ---------- */
+const BASE = location.pathname.replace(/\/$/, ''), seen = new Set();
+let newest = '', live = true, timer;
+function take(items, fresh) {
+  let n = 0;
+  for (const x of items) {
+    const r = shape(x); if (seen.has(r.id)) continue;
+    seen.add(r.id); if (fresh) r.fresh = Date.now(); if (r.recvIso > newest) newest = r.recvIso; all.push(r); n++;
+  }
+  return n;
+}
+const getJson = async (path) => { const res = await fetch(BASE + path); if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); };
+function liveState(cls, text) { $('live').className = 'sub tnum live ' + cls; $('liveText').textContent = text; }
+// Every 20 seconds: one small request for the time of the newest report; only when that
+// has moved are the new reports fetched. Paused while the tab is in the background.
+async function poll() {
+  clearTimeout(timer);
+  if (!live) return liveState('', 'Live view is off');
+  if (document.visibilityState === 'visible') {
+    try {
+      const { latest } = await getJson('/latest');
+      let added = 0;
+      if (latest > newest) added = take((await getJson('/data?since=' + encodeURIComponent(newest || '1970-01-01T00:00:00.000Z'))).items, true);
+      NOW = Date.now();
+      if (added) render();
+      liveState('on', `Live · checked ${new Date().toISOString().slice(11, 19)} UTC` + (added ? ` · ${added} new` : ''));
+    } catch (e) {
+      // most likely the sign-in has run out: the request is sent to the login page
+      liveState('err', 'Live view interrupted (' + e.message + '). Reload the page to sign in again.');
+    }
+  }
+  timer = setTimeout(poll, 20_000);
+}
+$('liveBtn').addEventListener('click', () => { live = !live; $('liveBtn').textContent = 'Live: ' + (live ? 'on' : 'off'); $('liveBtn').setAttribute('aria-pressed', String(live)); poll(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); });
 (async () => {
   $('status').textContent = 'Loading …';
   try {
     let cursor = '';
     do {
-      const res = await fetch(location.pathname.replace(/\/$/, '') + '/data' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''));
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const page = await res.json();
-      all.push(...page.items.map(shape)); cursor = page.cursor; render();
+      const page = await getJson('/data' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''));
+      take(page.items, false); cursor = page.cursor; render();
     } while (cursor);
     if (!all.length) render();
+    $('live').hidden = $('liveBtn').hidden = false;
+    liveState('on', 'Live'); timer = setTimeout(poll, 20_000);
   } catch (e) { $('status').textContent = 'Could not load the reports: ' + e.message; }
 })();
 </script>
