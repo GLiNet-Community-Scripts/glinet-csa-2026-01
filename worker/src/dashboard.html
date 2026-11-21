@@ -170,19 +170,34 @@ tr.row.fresh td { background: var(--accent-soft); }
 .kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
 .kpis2 .kpi { padding: 12px 14px; background: var(--surface-2); border: 0; }
 .kpis2 .kpi .value { font-size: 24px; }
-.course { margin: 16px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: max-content 18px minmax(0, 1fr); column-gap: 12px; }
-.course li { display: contents; }
-.course .t { padding: 7px 0; font-size: 13.5px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
-.course .rail { position: relative; }
-.course .rail::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--grid); }
-.course li:first-child .rail::before { top: 18px; } .course li:last-child .rail::before { bottom: calc(100% - 18px); }
-.course .rail i { position: absolute; left: 3px; top: 18px; translate: 0 -50%; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--surface); }
-.course .what { padding: 7px 0; }
-.course .what b { font-size: 14.5px; font-weight: 650; }
-.course .what small { display: block; font-size: 12.5px; color: var(--text-2); }
-.course li.gap .t { padding: 2px 0; font-size: 12px; }
-.course li.gap .what { padding: 2px 0; font-size: 12px; color: var(--text-2); }
-.course li.gap .rail i { display: none; }
+/* the attack course: events along a horizontal rail, with room for each */
+.courseBox { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px 28px; align-items: center; margin-top: 6px; }
+.course { margin: 26px 0 6px; padding: 0; list-style: none; display: flex; align-items: flex-start; }
+.course li { position: relative; }
+.course li::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: var(--grid); }
+.course .step { flex: 1 1 0; min-width: 0; padding: 26px 6px 0; text-align: center; }
+.course .step:first-child::before { left: 50%; } .course .step:last-child::before { right: 50%; }
+.course .step i { position: absolute; left: 50%; top: 7px; translate: -50% -50%; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--surface); }
+.course .step b { display: block; font-size: 14px; font-weight: 650; line-height: 1.3; text-wrap: balance; }
+.course .step .t { display: block; margin-top: 3px; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.course .step small { display: block; margin-top: 1px; font-size: 12px; color: var(--text-2); }
+.course .conn { flex: 0 1 96px; min-width: 56px; height: 14px; }
+.course .conn span { position: absolute; left: 50%; top: -20px; translate: -50% 0; padding: 1px 8px; border-radius: 980px; background: var(--surface-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.courseBox .kpis2 { grid-template-columns: 1fr; margin-top: 0; }
+@media (max-width: 1000px) {
+  .courseBox { grid-template-columns: 1fr; }
+  .courseBox .kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* on a narrow screen the rail runs down instead */
+@media (max-width: 700px) {
+  .course { flex-direction: column; align-items: stretch; margin-top: 12px; }
+  .course li::before { left: 6px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
+  .course .step { padding: 4px 0 4px 30px; text-align: left; }
+  .course .step:first-child::before { left: 6px; top: 12px; } .course .step:last-child::before { right: auto; bottom: calc(100% - 12px); }
+  .course .step i { left: 7px; top: 13px; }
+  .course .conn { flex: none; height: auto; padding: 4px 0 4px 30px; }
+  .course .conn span { position: static; translate: none; }
+}
 .strip { position: relative; height: 44px; margin-top: 16px; border-bottom: 1px solid var(--grid); }
 .strip i { position: absolute; bottom: 0; width: 3px; height: 30px; margin-left: -1.5px; border-radius: 2px 2px 0 0; background: var(--s1); cursor: default; }
 .strip i:hover, .strip i:focus-visible { height: 40px; filter: brightness(1.2); }
@@ -267,13 +282,16 @@ tr.row.fresh td { background: var(--accent-soft); }
     <p class="peak" id="peak"></p>
   </section>
 
-  <section class="grid two">
-    <div class="card">
-      <h2>How an attack ran</h2>
-      <p class="sub" id="courseSub"></p>
+  <section class="card" style="margin-top:12px">
+    <h2>How an attack ran</h2>
+    <p class="sub" id="courseSub"></p>
+    <div class="courseBox">
       <ol class="course" id="course"></ol>
       <div class="grid kpis2" id="courseStats"></div>
     </div>
+  </section>
+
+  <section class="grid" style="margin-top:12px">
     <div class="card">
       <h2>Ports of the remote shells</h2>
       <p class="sub">Every shell used its own port on the attacker’s server. One tick per shell.</p>
@@ -623,16 +641,14 @@ function course(hit) {
     ['Last data through the shell', hit.map((r) => ts(r.pipe_time))], ['Cloud handler last ran', hit.map((r) => ts(r.state_file_time))], ['Device checked', hit.map((r) => (isFinite(r.first) ? ts(r.checked_at) : NaN))]]
     .map(([name, list]) => ({ name, t: median(list), n: list.filter((x) => isFinite(x)).length })).filter((m) => isFinite(m.t)).sort((a, b) => a.t - b.t);
   const ol = $('course'); ol.replaceChildren();
-  // one row per event down a rail: time on the left, what happened on the right, and
-  // between two events how much later the next one came
+  // events along a rail from left to right, each with its time and how many devices it
+  // rests on; between two events, how much later the next one came
   marks.forEach((m, i) => {
-    if (i) { const g = el('li', null, 'gap'); g.append(el('span', '', 't'), el('span', null, 'rail'), el('span', dur(m.t - marks[i - 1].t) + ' later', 'what')); ol.append(g); }
-    const li = el('li'), rail = el('span', null, 'rail'), what = el('span', null, 'what'); rail.append(el('i'));
-    what.append(el('b', m.name), el('small', m.n === 1 ? 'from 1 device' : `middle value of ${m.n} devices`));
-    li.append(el('span', fmt(m.t), 't'), rail, what); ol.append(li);
+    if (i) { const g = el('li', null, 'conn'); g.append(el('span', '+ ' + dur(m.t - marks[i - 1].t))); ol.append(g); }
+    const li = el('li', null, 'step'); li.append(el('i'), el('b', m.name), el('span', fmt(m.t), 't'), el('small', m.n === 1 ? '1 device' : m.n + ' devices')); ol.append(li);
   });
   const active = median(hit.map((r) => ts(r.pipe_time) - ts(r.shell_started)).filter((d) => d >= 0)), found = median(hit.map((r) => ts(r.checked_at) - r.first).filter((d) => d >= 0));
-  $('courseSub').textContent = marks.length ? 'The middle value of each time across the devices in this selection, in order. Times are UTC.' : 'No report with times in this selection (needs script 2.2 or newer).';
+  $('courseSub').textContent = marks.length ? 'The middle value of each time across the devices in this selection, from left to right. Times are UTC.' : 'No report with times in this selection (needs script 2.2 or newer).';
   $('courseStats').replaceChildren(kpi('Attacker active for', dur(active), null, 'From the start of the shell to the last data through it.'), kpi('Found after', dur(found), null, 'From the first trace to the check that reported it.'));
 }
 // One tick per shell port. If later shells got higher ports, the server handed them out in
