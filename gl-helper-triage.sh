@@ -37,7 +37,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.4
+VERSION=2.5
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -951,6 +951,8 @@ build_report() {
 		f=$(cat "$(r etc/version.build)" 2>/dev/null); [ -n "$f" ] && fw="$fw build $f"
 		f=$(cut -c1-10 "$(r etc/version.date)" 2>/dev/null); [ -n "$f" ] && fw="$fw $f"
 	fi
+	# KVM devices keep it in /etc/version: RK_VERSION=V1.10.2 release1
+	[ -n "$fw" ] || fw=$(sed -n 's/^RK_VERSION=//p' "$(r etc/version)" 2>/dev/null | head -n 1)
 	up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
 	quick=false
 	grep -q "^IOC${TAB}process${TAB}[0-9]*${TAB}GL.iNet's quick check" "$FIND" && quick=true
