@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>gl-helper triage for GL.iNet routers and KVMs (CSA-2026-01)</title>
+<meta name="description" content="A community script that checks a GL.iNet router or KVM for the malware from GL.iNet's security notice of 20 November 2026, saves the evidence and cleans up. Not an official GL.iNet tool.">
+<meta property="og:title" content="gl-helper triage for GL.iNet routers and KVMs">
+<meta property="og:description" content="Check a device for the malware from GL.iNet's security notice of 20 November 2026, save the evidence, then clean up. Community work, not an official GL.iNet tool.">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<p class="bar">Community project. Not affiliated with, endorsed by or operated by GL.iNet.</p>
+
+<header class="wrap hero">
+  <img src="logo.svg" width="240" height="200" alt="A seal resting on a patched-up router">
+  <p class="eyebrow"><a href="https://gl-i.net/security/csa-2026-01/">Advisory CSA-2026-01</a> · Community fix</p>
+  <h1>Check your GL.iNet device for the gl-helper malware</h1>
+  <p class="sub">On 20 November 2026 GL.iNet said that its cloud remote management had been abused to install malware on some routers and KVM devices. This script checks a device for the known traces, saves the evidence and removes them on request.</p>
+</header>
+
+<main class="wrap">
+  <section class="warn" aria-labelledby="h-warn">
+    <h2 id="h-warn">Read this first</h2>
+    <ul>
+      <li><b>This is community work, not a GL.iNet tool.</b> GL.iNet has not reviewed or endorsed it. Use it at your own risk.</li>
+      <li><b>It does not replace a factory reset.</b> GL.iNet recommends a reset. The script finds and removes only the traces we know of.</li>
+      <li><b>In a business network, wait.</b> Talk to your cyber insurer or incident response provider before you change or reset the device.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="h-run">
+    <h2 id="h-run">Run it</h2>
+    <p>Log in to the device over SSH as root. You can <a href="https://github.com/admonstrator/glinet-csa-2026-01/blob/main/gl-helper-triage.sh">read the script</a> first.</p>
+    <ol class="steps">
+      <li>
+        <h3>Check</h3>
+        <p>Reads only and prints a report. Nothing is changed.</p>
+        <div class="term"><pre><code>wget -q https://app.gl-i.net/csa-2026-01-fix -O gl-helper-triage.sh ; sh gl-helper-triage.sh</code></pre><button type="button" class="copy">Copy</button></div>
+      </li>
+      <li>
+        <h3>Save the evidence</h3>
+        <p>Writes an archive to <code>/tmp</code>. That is RAM: copy it to your computer before you reboot. It contains your configuration, possibly with Wi-Fi and VPN keys, so don't post it anywhere.</p>
+        <div class="term"><pre><code>sh gl-helper-triage.sh --archive</code></pre><button type="button" class="copy">Copy</button></div>
+      </li>
+      <li>
+        <h3>Clean up</h3>
+        <p>Only if the check found something. Saves the evidence again, stops the malware, removes its files and autostart entries, then checks again.</p>
+        <div class="term"><pre><code>sh gl-helper-triage.sh --fix</code></pre><button type="button" class="copy">Copy</button></div>
+      </li>
+    </ol>
+    <p class="fine">Don't run <code>netstat</code> on a device you suspect. The malware replaces it. The script never calls it.</p>
+  </section>
+
+  <section aria-labelledby="h-report">
+    <h2 id="h-report">Reading the report</h2>
+    <div class="scroll" tabindex="0" role="region" aria-labelledby="h-report">
+      <table>
+        <thead><tr><th>Label</th><th>Meaning</th><th><code>--fix</code></th></tr></thead>
+        <tbody>
+          <tr><td><code>IOC</code></td><td>A known trace of the malware</td><td>Removes it</td></tr>
+          <tr><td><code>PERSIST</code></td><td>A changed <code>rc.local</code> or root crontab without a reference to the malware</td><td>Resets it only when an IOC was found</td></tr>
+          <tr><td><code>REVIEW</code></td><td>An unusual change that you should look at yourself</td><td>Never touches it</td></tr>
+          <tr><td><code>INFO</code></td><td>Context, for example files installed by a package</td><td>Never touches it</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Exit codes: <code>0</code> clean, <code>1</code> traces found, <code>2</code> fixed and clean, <code>3</code> fix incomplete, <code>4</code> error.</p>
+  </section>
+
+  <section aria-labelledby="h-ioc">
+    <h2 id="h-ioc">What it looks for</h2>
+    <p>The traces come from the cleanup GL.iNet shipped in the KVM firmware RM1PE 1.10.2. That cleanup runs when one of these files exists:</p>
+    <ul class="files">
+      <li><code>/etc/glinet/.cache/gl-helper</code></li>
+      <li><code>/etc/glinet/.cache/gb</code></li>
+      <li><code>/etc/config/.gl/gl-helper</code></li>
+      <li><code>/etc/config/.gl/gb</code></li>
+    </ul>
+    <p>The script also finds system tools that were replaced (for example <code>netstat</code>), processes started from these paths, and autostart entries that point to them: crontabs, <code>rc.local</code>, init scripts and the lists of files a firmware update keeps. <a href="https://github.com/admonstrator/glinet-csa-2026-01#-indicators">All details are in the README</a>.</p>
+  </section>
+
+  <section aria-labelledby="h-after">
+    <h2 id="h-after">Afterwards</h2>
+    <ul>
+      <li>Keep the evidence archive.</li>
+      <li>KVM: update to the fixed firmware.</li>
+      <li>Router: update <b>without keeping settings</b>. The malware hides in <code>/etc/config</code>, which an update with kept settings preserves.</li>
+      <li>A factory reset wipes everything the malware could have written and is the safe option on both.</li>
+      <li>Check the computer attached to a KVM, and the devices behind a router.</li>
+      <li>Change the device password, your GL.iNet cloud account password and your SSH keys.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="h-links">
+    <h2 id="h-links">More</h2>
+    <ul class="links">
+      <li><a href="https://gl-i.net/security/csa-2026-01/">Advisory CSA-2026-01 on gl-i.net</a><span>What happened and what GL.iNet recommends</span></li>
+      <li><a href="https://www.gl-inet.com/blogs/blog/glinet-security-notice-2026-11-20">GL.iNet's security notice</a><span>The official statement</span></li>
+      <li><a href="https://github.com/admonstrator/glinet-csa-2026-01">Source code and README on GitHub</a><span>All options, the remote script, tests and limits</span></li>
+      <li><a href="https://github.com/admonstrator/glinet-csa-2026-01/issues">Report a problem</a><span>Bugs and false alarms. Never attach an evidence archive.</span></li>
+    </ul>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>Made by <a href="https://github.com/Admonstrator">Admon</a> for the GL.iNet community. MIT licence. Provided as-is, without any warranty. GL.iNet is a trademark of its owner.</p>
+</footer>
+
+<script>
+for (const b of document.querySelectorAll('.copy')) {
+  b.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(b.previousElementSibling.textContent);
+      b.textContent = 'Copied';
+    } catch { b.textContent = 'Select and copy'; }
+    setTimeout(() => (b.textContent = 'Copy'), 2000);
+  });
+}
+</script>
+</body>
+</html>
