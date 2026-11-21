@@ -236,11 +236,22 @@ check, uptime, the number of findings per label, the kind and path of each `IOC`
 `PERSIST` finding, whether GL.iNet's quick check hit, and for the reported remote shell
 its start time, the remote port and the time of its pipe. For the implant's own files and
 for replaced system tools it adds the SHA-256, size and time of the file, and it gives
-the time of the cloud handler's state file. `REVIEW` findings are only counted: they are
-your own changes more often than not.
+the time of the cloud handler's state file.
 
-It does not contain the host name, any address or key of the device, or any file. The
-receiving [worker](worker/) stores no IP address.
+When indicators were found, it also contains what the attacker left, as text:
+
+- from changed autostart files (`rc.local`, the root crontab, init scripts that start the
+  implant) the lines that are not in the firmware image, up to 20 per file. From the
+  lists of files a firmware update keeps, only the lines that name the implant.
+- the rules of the firewall chain `SDWAN_IP_MAPPING`, which the reported attack writes to,
+- the command lines of the implant's and the remote shell's processes.
+
+**Your own lines in those files are part of this**, for example a line you added to
+`rc.local` or the crontab. The script prints everything before it asks, and says so when
+such lines are included. Read them, and answer `n` if one of them is a password or token.
+
+It does not contain the host name or any other file. `REVIEW` findings are only counted.
+The receiving [worker](worker/) stores no IP address.
 
 ---
 

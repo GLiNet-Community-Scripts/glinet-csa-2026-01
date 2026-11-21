@@ -20,6 +20,12 @@ const good = {
 };
 const file = { path: '/etc/config/.gl/gl-helper', sha256: 'a'.repeat(64), size: 123456, mtime: '2026-11-20 21:40:30 UTC' };
 const good2 = { ...good, schema: 2, tool: '2.2', state_file_time: '2026-11-20 22:15:18 UTC', files: [file] };
+const good3 = {
+  ...good2, schema: 3, tool: '2.3',
+  persistence: [{ path: '/etc/rc.local', lines: ['/etc/config/.gl/gl-helper -d >/dev/null 2>&1 &'] }],
+  fw_rules: ['nat: -A SDWAN_IP_MAPPING -d 127.0.0.1/32 -j DNAT --to-destination 127.0.0.1'],
+  commands: ['sh -c iptables -t nat -A SDWAN_IP_MAPPING -d 127.0.0.1 -j DNAT --to-destination 127.0.0.1;(while true;do rm -f /tmp/f;done) "x" \\ &'],
+};
 const call = (method, body, headers = {}, path = '/') =>
   worker.fetch(new Request(`https://example.org${path}`, { method, body, headers }), env);
 
@@ -42,7 +48,13 @@ if (process.argv[2] === 'serve') {
   expect('refuses a missing field', (await call('POST', JSON.stringify({ ...good, model: undefined }))).status === 400);
   expect('refuses odd characters', (await call('POST', JSON.stringify({ ...good, model: '<script>' }))).status === 400);
   expect('refuses a long list', (await call('POST', JSON.stringify({ ...good, findings: Array(41).fill('x') }))).status === 400);
-  expect('refuses a large body', (await call('POST', 'x'.repeat(9000))).status === 413);
+  expect('refuses a large body', (await call('POST', 'x'.repeat(25000))).status === 413);
+  expect('a schema 3 report is valid', validate(good3) === null && validate({ ...good3, persistence: [], fw_rules: [], commands: [] }) === null);
+  expect('schema 2 must not carry schema 3 fields', validate({ ...good2, commands: [] }) !== null);
+  expect('refuses control characters in free text', validate({ ...good3, commands: ['a\u0007b'] }) !== null && validate({ ...good3, fw_rules: ['a\nb'] }) !== null);
+  expect('refuses non-ASCII in free text', validate({ ...good3, commands: ['caf\u00e9'] }) !== null);
+  expect('refuses long lines and long lists', validate({ ...good3, fw_rules: ['x'.repeat(301)] }) !== null && validate({ ...good3, persistence: [{ path: '/x', lines: Array(21).fill('a') }] }) !== null);
+  expect('refuses an extra field in a persistence entry', validate({ ...good3, persistence: [{ path: '/x', lines: [], mode: 1 }] }) !== null);
   expect('a schema 2 report is valid', validate(good2) === null && validate({ ...good2, files: [] }) === null);
   expect('schema 1 must not carry schema 2 fields', validate({ ...good, files: [] }) !== null);
   expect('schema 2 needs its fields', validate({ ...good, schema: 2 }) !== null);

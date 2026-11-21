@@ -5,7 +5,7 @@
 
 import { DASHBOARD } from './dashboard.js';
 
-const MAX_BYTES = 8192;
+const MAX_BYTES = 24576;
 const SAFE = /^[A-Za-z0-9 ._:\/+@=,()-]*$/;
 const TIME = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)?$/;
 
@@ -16,7 +16,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1 || v === 2,
+  schema: (v) => v === 1 || v === 2 || v === 3,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -41,12 +41,21 @@ const isFile = (v) =>
   Object.keys(v).length === Object.keys(FILE).length && Object.entries(FILE).every(([k, ok]) => ok(v[k]));
 const FIELDS_V2 = { ...FIELDS, state_file_time: time, files: list(12, isFile) };
 
+// Since script 2.3 (schema 3): what the attacker left, as free text: changed lines of
+// autostart files, the rules of the firewall chain the attack used, command lines of its
+// processes. Printable ASCII only; the dashboard shows it as text, never as HTML.
+const txt = (max) => (v) => typeof v === 'string' && v.length <= max && /^[\x20-\x7e]*$/.test(v);
+const isPersist = (v) =>
+  v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 2 &&
+  str(120)(v.path) && list(20, txt(300))(v.lines);
+const FIELDS_V3 = { ...FIELDS_V2, persistence: list(6, isPersist), fw_rules: list(10, txt(300)), commands: list(5, txt(400)) };
+
 const text = (body, status = 200) =>
   new Response(body + '\n', { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  const fields = report.schema === 2 ? FIELDS_V2 : FIELDS;
+  const fields = report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
   for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
   for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;

@@ -37,7 +37,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.2
+VERSION=2.3
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -930,11 +930,17 @@ recommend() {
 
 # ---------------------------------------------------------------- anonymous report
 # A few facts for the community's picture of the incident. Built from the first scan,
-# before anything is changed. No host name, no address or key of the device, no file.
+# before anything is changed. When indicators were found it also carries what the attacker
+# left: the changed lines of autostart files, the firewall rules of the chain the attack
+# used, and the command lines of its processes. All of it is shown before it is sent.
+# JSON string of free text: printable ASCII only, tabs become spaces, quotes escaped.
+jtxt() { printf '"%s"' "$(printf '%s' "$1" | tr '\t' ' ' | tr -cd '\40-\176' | cut -c1-"${2:-300}" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+jlines() { while IFS= read -r line; do printf '%s,' "$(jtxt "$line" "${1:-300}")"; done | sed 's/,$//'; }
+
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
 build_report() {
-	local model fw up quick started ports ptime list files stime f
+	local model fw up quick started ports ptime list files stime f persist rules cmds kind
 	model=$(cat /proc/gl-hw-info/model 2>/dev/null)
 	[ -n "$model" ] || model=$(cat /tmp/sysinfo/model 2>/dev/null)
 	fw=$(cat "$(r etc/glversion)" 2>/dev/null)
@@ -967,9 +973,30 @@ build_report() {
 		done | sed 's/,$//')
 	stime=
 	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)")
+	# What the attacker left, only when indicators were found. Autostart files: the lines
+	# that are not in the base image (up to 20 per file); from the lists of files a
+	# firmware update keeps only the lines that name the implant, the rest is yours.
+	persist='' rules='' cmds=''
+	if [ "$(count IOC)" -gt 0 ]; then
+		persist=$(awk -F '\t' '$2=="persist-ref" || $2=="keep-ref" || $2=="persistence" {print $2 "\t" $3}' "$FIND" | sort -u -k2 | head -n 6 |
+			while IFS="$TAB" read -r kind f; do
+				[ -f "$(r "${f#/}")" ] || continue
+				if [ "$kind" = keep-ref ]; then
+					grep -E "$IOC_RE" "$(r "${f#/}")"
+				elif [ -n "$LOWER" ] && [ -f "$(l "${f#/}")" ]; then
+					grep -vxFf "$(l "${f#/}")" "$(r "${f#/}")"
+				else
+					cat "$(r "${f#/}")"
+				fi 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 20 >"$TMP/plines"
+				printf '{"path": %s, "lines": [%s]},' "$(jstr "$f" 120)" "$(jlines <"$TMP/plines")"
+			done | sed 's/,$//')
+		# the chain the reported attack writes to, as it is now
+		[ -s "$TMP/fw-rules" ] && rules=$(awk -F '\t' '$2 ~ /^-A SDWAN_IP_MAPPING / {print $1 ": " $2}' "$TMP/fw-rules" | head -n 10 | jlines)
+		cmds=$(grep "^IOC${TAB}process${TAB}" "$FIND" | sed -n 's/.* cmd=//p' | sort -u | head -n 5 | jlines 400)
+	fi
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 2,
+"schema": 3,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -985,7 +1012,10 @@ build_report() {
 "shell_ports": [$ports],
 "pipe_time": $(jstr "$ptime"),
 "state_file_time": $(jstr "$stime"),
-"files": [$files]
+"files": [$files],
+"persistence": [$persist],
+"fw_rules": [$rules],
+"commands": [$cmds]
 }
 EOF
 }
@@ -1010,7 +1040,11 @@ offer_report() {
 	say "   Help the community see which devices were hit. Only this would be sent,"
 	say "   to $REPORT_URL:"
 	sed 's/^/      /' "$TMP/report.json" >&3
-	say "   ${D}No host name, no address or key of this device, no file contents. The sender's address is not stored.${N}"
+	say "   ${D}No host name and no file of this device. The sender's address is not stored.${N}"
+	if ! grep -q '^"persistence": \[\],$' "$TMP/report.json" || ! grep -q '^"fw_rules": \[\],$' "$TMP/report.json"; then
+		say "   ${YEL}It contains lines from your autostart files or firewall, exactly as shown above.${N}"
+		say "   ${YEL}Check that none of them is a password or token of yours before you send.${N}"
+	fi
 	if [ "$REPORT" != yes ]; then
 		if [ -t 0 ] && [ -t 3 ]; then
 			printf '   Send it? [y/N] ' >&3
