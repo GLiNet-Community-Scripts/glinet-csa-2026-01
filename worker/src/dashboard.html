@@ -590,7 +590,7 @@ function detail(r) {
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
   if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); row.append(el('td', f.path, 'mono'), el('td', f.sha256, 'mono dim'), el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); t.append(row); } sec('Files', t, true); }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
-  if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines in autostart files that are not in the firmware', w, true); }
+  if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
   if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);
   return tr;
 }

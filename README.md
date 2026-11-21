@@ -260,9 +260,11 @@ the time of the cloud handler's state file.
 
 When indicators were found, it also contains what the attacker left, as text:
 
-- from changed autostart files (`rc.local`, the root crontab, init scripts that start the
-  implant) the lines that are not in the firmware image, up to 20 per file. From the
-  lists of files a firmware update keeps, only the lines that name the implant.
+- `/etc/rc.local` in full when it was changed (up to 60 lines), because what stands around
+  the attacker's line matters too. From the other changed autostart files (the root
+  crontab, init scripts that start the implant) the lines that are not in the firmware
+  image, up to 20 per file. From the lists of files a firmware update keeps, only the
+  lines that name the implant.
 - the rules of the firewall chain `SDWAN_IP_MAPPING`, which the reported attack writes to,
 - the command lines of the implant's and the remote shell's processes.
 

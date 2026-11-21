@@ -66,7 +66,7 @@ if (process.argv[2] === 'serve') {
   expect('schema 2 must not carry schema 3 fields', validate({ ...good2, commands: [] }) !== null);
   expect('refuses control characters in free text', validate({ ...good3, commands: ['a\u0007b'] }) !== null && validate({ ...good3, fw_rules: ['a\nb'] }) !== null);
   expect('refuses non-ASCII in free text', validate({ ...good3, commands: ['caf\u00e9'] }) !== null);
-  expect('refuses long lines and long lists', validate({ ...good3, fw_rules: ['x'.repeat(301)] }) !== null && validate({ ...good3, persistence: [{ path: '/x', lines: Array(21).fill('a') }] }) !== null);
+  expect('refuses long lines and long lists', validate({ ...good3, fw_rules: ['x'.repeat(301)] }) !== null && validate({ ...good3, persistence: [{ path: '/x', lines: Array(61).fill('a') }] }) !== null && validate({ ...good3, persistence: [{ path: '/etc/rc.local', lines: Array(60).fill('a') }] }) === null);
   expect('refuses an extra field in a persistence entry', validate({ ...good3, persistence: [{ path: '/x', lines: [], mode: 1 }] }) !== null);
   expect('a schema 2 report is valid', validate(good2) === null && validate({ ...good2, files: [] }) === null);
   expect('schema 1 must not carry schema 2 fields', validate({ ...good, files: [] }) !== null);

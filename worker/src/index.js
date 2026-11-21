@@ -47,7 +47,7 @@ const FIELDS_V2 = { ...FIELDS, state_file_time: time, files: list(12, isFile) };
 const txt = (max) => (v) => typeof v === 'string' && v.length <= max && /^[\x20-\x7e]*$/.test(v);
 const isPersist = (v) =>
   v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 2 &&
-  str(120)(v.path) && list(20, txt(300))(v.lines);
+  str(120)(v.path) && list(60, txt(300))(v.lines);
 const FIELDS_V3 = { ...FIELDS_V2, persistence: list(6, isPersist), fw_rules: list(10, txt(300)), commands: list(5, txt(400)) };
 
 // Since script 2.9 (schema 4): a device id, so that repeated reports from one device can

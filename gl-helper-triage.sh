@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.10
+VERSION=2.11
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -1028,7 +1028,7 @@ jlines() { while IFS= read -r line; do printf '%s,' "$(jtxt "$line" "${1:-300}")
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
 build_report() {
-	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid
+	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid n
 	# Device ID: the hardware address of the first network interface, hashed. The address
 	# itself never leaves the device.
 	devid=''
@@ -1080,22 +1080,27 @@ build_report() {
 		done | sed 's/,$//')
 	stime=
 	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)")
-	# What the attacker left, only when indicators were found. Autostart files: the lines
-	# that are not in the base image (up to 20 per file); from the lists of files a
-	# firmware update keeps only the lines that name the implant, the rest is yours.
+	# What the attacker left, only when indicators were found. /etc/rc.local in full (up
+	# to 60 lines); other autostart files: the lines that are not in the base image (up to
+	# 20 per file); from the lists of files a firmware update keeps only the lines that
+	# name the implant, the rest is yours.
 	persist='' rules='' cmds=''
 	: >"$TMP/rlines"   # the same lines as plain text, to show before asking
 	if [ "$(count IOC)" -gt 0 ]; then
 		persist=$(awk -F '\t' '$2=="persist-ref" || $2=="keep-ref" || $2=="persistence" {print $2 "\t" $3}' "$FIND" | sort -u -k2 | head -n 6 |
 			while IFS="$TAB" read -r kind f; do
 				[ -f "$(r "${f#/}")" ] || continue
+				n=20
 				if [ "$kind" = keep-ref ]; then
 					grep -E "$IOC_RE" "$(r "${f#/}")"
+				elif [ "$f" = /etc/rc.local ]; then
+					# the whole file: what stands around the attacker's line matters too
+					n=60; cat "$(r "${f#/}")"
 				elif [ -n "$LOWER" ] && [ -f "$(l "${f#/}")" ]; then
 					grep -vxFf "$(l "${f#/}")" "$(r "${f#/}")"
 				else
 					cat "$(r "${f#/}")"
-				fi 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 20 >"$TMP/plines"
+				fi 2>/dev/null | grep -v '^[[:space:]]*$' | head -n "$n" >"$TMP/plines"
 				sed "s|^|$f:  |" "$TMP/plines" >>"$TMP/rlines"
 				printf '{"path": %s, "lines": [%s]},' "$(jstr "$f" 120)" "$(jlines <"$TMP/plines")"
 			done | sed 's/,$//')
@@ -1176,7 +1181,7 @@ offer_report() {
 	fi
 	grep -q '^"device_id": "..*"$' "$TMP/report.json" && ysay "And a device ID (a hash, not an address), so repeated reports count once."
 	if [ -s "$TMP/rlines" ]; then
-		ysay "And these lines from your autostart files and firewall, word for word:"
+		ysay "And these lines from your autostart files (rc.local in full) and firewall:"
 		sed 's/^/        /' "$TMP/rlines" >&3
 		ysay "If one of them is a password or token of yours, do not send."
 	fi
