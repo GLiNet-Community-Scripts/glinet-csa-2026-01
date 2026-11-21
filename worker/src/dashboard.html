@@ -294,6 +294,12 @@ const FIELD_WHY = {
 const kindOf = (f) => { const w = f.split(' '); return w[0] === 'process' ? w[0] + ' ' + w[1] : w[0]; };
 
 
+// Lines that every rc.local has: they come with the firmware and say nothing about the
+// attack. rc.local is sent in full, so these would lead the grouped list on every device.
+// They are left out there only; a single report still shows its rc.local as it was sent.
+const STOCK = new Set(['exit 0', '. /lib/functions/gl_util.sh', '#!/bin/sh', '#!/bin/sh /etc/rc.common']);
+const stock = (line) => { const t = line.trim(); return t === '' || t.startsWith('#') || STOCK.has(t); };
+
 function shape(x) {
   const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', ...x.report };
   r.id = x.id || x.received + JSON.stringify(x.report).length;
@@ -532,7 +538,7 @@ function render() {
   const block = (title, pairs) => { if (!pairs.length) return; const d = el('div'); d.append(el('h3', title + (pairs.length > 4 ? ` (4 of ${pairs.length})` : '')));
     for (const [line, n] of pairs.slice(0, 4)) { const p = el('pre', line); p.prepend(el('span', n + '×', 'count')); d.append(p); } left.append(d); };
   block('Commands of its processes', count(hit, (r) => [...new Set(r.commands.map(norm))]));
-  block('Lines in autostart files', count(hit, (r) => [...new Set(r.persistence.flatMap((p) => p.lines.map((l) => p.path + ':  ' + l)))]));
+  block('Lines in autostart files (firmware defaults and comments left out)', count(hit, (r) => [...new Set(r.persistence.flatMap((p) => p.lines.filter((l) => !stock(l)).map((l) => p.path + ':  ' + l)))]));
   block('Firewall chain SDWAN_IP_MAPPING', count(hit, (r) => [...new Set(r.fw_rules)]));
   if (!left.children.length) left.append(el('p', 'No report with this content in this selection (needs script 2.3 or newer).', 'dim'));
 
