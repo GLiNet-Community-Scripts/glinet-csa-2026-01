@@ -148,9 +148,13 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 | `--archive [-o DIR]` | Report plus evidence archive in `DIR` (default `/tmp`) |
 | `--archive --stdout` | Evidence archive to stdout, log to stderr |
 | `--fix [-o DIR]` | Archive first (aborts if that fails), then remediate and re-check |
+| `--color`, `--no-color` | Force or disable coloured output. By default colours are used only on a terminal; `NO_COLOR=1` also turns them off. |
 
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
 `4` error.
+
+The report groups its findings by label and ends with a summary and a verdict. The copy
+in the evidence archive is always plain text.
 
 Findings are labeled:
 

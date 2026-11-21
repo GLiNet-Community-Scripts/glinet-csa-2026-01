@@ -62,11 +62,11 @@ mnt "$D" "$KVM_LOWER"
 run "$D" "$KVM_LOWER" --check >"$D/check.txt"; rc=$?
 cat "$D/check.txt"
 expect "check exit 1 (infected)" '[ $rc = 1 ]'
-expect "3 markers" '[ $(grep -c "^\[IOC *\] marker" "$D/check.txt") = 3 ]'
+expect "3 markers" '[ $(grep -c "^ *IOC  *marker" "$D/check.txt") = 3 ]'
 expect "netstat + ls hijack" 'grep -q "applet-hijack *\/usr\/bin\/netstat" "$D/check.txt" && grep -q "applet-hijack *\/bin\/ls" "$D/check.txt"'
 expect "rc.local + crontab + init script reference IOC" '[ $(grep -c "persist-ref" "$D/check.txt") = 3 ] && grep -q "persist-ref *\/etc\/init.d\/S99update-helper" "$D/check.txt"'
-expect "wget = REVIEW modified-binary" 'grep -q "REVIEW *\] modified-binary *\/usr\/bin\/wget" "$D/check.txt"'
-expect "authorized_keys + hidden = REVIEW" 'grep -q "REVIEW *\] new *\/root\/.ssh\/authorized_keys" "$D/check.txt" && grep -q "hidden-note" "$D/check.txt"'
+expect "wget = REVIEW modified-binary" 'grep -q "REVIEW  *modified-binary *\/usr\/bin\/wget" "$D/check.txt"'
+expect "authorized_keys + hidden = REVIEW" 'grep -q "REVIEW  *new *\/root\/.ssh\/authorized_keys" "$D/check.txt" && grep -q "hidden-note" "$D/check.txt"'
 expect "uid0 backdoor account" 'grep -A1 "uid0-account" "$D/check.txt" | grep -q backdoor'
 expect "identical copy-up (hostname) ignored" '! grep -q "/etc/hostname" "$D/check.txt"'
 run "$D" "$KVM_LOWER" --fix >"$D/fix.txt"; rc=$?
@@ -110,11 +110,11 @@ expect "whiteout really created" '[ -c "$U/etc/uci-defaults/10_firstboot" ]'
 expect "whiteout (deleted uci-defaults) not reported" '! grep -q "10_firstboot" "$D/check.txt"'
 expect "absolute vs relative symlink to busybox not reported" '! grep -q "/bin/login" "$D/check.txt"'
 expect "check exit 1" '[ $rc = 1 ]'
-expect "platform openwrt" 'grep -q "platform=openwrt" "$D/check.txt"'
+expect "platform openwrt" 'grep -q "Platform  *openwrt" "$D/check.txt"'
 expect "markers 2 + crontab + netstat + init script + keep list = 6 IOC" 'grep -q "Summary: IOC=6 " "$D/check.txt" && grep -q "keep-ref *\/etc\/sysupgrade.conf" "$D/check.txt"'
-expect "custom rc.local = PERSIST (not IOC)" 'grep -q "PERSIST *\] persistence *\/etc\/rc.local" "$D/check.txt"'
+expect "custom rc.local = PERSIST (not IOC)" 'grep -q "PERSIST  *persistence *\/etc\/rc.local" "$D/check.txt"'
 expect "known service link S19dnsmasq ignored" '! grep -q "S19dnsmasq" "$D/check.txt"'
-expect "benign new service + rc.d link = REVIEW" 'grep -q "REVIEW *\] new *\/etc\/rc.d\/S99gl-update" "$D/check.txt" && grep -q "REVIEW *\] new *\/etc\/init.d\/gl-update" "$D/check.txt"'
+expect "benign new service + rc.d link = REVIEW" 'grep -q "REVIEW  *new *\/etc\/rc.d\/S99gl-update" "$D/check.txt" && grep -q "REVIEW  *new *\/etc\/init.d\/gl-update" "$D/check.txt"'
 expect "dropbear host key ignored" '! grep -q "host_key" "$D/check.txt"'
 expect "recommendation warns about keep-settings" 'grep -q "WITHOUT keeping settings" "$D/check.txt"'
 run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
@@ -136,7 +136,7 @@ echo '*/5 * * * * /etc/config/.gl/gb' >"$U/etc/crontabs/root"
 printf 'trojan\n' >"$U/usr/bin/netstat"
 mnt "$D" "$KVM_LOWER"
 run "$D" "$KVM_LOWER" --check >"$D/check.txt"; rc=$?
-grep -E '^\[|Summary|Verdict' "$D/check.txt"
+grep -E '^ +(IOC|PERSIST|REVIEW|INFO) |Summary|Verdict' "$D/check.txt"
 expect "detected without markers (exit 1, IOC=2)" '[ $rc = 1 ] && grep -q "Summary: IOC=2 " "$D/check.txt"'
 run "$D" "$KVM_LOWER" --fix >/dev/null; rc=$?
 expect "fixed (exit 2)" '[ $rc = 2 ] && [ ! -e "$D/m/etc/crontabs/root" ] && [ -L "$D/m/usr/bin/netstat" ]'
@@ -163,7 +163,7 @@ printf 'real netstat\n' >"$U/usr/bin/netstat"
 { cat "$OWL/lib/apk/db/installed"; printf 'P:net-tools-netstat\nF:usr/bin\nR:netstat\n\n'; } >"$U/lib/apk/db/installed"
 mnt "$D" "$OWL"
 run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
-grep -E '^\[|Summary' "$D/check.txt"
+grep -E '^ +(IOC|PERSIST|REVIEW|INFO) |Summary' "$D/check.txt"
 expect "package netstat is INFO, exit 0" '[ $rc = 0 ] && grep -q "installed by package net-tools-netstat" "$D/check.txt"'
 umount "$D/m"
 

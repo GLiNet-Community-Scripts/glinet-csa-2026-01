@@ -11,6 +11,9 @@
 #   sh gl-helper-triage.sh --archive --stdout   stream the evidence tar.gz to stdout
 #   sh gl-helper-triage.sh --fix [-o DIR]       archive first (mandatory), then remediate
 #
+# Output is coloured on a terminal. --color forces colours (e.g. through ssh without a
+# tty), --no-color or NO_COLOR=1 turns them off. The report in the archive is plain text.
+#
 # From a PC (or use triage-remote.sh, which pulls and verifies the evidence before fixing):
 #   ssh root@DEVICE 'sh -s -- --check' < gl-helper-triage.sh
 #   ssh root@DEVICE 'sh -s -- --archive --stdout' < gl-helper-triage.sh > evidence.tar.gz
@@ -28,7 +31,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.1
+VERSION=1.2
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -41,7 +44,7 @@ IOC_RE='gl-helper|/\.gl/|/\.cache/gb'
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
-MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0
+MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto
 
 usage() {
 	cat <<'EOF'
@@ -54,6 +57,7 @@ gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" impla
   --fix                archive (mandatory), kill IOC processes, remove IOC persistence,
                        restore replaced base files from the read-only image
   -o, --out DIR        output directory for the archive
+  --color, --no-color  force or disable coloured output (default: only on a terminal)
   --root/--upper/--lower DIR   override merged root, overlay upper and base image
   -V, --version        print version
 
@@ -61,7 +65,18 @@ Exit: 0 clean, 1 IOC found, 2 fixed, 3 fix incomplete, 4 error
 EOF
 }
 
-die() { printf 'ERROR: %s\n' "$*" >&2; exit 4; }
+# Colours: empty strings unless switched on, so every message works both ways.
+palette() {
+	if [ "$1" = 1 ]; then
+		ESC=$(printf '\033')
+		N="$ESC[0m" B="$ESC[1m" D="$ESC[2m"
+		RED="$ESC[1;31m" YEL="$ESC[33m" CYA="$ESC[36m" GRN="$ESC[32m"
+	else
+		N='' B='' D='' RED='' YEL='' CYA='' GRN=''
+	fi
+}
+palette 0
+die() { printf '%sERROR:%s %s\n' "$RED" "$N" "$*" >&2; exit 4; }
 
 while [ $# -gt 0 ]; do
 	case $1 in
@@ -69,6 +84,8 @@ while [ $# -gt 0 ]; do
 	--archive) MODE=archive ;;
 	--fix) MODE=fix ;;
 	--stdout) STDOUT=1 ;;
+	--color) COLOR=1 ;;
+	--no-color) COLOR=0 ;;
 	-o | --out) [ $# -ge 2 ] || die "$1 needs a directory"; OUTDIR=$2; shift ;;
 	--root) [ $# -ge 2 ] || die "$1 needs a directory"; ROOT=$2; shift ;;
 	--upper) [ $# -ge 2 ] || die "$1 needs a directory"; UPPER=$2; UPPER_SET=1; shift ;;
@@ -84,6 +101,14 @@ done
 # Log goes to fd 3: stdout normally, stderr when the archive itself goes to stdout.
 if [ "$STDOUT" = 1 ]; then exec 3>&2; else exec 3>&1; fi
 say() { printf '%s\n' "$*" >&3; }
+if [ "$COLOR" = auto ]; then
+	COLOR=0
+	[ -t 3 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ] && COLOR=1
+fi
+palette "$COLOR"
+head() { say ""; say "${B}== $*${N}"; }
+kv() { printf '   %s%-14s%s %s\n' "$D" "$1" "$N" "$2" >&3; }
+act() { say "   ${GRN}$*${N}"; }
 umask 077
 
 TMP=${TMPDIR:-/tmp}/.gl-triage.$$
@@ -135,6 +160,7 @@ else
 fi
 HOST=$(printf '%s' "${HOST:-unknown}" | tr -c 'A-Za-z0-9._-' '_')
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+WHEN=$(printf '%s' "$STAMP" | sed 's/^\(....\)\(..\)\(..\)T\(..\)\(..\)\(..\)Z$/\1-\2-\3 \4:\5:\6 UTC/')
 
 filecmp() {
 	if command -v cmp >/dev/null 2>&1; then cmp -s "$1" "$2"; return; fi
@@ -388,29 +414,59 @@ detect() {
 
 count() { grep -c "^$1${TAB}" "$FIND"; }
 
+level_color() {
+	case $1 in IOC) printf '%s' "$RED" ;; PERSIST) printf '%s' "$YEL" ;; REVIEW) printf '%s' "$CYA" ;; *) printf '%s' "$D" ;; esac
+}
+
+# "IOC=3", coloured like its level unless the count is 0
+tally() {
+	local n
+	n=$(count "$1")
+	if [ "$n" -gt 0 ]; then printf '%s%s=%s%s' "$(level_color "$1")" "$1" "$n" "$N"; else printf '%s%s=0%s' "$D" "$1" "$N"; fi
+}
+
 report() {
 	local n_ioc lvl pat
 	n_ioc=$(count IOC)
-	say "== gl-helper triage $VERSION  host=$HOST  platform=$PLATFORM  time=$STAMP  mode=$MODE"
-	say "   root=$ROOT  upper=${UPPER:-none}  lower=${LOWER:-none}  trusted-busybox=$TRUSTED"
-	[ "$TRUSTED" = no ] && say "   WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered"
-	[ -z "$UPPER" ] && say "   NOTE: overlay upper layer unknown, results are less precise"
+	say "${B}== gl-helper triage $VERSION${N}  ${D}(CSA-2026-01)${N}"
+	kv Host "$HOST"
+	kv Platform "$PLATFORM"
+	kv Time "$WHEN"
+	kv Mode "$MODE"
+	kv Root "$ROOT"
+	kv Overlay "${UPPER:-unknown}"
+	kv "Base image" "${LOWER:-none}"
+	kv "Trusted tools" "$TRUSTED"
+	[ "$TRUSTED" = no ] && say "   ${YEL}WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered${N}"
+	[ -z "$UPPER" ] && say "   ${YEL}NOTE: overlay upper layer unknown, results are less precise${N}"
 	if [ -s "$FIND" ]; then
-		say ""
+		head "Findings"
 		for lvl in IOC PERSIST REVIEW INFO; do
-			grep "^$lvl${TAB}" "$FIND" | awk -F '\t' '{printf "[%-7s] %-15s %s\n          %s\n", $1, $2, $3, $4}' >&3
+			[ "$(count "$lvl")" -gt 0 ] || continue
+			say ""
+			grep "^$lvl${TAB}" "$FIND" | awk -F '\t' -v c="$(level_color "$lvl")" -v n="$N" -v b="$B" -v d="$D" \
+				'{printf "   %s%-8s%s %-15s %s%s%s\n   %24s %s%s%s\n", c, $1, n, $2, b, $3, n, "", d, $4, n}' >&3
 		done
 	fi
 	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ]; then
 		decode_tcp >"$TMP/established"
-		say ""
-		say "Established IPv4 TCP connections: $(wc -l <"$TMP/established" | tr -d ' ') (full list in the archive)"
+		head "Network"
+		say "   Established IPv4 TCP connections: $(wc -l <"$TMP/established" | tr -d ' ') ${D}(full list in the archive)${N}"
 		pat=$(awk -F '\t' '$1=="IOC" && $2=="process" {printf "%s  %s/", sep, $3; sep="|"}' "$FIND")
-		[ -n "$pat" ] && grep -E "$pat" "$TMP/established" | sed 's/^/   IOC process connection: /' >&3
+		[ -n "$pat" ] && grep -E "$pat" "$TMP/established" | sed "s/^/   ${RED}IOC process connection:${N} /" >&3
 	fi
+	head "Result"
+	say "   Summary: $(tally IOC) $(tally PERSIST) $(tally REVIEW) $(tally INFO)"
+	[ "$(count IOC)" -gt 0 ] && say "   ${RED}IOC${N}      a known trace of the implant. --fix removes it."
+	[ "$(count PERSIST)" -gt 0 ] && say "   ${YEL}PERSIST${N}  a changed rc.local or root crontab. --fix resets it only when an IOC was found."
+	[ "$(count REVIEW)" -gt 0 ] && say "   ${CYA}REVIEW${N}   an unusual change, not proof of an infection. Check whether it is yours. Never modified."
+	[ "$(count INFO)" -gt 0 ] && say "   ${D}INFO     context, for example files installed by a package.${N}"
 	say ""
-	say "Summary: IOC=$n_ioc PERSIST=$(count PERSIST) REVIEW=$(count REVIEW) INFO=$(count INFO)"
-	if [ "$n_ioc" -gt 0 ]; then say "Verdict: INFECTED - gl-helper indicators found"; else say "Verdict: no gl-helper indicators found"; fi
+	if [ "$n_ioc" -gt 0 ]; then
+		say "   ${RED}Verdict: INFECTED - gl-helper indicators found${N}"
+	else
+		say "   ${GRN}${B}Verdict: no gl-helper indicators found${N}"
+	fi
 }
 
 # ---------------------------------------------------------------- archive
@@ -420,7 +476,9 @@ collect() {
 	E=$TMP/evidence
 	mkdir -p "$E/meta" "$E/overlay" "$E/files" "$E/proc" "$E/net" "$E/logs" "$E/etc"
 	cp "$FIND" "$E/findings.tsv"
+	palette 0
 	report 3>"$E/report.txt"
+	palette "$COLOR"
 
 	{
 		echo "tool: gl-helper-triage $VERSION"
@@ -504,7 +562,7 @@ collect() {
 
 	if [ "$STDOUT" = 1 ]; then
 		tar -C "$TMP" -czf - evidence || die "writing archive to stdout failed"
-		say "Evidence archive written to stdout."
+		say "   Evidence archive written to stdout."
 		return 0
 	fi
 	mkdir -p "$OUTDIR" || die "cannot create $OUTDIR"
@@ -512,11 +570,11 @@ collect() {
 	tar -C "$TMP" -czf "$ARCHIVE" evidence || { rm -f "$ARCHIVE"; die "writing $ARCHIVE failed"; }
 	tar -tzf "$ARCHIVE" >/dev/null 2>&1 || die "archive verification failed: $ARCHIVE"
 	(cd "$OUTDIR" && sha256sum "${ARCHIVE##*/}" >"${ARCHIVE##*/}.sha256")
-	say ""
-	say "Evidence archive: $ARCHIVE"
-	say "  sha256:         $(cut -d ' ' -f1 "$ARCHIVE.sha256")"
+	head "Evidence archive"
+	kv File "${B}$ARCHIVE${N}"
+	kv sha256 "$(cut -d ' ' -f1 "$ARCHIVE.sha256")"
 	case $OUTDIR in /tmp | /tmp/* | /var/run* | /run* | /var/tmp*)
-		say "  /tmp is RAM: copy it off the device before rebooting." ;;
+		say "   ${YEL}/tmp is RAM: copy it off the device before rebooting.${N}" ;;
 	esac
 }
 
@@ -525,9 +583,9 @@ restore_from_lower() {
 	local p="$1"
 	rm -rf "$(r "$p")" || return 1
 	if [ -n "$LOWER" ] && exists "$(l "$p")"; then
-		cp -a "$(l "$p")" "$(r "$p")" && say "   restored /$p from base image"
+		cp -a "$(l "$p")" "$(r "$p")" && act "restored /$p from base image"
 	else
-		say "   removed /$p (not in base image)"
+		act "removed /$p (not in base image)"
 	fi
 }
 
@@ -536,26 +594,25 @@ fix() {
 	if [ "$LIVE" = 1 ] && [ "$(id -u)" != 0 ]; then die "--fix needs root"; fi
 	if [ "$(count IOC)" = 0 ]; then
 		say ""
-		say "No IOC found, nothing to remediate. REVIEW items were not touched."
+		say "   No IOC found, nothing to remediate. REVIEW items were not touched."
 		return 0
 	fi
-	say ""
-	say "== Remediation"
+	head "Remediation"
 	# 1. processes: freeze all first so they cannot restart each other, then kill
 	awk -F '\t' '$1=="IOC" && $2=="process" {print $3}' "$FIND" | sort -u >"$TMP/pids"
 	while read -r pid; do kill -STOP "$pid" 2>/dev/null; done <"$TMP/pids"
-	while read -r pid; do kill -KILL "$pid" 2>/dev/null && say "   killed pid $pid"; done <"$TMP/pids"
+	while read -r pid; do kill -KILL "$pid" 2>/dev/null && act "killed pid $pid"; done <"$TMP/pids"
 	# 2. the implant's own files
 	for p in $MARKER_DIRS; do
 		exists "$(r "$p")" || continue
-		if rm -rf "$(r "$p")"; then say "   removed /$p"; else failed=1; fi
+		if rm -rf "$(r "$p")"; then act "removed /$p"; else failed=1; fi
 	done
 	# 3. persistence, only because an IOC was found (same set as the vendor cleanup)
 	for p in $PERSIST; do
 		exists "$(src "$p")" || continue
 		same_as_lower "$p" && continue
 		restore_from_lower "$p" || failed=1
-		say "     (previous version: files/merged/$p in the archive)"
+		say "     ${D}(previous version: files/merged/$p in the archive)${N}"
 	done
 	# 4. other files that start the implant (init scripts, hotplug, profile, ...)
 	#    and replaced applets: put the base image version back or remove them
@@ -572,7 +629,7 @@ fix() {
 		for f in "$(r etc/rc.d)"/*; do
 			[ -L "$f" ] || continue
 			grep -qxF "$(readlink "$f" | sed 's#.*/##')" "$TMP/removed-init" || continue
-			rm -f "$f" && say "   removed service link /etc/rc.d/${f##*/}"
+			rm -f "$f" && act "removed service link /etc/rc.d/${f##*/}"
 		done
 	fi
 	# 6. sysupgrade keep lists: drop only the lines that keep implant paths
@@ -580,13 +637,13 @@ fix() {
 		f=$(r "$p")
 		[ -f "$f" ] || continue
 		grep -vE "$IOC_RE" "$f" >"$TMP/keep.new"
-		cat "$TMP/keep.new" >"$f" && say "   removed gl-helper lines from /$p" || echo fail >>"$TMP/fixfail"
+		cat "$TMP/keep.new" >"$f" && act "removed gl-helper lines from /$p" || echo fail >>"$TMP/fixfail"
 	done
 	[ -f "$TMP/fixfail" ] && failed=1
 	# 7. make cron forget a removed crontab (KVM: S50crond, OpenWrt: cron)
 	if [ "$LIVE" = 1 ]; then
 		for s in /etc/init.d/S50crond /etc/init.d/cron; do
-			[ -x "$s" ] && "$s" restart >/dev/null 2>&1 && say "   restarted cron ($s)" && break
+			[ -x "$s" ] && "$s" restart >/dev/null 2>&1 && act "restarted cron ($s)" && break
 		done
 		sync
 	fi
@@ -594,23 +651,22 @@ fix() {
 }
 
 recommend() {
-	say ""
-	say "Next steps:"
-	say " - Copy the evidence archive off the device and keep it."
+	head "Next steps"
+	say "   - Copy the evidence archive off the device and keep it."
 	case $PLATFORM in
 	openwrt)
-		say " - Update the firmware WITHOUT keeping settings: OpenWrt keeps /etc/config across"
-		say "   sysupgrade, and the implant hides in /etc/config/.gl."
-		say " - A factory reset (firstboot / reset button) wipes the whole overlay and is the safe option."
-		say " - Check every client that used this router as gateway or DNS." ;;
+		say "   - Update the firmware WITHOUT keeping settings: OpenWrt keeps /etc/config across"
+		say "     sysupgrade, and the implant hides in /etc/config/.gl."
+		say "   - A factory reset (firstboot / reset button) wipes the whole overlay and is the safe option."
+		say "   - Check every client that used this router as gateway or DNS." ;;
 	glkvm-*)
-		say " - Update to fixed firmware (RM1PE 1.10.2 removes these IOCs at every boot)."
-		say " - A factory reset is still recommended: this cleanup only removes known IOCs."
-		say " - Check the computer connected to the KVM (unknown software, accounts, autostart)." ;;
+		say "   - Update to fixed firmware (RM1PE 1.10.2 removes these IOCs at every boot)."
+		say "   - A factory reset is still recommended: this cleanup only removes known IOCs."
+		say "   - Check the computer connected to the KVM (unknown software, accounts, autostart)." ;;
 	*)
-		say " - Update the firmware and do a factory reset: this cleanup only removes known IOCs." ;;
+		say "   - Update the firmware and do a factory reset: this cleanup only removes known IOCs." ;;
 	esac
-	say " - Change the device password, the GL.iNet cloud account password and SSH keys."
+	say "   - Change the device password, the GL.iNet cloud account password and SSH keys."
 }
 
 # ---------------------------------------------------------------- main
@@ -636,16 +692,15 @@ fix)
 	FIXRC=$?
 	sleep 2
 	detect "$TMP/findings.after"
-	say ""
-	say "== Re-check after remediation"
+	head "Re-check after remediation"
 	if [ "$(count IOC)" -gt 0 ]; then
 		grep "^IOC${TAB}" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
-		say "Verdict: remediation INCOMPLETE"
+		say "   ${RED}Verdict: remediation INCOMPLETE${N}"
 		recommend
 		exit 3
 	fi
-	if [ "$FIXRC" != 0 ]; then say "Verdict: IOCs gone, but some steps reported errors"; recommend; exit 3; fi
-	say "Verdict: no gl-helper indicators left"
+	if [ "$FIXRC" != 0 ]; then say "   ${YEL}Verdict: IOCs gone, but some steps reported errors${N}"; recommend; exit 3; fi
+	say "   ${GRN}${B}Verdict: no gl-helper indicators left${N}"
 	recommend
 	exit 2
 	;;

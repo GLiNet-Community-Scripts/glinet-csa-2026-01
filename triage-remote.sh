@@ -37,6 +37,10 @@ done
 [[ -r $script ]] || { echo "missing $script" >&2; exit 4; }
 mkdir -p "$outdir"
 
+# The device has no terminal on its side, so tell it when ours can show colours.
+color=
+[[ -t 1 && -z ${NO_COLOR:-} ]] && color=--color
+
 ctl=$(mktemp -d)
 # shellcheck disable=SC2154 # $s is the loop variable inside the trap string
 trap 'for s in "$ctl"/cm-*; do [[ -S $s ]] && ssh -o ControlPath="$s" -O exit x 2>/dev/null; done; rm -rf "$ctl"' EXIT
@@ -51,7 +55,7 @@ for target in "$@"; do
 	# shellcheck disable=SC2029 # the options are meant to reach the remote sh
 	run() { ssh ${ssh_opts[@]+"${ssh_opts[@]}"} "${cm[@]}" "$target" "sh -s -- $*" <"$script"; }
 
-	run --check
+	run --check $color
 	rc=$?
 	if (( rc >= 4 || rc == 255 )); then
 		echo "!! $target: check failed (exit $rc)"; note 4; continue
@@ -80,7 +84,7 @@ for target in "$@"; do
 
 	echo
 	echo "-- remediating $target"
-	run --fix
+	run --fix $color
 	frc=$?
 	note "$frc"
 	case $frc in
