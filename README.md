@@ -219,7 +219,7 @@ Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomp
 `4` error.
 
 The head of the report appears at once. While the checks run, a line shows which of the
-eight steps is in progress. The report groups its findings by label and ends with a summary and a verdict. The copy
+nine steps is in progress. The report groups its findings by label and ends with a summary and a verdict. The copy
 in the evidence archive is always plain text.
 
 Findings are labeled:
@@ -229,6 +229,14 @@ Findings are labeled:
   `--fix` resets it only when an IOC was found, like the vendor cleanup.
 - `REVIEW`: unusual change. Archived and reported, never modified.
 - `INFO`: context, for example files installed by a package.
+
+Below the findings the report lists, under "Credentials on this device", the keys and VPN
+profiles stored on the device: root's SSH client keys with their fingerprint, WireGuard
+and AmneziaWG private keys of the GL.iNet client and server, OpenVPN client profiles,
+the ZeroTier identity and the Tailscale state. It shows names
+and counts, never the content. These are not findings: they are listed with or without
+indicators and are never part of the anonymous report. Other passwords and tokens in the
+configuration are not listed.
 
 ---
 
@@ -319,6 +327,7 @@ On the device `/tmp` is RAM. Copy the archive off the device before rebooting.
 - If the device was hit, everything it held a key for is exposed as well. Remove the
   router's VPN profile on the server or with the VPN provider and create a new one,
   and remove the router's SSH keys from every machine that trusts them.
+  The report lists the keys and profiles it found under "Credentials on this device".
   [RemoteToHome's recovery steps](https://github.com/RemoteToHome-io/gl-security-incident-2026#if-you-find-something) go through each kind of VPN.
 - Until GL.iNet's security firmware is installed, consider switching GoodCloud off on
   the device. [RemoteToHome](https://github.com/RemoteToHome-io/gl-security-incident-2026#reducing-exposure-until-fixed-firmware-is-installed)
