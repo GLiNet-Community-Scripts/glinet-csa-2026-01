@@ -161,6 +161,24 @@ if (process.argv[2] === 'serve') {
   expect('reports still work', (await call('POST', JSON.stringify(good))).status === 200);
   globalThis.fetch = before;
 
+  // device id (schema 4)
+  const good4 = { ...good3, schema: 4, tool: '2.9', device_id: '0123456789abcdef' };
+  const lastReport = () => JSON.parse([...store.entries()].filter(([k]) => k.startsWith('csa-2026-01/')).at(-1)[1]).report;
+  expect('a schema 4 report is valid, with or without an id', validate(good4) === null && validate({ ...good4, device_id: '' }) === null);
+  expect('refuses a device id that is not 16 hex characters', validate({ ...good4, device_id: 'aa:bb:cc:dd:ee:ff' }) !== null && validate({ ...good4, device_id: '0123456789ABCDEF' }) !== null);
+  expect('schema 3 must not carry a device id', validate({ ...good3, device_id: '' }) !== null);
+  await call('POST', JSON.stringify(good4));
+  expect('without the secret the id is dropped', lastReport().device_id === '');
+  env.DEVICE_SALT = 'test-salt';
+  await call('POST', JSON.stringify(good4)); const sealed = lastReport().device_id;
+  expect('with the secret a short sealed id is stored, not what was sent', /^[0-9a-f]{12}$/.test(sealed) && !'0123456789abcdef'.includes(sealed) && !JSON.stringify(lastReport()).includes('0123456789abcdef'));
+  await call('POST', JSON.stringify({ ...good4, model: 'again' }));
+  expect('the same device gets the same id', lastReport().device_id === sealed);
+  await call('POST', JSON.stringify({ ...good4, device_id: 'fedcba9876543210' }));
+  expect('another device gets another id', lastReport().device_id !== sealed && lastReport().device_id.length === 12);
+  env.DEVICE_SALT = 'other-salt'; await call('POST', JSON.stringify(good4));
+  expect('another secret gives another id', lastReport().device_id !== sealed); env.DEVICE_SALT = 'test-salt';
+
   // ---- the same worker on D1
   const kvReports = [...store.keys()].filter((k) => k.startsWith('csa-2026-01/')).length;
   const auth = { authorization: 'Bearer test-token' }, mig = (q = '') => call('POST', undefined, auth, '/csa-2026-01-report/migrate' + q);

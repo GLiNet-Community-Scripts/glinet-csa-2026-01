@@ -132,6 +132,25 @@ script download keeps its copy there.
 To go back, remove the `[[d1_databases]]` block and deploy: the worker uses KV again.
 Reports that arrived in D1 in the meantime are then not shown.
 
+## Telling devices apart
+
+From script 2.9 a report carries a device id, so that ten reports from one device are not
+read as ten devices. The script sends a hash of a hardware address. Such a hash can be
+reversed by trying all addresses of a manufacturer, so the worker does not store it: it
+stores an HMAC of it with a secret, shortened to 12 characters. Set the secret once:
+
+```bash
+npx wrangler secret put DEVICE_SALT
+```
+
+Enter a long random value and keep it: with a new value the same device gets a new id,
+and reports before and after no longer match. Without the secret the worker drops the id
+and every report counts on its own, as before.
+
+In the dashboard "One row per device" folds repeated reports into one. The report with
+the most known traces stands for the device, so a device that was hit and later cleaned
+still counts as hit.
+
 ## Serving the script
 
 The worker also serves the script itself at `https://app.gl-i.net/csa-2026-01-fix`, so a

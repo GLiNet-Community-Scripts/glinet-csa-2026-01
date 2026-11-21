@@ -16,7 +16,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1 || v === 2 || v === 3,
+  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -50,12 +50,26 @@ const isPersist = (v) =>
   str(120)(v.path) && list(20, txt(300))(v.lines);
 const FIELDS_V3 = { ...FIELDS_V2, persistence: list(6, isPersist), fw_rules: list(10, txt(300)), commands: list(5, txt(400)) };
 
+// Since script 2.9 (schema 4): a device id, so that repeated reports from one device can
+// be told apart from reports of many devices. The script sends a hash of a hardware
+// address. A plain hash of a MAC address can be reversed by trying all addresses, so the
+// worker never stores what it receives: it stores an HMAC of it with the secret
+// DEVICE_SALT, shortened. Without that secret the id is dropped.
+const FIELDS_V4 = { ...FIELDS_V3, device_id: (v) => typeof v === 'string' && /^([0-9a-f]{16})?$/.test(v) };
+
+async function sealDeviceId(env, id) {
+  if (!env.DEVICE_SALT || !id) return '';
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DEVICE_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(id)));
+  return [...mac.slice(0, 6)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 const text = (body, status = 200) =>
   new Response(body + '\n', { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  const fields = report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
+  const fields = report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
   for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
   for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;
@@ -137,6 +151,7 @@ async function submit(request, env) {
   }
   const problem = validate(report);
   if (problem) return text(problem, 400);
+  if ('device_id' in report) report.device_id = await sealDeviceId(env, report.device_id);
   await reports.add(env, new Date().toISOString(), report);
   return text('stored, thank you');
 }
