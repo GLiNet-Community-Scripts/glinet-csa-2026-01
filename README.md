@@ -93,7 +93,14 @@ In the same thread users reported a remote root shell on GL-AXT1800 routers (fir
 `170.39.226.219`. GL.iNet has not confirmed that it belongs to this incident. The script
 reports such processes and open connections to that address as `IOC` and says so.
 
-Both are checks of what is running **right now**. `/tmp` is RAM: after a restart these
+The script also looks at where every running program comes from. A program started
+from a RAM disk (`/tmp`, `/var`, `/run`) is in neither the base image nor the overlay, so
+the file checks cannot see it. Such programs, and programs that are not in the base image
+or differ from it, are listed as `REVIEW` (`INFO` when a package installed them). A script
+that a shell from the base image runs, like the remote shell above, is not caught this
+way; only the patterns above find it.
+
+These are all checks of what is running **right now**. `/tmp` is RAM: after a restart these
 traces are gone, and a clean result does not show that a device was never compromised.
 `--fix` stops the processes. It cannot tell what started them.
 

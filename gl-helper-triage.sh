@@ -33,7 +33,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.3
+VERSION=1.4
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -374,6 +374,7 @@ check_procs() {
 	[ "$LIVE" = 1 ] && [ -r /proc/1/cmdline ] || return 0
 	: >"$TMP/procs"
 	: >"$TMP/sockets"
+	: >"$TMP/exes"
 	local d pid exe comm cmd
 	for d in /proc/[0-9]*; do
 		pid=${d#/proc/}
@@ -405,7 +406,46 @@ check_procs() {
 		fi
 		case "$exe" in
 		*' (deleted)') add REVIEW deleted-exe "$pid" "running from deleted binary: comm=$comm exe=$exe" ;;
+		/*) printf '%s\t%s\n' "$exe" "$pid" >>"$TMP/exes" ;;
 		esac
+	done
+	check_exes
+}
+
+# Where does every running program come from? Anything that is not the unchanged file
+# from the read-only base image is listed: programs started from a RAM disk (they are in
+# neither the base image nor the overlay, so the file checks cannot see them), programs
+# that are not in the base image and programs that differ from it. Packages are INFO.
+# A script run by a shell from the base image is not caught here; the patterns above are.
+check_exes() {
+	local exe rel pids owner
+	cut -f1 "$TMP/exes" | sort -u | while IFS= read -r exe; do
+		pids=$(awk -F '\t' -v e="$exe" '$1==e {printf "%s%s", sep, $2; sep=","}' "$TMP/exes")
+		grep -q "^IOC${TAB}applet-hijack${TAB}${exe}${TAB}" "$FIND" && continue
+		case $exe in
+		/tmp/* | /var/* | /run/* | /dev/shm/*)
+			add REVIEW running "$exe" "started from a RAM disk, in neither the base image nor the overlay (pid $pids)"
+			continue ;;
+		esac
+		[ -n "$LOWER" ] || continue
+		case $exe in "${LOWER%/}"/*) continue ;; esac
+		rel=${exe#/}
+		if exists "$(l "$rel")"; then
+			[ -f "$exe" ] && [ -f "$(l "$rel")" ] && filecmp "$exe" "$(l "$rel")" && continue
+			owner=$(pkg_owner "$exe")
+			if [ -n "$owner" ]; then
+				add INFO running "$exe" "differs from the base image, installed by package $owner (pid $pids)"
+			else
+				add REVIEW running "$exe" "differs from the base image, not owned by a package (pid $pids)"
+			fi
+		else
+			owner=$(pkg_owner "$exe")
+			if [ -n "$owner" ]; then
+				add INFO running "$exe" "not in the base image, installed by package $owner (pid $pids)"
+			else
+				add REVIEW running "$exe" "not in the base image, not owned by a package (pid $pids)"
+			fi
+		fi
 	done
 }
 
