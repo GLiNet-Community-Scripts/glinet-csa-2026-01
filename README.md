@@ -29,7 +29,8 @@ GL.iNet routers and KVM devices. The community advisory is
 This repository contains a triage script for the implant known as "gl-helper". It runs on
 GL.iNet KVMs (RM1 family, buildroot based) and on GL.iNet / OpenWrt routers.
 
-Created by [Admon](https://forum.gl-inet.com/u/admon/) for the GL.iNet community.
+By [Admon](https://forum.gl-inet.com/u/admon/) and the community: [RemoteToHome Consulting](https://remotetohome.io)
+and users of GL.iNet's forum contributed findings and checks. See [Credits](#-credits).
 
 > 🎖️ **Community Maintained** – Part of the [GL.iNet Toolbox](https://github.com/Admonstrator/glinet-toolbox) project  
 > ⚠️ **Independent Project** – Not affiliated with GL.iNet
@@ -417,6 +418,6 @@ This project is licensed under the **MIT License** – see the [LICENSE](LICENSE
 
 [![GL.iNet Toolbox](https://img.shields.io/badge/🧰_GL.iNet_Toolbox-Explore_All_Tools-blue?style=for-the-badge)](https://github.com/Admonstrator/glinet-toolbox)
 
-**Made with ❤️ by [Admon](https://github.com/Admonstrator) for the GL.iNet Community**
+**Made with ❤️ by [Admon](https://github.com/Admonstrator) and the GL.iNet community**
 
 </div>
