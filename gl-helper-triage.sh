@@ -147,7 +147,7 @@ act() { say "   ${GRN}$*${N}"; }
 # Progress while the checks run, so the screen is not empty until the report is ready.
 # On a terminal one line is overwritten and removed at the end; otherwise (pipe, ssh
 # without a terminal) each step is a line of its own.
-STEPS=8
+STEPS=9
 TTY=0
 [ -t 3 ] && [ "${TERM:-dumb}" != dumb ] && TTY=1
 progress() {
@@ -410,6 +410,70 @@ check_review() {
 	fi
 }
 
+# Credentials stored on the device. Whoever had a root shell on it could copy them, and
+# neither --fix nor a firmware update nor a factory reset takes them back: they stay valid
+# at the other end until they are revoked there. They are listed so the owner knows what
+# to revoke: root's SSH client keys and what the VPN clients and the WireGuard server of
+# GL.iNet firmware keep. Names and counts only, never the content; for an
+# SSH key the fingerprint of its public half. This goes to its own file, not to the
+# findings, so none of it is in the anonymous report. Other passwords and tokens in the
+# configuration are not looked for.
+cred() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$TMP/creds"; }
+
+# Number of lines "option <name> <value>" with a value that is not empty. $1 file, $2 name
+uci_count() {
+	grep -cE "^[[:space:]]*option[[:space:]]+$2[[:space:]]+['\"]?[^'\"[:space:]]" "$1" 2>/dev/null </dev/null
+}
+
+check_credentials() {
+	local f n dk fp zt
+	: >"$TMP/creds"
+	# dropbearkey from the read-only image, for the same reason as busybox above
+	dk=
+	[ -n "$LOWER" ] && [ -x "$(l usr/bin/dropbearkey)" ] && dk=$(l usr/bin/dropbearkey)
+	# SSH client keys of root: ~/.ssh/id_dropbear is the name dropbear's help recommends
+	# for client keys, the others are the usual OpenSSH names. The file name comes from
+	# the device, so only its plain characters are printed.
+	for f in "$(r root/.ssh)"/id_*; do
+		[ -f "$f" ] || continue
+		case $f in *.pub) continue ;; esac
+		fp=
+		[ -n "$dk" ] && fp=$("$dk" -y -f "$f" 2>/dev/null </dev/null | sed -n 's/^Fingerprint: *//p' | head -n 1)
+		cred "SSH client key" "$(printf '%s' "${f#"${ROOT%/}"}" | tr -c 'A-Za-z0-9._/@+=,:-' '?')" "${fp:-fingerprint not available}"
+	done
+	# WireGuard and AmneziaWG on GL.iNet firmware: the client keys are in
+	# /etc/config/wireguard (in a profile or once for a group of profiles), the server
+	# key is in /etc/config/wireguard_server
+	for f in etc/config/wireguard etc/config/wireguard_server; do
+		n=$(uci_count "$(r "$f")" private_key)
+		[ "${n:-0}" -gt 0 ] || continue
+		case $f in
+		*/wireguard) cred "WireGuard client" "/$f" "$n private key(s)" ;;
+		*) cred "WireGuard server" "/$f" "$n private key(s)" ;;
+		esac
+	done
+	# OpenVPN client on GL.iNet firmware: profiles are .ovpn files below /etc/openvpn/profiles
+	f=$(r etc/openvpn/profiles)
+	if [ -d "$f" ]; then
+		n=$(find "$f" -type f -name '*.ovpn' 2>/dev/null | wc -l | tr -d ' ')
+		[ "${n:-0}" -gt 0 ] && cred "OpenVPN client" /etc/openvpn/profiles "$n profile(s)"
+	fi
+	# ZeroTier: OpenWrt's init script keeps the identity in /etc/config/zerotier and writes
+	# identity.secret to a RAM disk at every start; the KVM firmware keeps the file itself.
+	# One identity, so one line.
+	zt=
+	n=$(uci_count "$(r etc/config/zerotier)" secret)
+	[ "${n:-0}" -gt 0 ] && zt=etc/config/zerotier
+	for f in etc/kvmd/user/zerotier/identity.secret var/lib/zerotier-one/identity.secret; do
+		[ -z "$zt" ] && [ -s "$(r "$f")" ] && zt=$f
+	done
+	[ -n "$zt" ] && cred "ZeroTier" "/$zt" "identity of this node"
+	# Tailscale on GL.iNet routers: the state file
+	f=etc/tailscale/tailscaled.state
+	[ -s "$(r "$f")" ] && cred "Tailscale" "/$f" "state of this node, with its key once it was signed in"
+	return 0
+}
+
 # When a process started, in UTC, from its start tick in /proc/<pid>/stat and the boot
 # time. The reported shells all started at about the same time (21:40 UTC, 2026-11-20).
 proc_start() {
@@ -627,6 +691,7 @@ detect() {
 		done
 	fi
 	progress "other changes in the overlay"; check_review
+	progress "stored keys and VPN profiles"; check_credentials
 	progress_end
 }
 
@@ -699,6 +764,14 @@ report_body() {
 				'{ r = $0; sub(/^[^:]*: /, "", r); if (r ~ re) printf "   %s%s%s\n", red, $0, n; else printf "   %s\n", $0 }' >&3
 			[ "$(wc -l <"$TMP/fw-redirect")" -gt 40 ] && say "   ${D}... more in the archive${N}"
 		fi
+	fi
+	if [ -s "$TMP/creds" ]; then
+		section "Credentials on this device"
+		say "   Keys and VPN profiles stored here. Whoever had a shell on this device could copy them."
+		say "   ${D}Not findings, and not in the anonymous report. Other passwords and tokens are not listed.${N}"
+		awk -F '\t' -v b="$B" -v n="$N" -v d="$D" \
+			'{printf "   %-16s %s%s%s\n   %16s %s%s%s\n", $1, b, $2, n, "", d, $3, n}' "$TMP/creds" >&3
+		[ "$n_ioc" -gt 0 ] && say "   ${YEL}Indicators were found: treat all of these as copied and revoke them where they are trusted.${N}"
 	fi
 	section "Result"
 	say "   Summary: $(tally IOC) $(tally PERSIST) $(tally REVIEW) $(tally INFO)"
@@ -934,6 +1007,8 @@ recommend() {
 	say "   - Everything this device held a key for is exposed too: remove its VPN profile on the"
 	say "     server or with the VPN provider and create a new one, and remove its SSH keys from"
 	say "     every machine that trusts them."
+	[ -s "$TMP/creds" ] && say "     What was found on this device is listed above under \"Credentials on this device\"."
+	return 0
 }
 
 # ---------------------------------------------------------------- anonymous report

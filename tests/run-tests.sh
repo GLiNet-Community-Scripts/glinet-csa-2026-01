@@ -211,5 +211,62 @@ run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
 expect "fix removes the pipe, exit 2" '[ $rc = 2 ] && [ ! -e "$D/m/tmp/f" ] && grep -q "removed the pipe" "$D/fix.txt"'
 umount "$D/m"
 
+echo; echo "=== 9. Stored SSH client keys and VPN credentials are listed, without their content"
+C() { sed -n '/== Credentials/,/== Result/p' "$D/check.txt"; }   # the credentials section only
+OWC=$BASE/openwrt-rom-creds
+cp -a "$OWL" "$OWC"
+# what the firmware ships without any secret: an empty ZeroTier secret, VPN configuration
+# without keys, an empty ZeroTier directory (KVM)
+mkdir -p "$OWC/etc/config" "$OWC/etc/kvmd/user/zerotier"
+printf "config zerotier 'sample_config'\n\toption enabled '0'\n\toption secret ''\n" >"$OWC/etc/config/zerotier"
+printf "config providers 'FromApp'\n\toption auth_type '1'\n" >"$OWC/etc/config/wireguard"
+printf "config servers 'main_server'\n\toption port '51820'\n" >"$OWC/etc/config/wireguard_server"
+printf '#!/bin/sh\necho "Public key portion is:"\necho "ssh-ed25519 AAAATESTPUB root@test"\necho "Fingerprint: SHA256:TESTFINGERPRINT"\n' >"$OWC/usr/bin/dropbearkey"; chmod 755 "$OWC/usr/bin/dropbearkey"
+D=$(mkscen nocreds "$OWC")
+mnt "$D" "$OWC"
+run "$D" "$OWC" --check >"$D/check.txt"; rc=$?
+expect "firmware defaults without secrets: no credentials section, exit 0" '[ $rc = 0 ] && ! grep -q "Credentials on this device" "$D/check.txt"'
+umount "$D/m"
+
+D=$(mkscen creds "$OWC"); U=$D/u
+mkdir -p "$U/root/.ssh" "$U/etc/config" "$U/etc/openvpn/profiles/office/auth" "$U/etc/tailscale" "$U/etc/kvmd/user/zerotier" "$U/var/lib"
+echo SECRETKEYDATA >"$U/root/.ssh/id_dropbear"; echo SECRETKEYDATA >"$U/root/.ssh/id_ed25519"
+echo 'ssh-ed25519 AAAA root@test' >"$U/root/.ssh/id_ed25519.pub"
+echo SECRETKEYDATA >"$U/root/.ssh/id_$(printf 'odd\tname')"
+printf "config groups 'group_1'\n\toption private_key 'SECRETWGKEY1'\n\nconfig peers 'peer_2'\n\toption private_key 'SECRETWGKEY2'\n\nconfig peers 'peer_3'\n\toption group_id '1'\n" >"$U/etc/config/wireguard"
+printf "config servers 'main_server'\n\toption private_key 'SECRETWGKEY3'\n" >"$U/etc/config/wireguard_server"
+echo SECRETOVPN >"$U/etc/openvpn/profiles/office/a.ovpn"; echo SECRETOVPN >"$U/etc/openvpn/profiles/office/b.ovpn"
+echo SECRETLOGIN >"$U/etc/openvpn/profiles/office/auth/username_password.txt"
+printf "config zerotier 'gl'\n\toption enabled '1'\n\toption secret 'SECRETZTID'\n" >"$U/etc/config/zerotier"
+echo SECRETZTID >"$U/etc/kvmd/user/zerotier/identity.secret"; ln -s ../../etc/kvmd/user/zerotier "$U/var/lib/zerotier-one"
+echo SECRETSTATE >"$U/etc/tailscale/tailscaled.state"
+mnt "$D" "$OWC"
+run "$D" "$OWC" --check >"$D/check.txt"; rc=$?
+C
+expect "credentials alone are no indicator: exit 0, IOC=0 PERSIST=0" '[ $rc = 0 ] && grep -q "Summary: IOC=0 PERSIST=0 " "$D/check.txt"'
+expect "three SSH client keys with fingerprint, .pub not listed" '[ $(C | grep -c "SSH client key") = 3 ] && C | grep -q "/root/.ssh/id_dropbear" && [ $(C | grep -c "SHA256:TESTFINGERPRINT") = 3 ] && ! C | grep -q "id_ed25519.pub"'
+expect "a key name with a tab in it is printed with plain characters only" 'C | grep -q "/root/.ssh/id_odd?name$" && ! C | grep -q "$(printf "\\t")"'
+expect "WireGuard: 2 client keys, 1 server key" 'C | grep -A1 "WireGuard client  */etc/config/wireguard$" | grep -q "2 private key" && C | grep -A1 "WireGuard server" | grep -q "1 private key"'
+expect "OpenVPN: 2 client profiles" 'C | grep -A1 "OpenVPN client" | grep -q "2 profile"'
+expect "ZeroTier identity listed once, from the configuration" '[ $(C | grep -c "^ *ZeroTier") = 1 ] && C | grep -q "ZeroTier  */etc/config/zerotier"'
+expect "Tailscale state of the router" 'C | grep -q "Tailscale  */etc/tailscale/tailscaled.state"'
+expect "no key content or public key anywhere in the output" '! grep -q "SECRET\|AAAATESTPUB" "$D/check.txt"'
+expect "no advice to revoke without indicators" '! grep -q "listed above under" "$D/check.txt" && ! grep -q "treat all of these as copied" "$D/check.txt"'
+mkdir -p "$D/m/tmp"; mkfifo "$D/m/tmp/f"
+run "$D" "$OWC" --check >"$D/check2.txt"; rc=$?
+expect "with an indicator: exit 1, the advice to revoke and a pointer to the list" '[ $rc = 1 ] && grep -q "treat all of these as copied" "$D/check2.txt" && grep -q "listed above under" "$D/check2.txt"'
+umount "$D/m"
+
+D=$(mkscen kvmcreds "$OWL"); U=$D/u
+mkdir -p "$U/root/.ssh" "$U/etc/kvmd/user/zerotier" "$U/var/lib"
+echo SECRETKEYDATA >"$U/root/.ssh/id_rsa"
+echo SECRETZTID >"$U/etc/kvmd/user/zerotier/identity.secret"; ln -s ../../etc/kvmd/user/zerotier "$U/var/lib/zerotier-one"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+C
+expect "KVM layout: identity file listed once" '[ $(C | grep -c "^ *ZeroTier") = 1 ] && C | grep -q "ZeroTier  */etc/kvmd/user/zerotier/identity.secret"'
+expect "no dropbearkey in the base image: key listed without fingerprint" 'C | grep -A1 "SSH client key  */root/.ssh/id_rsa" | grep -q "fingerprint not available"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]
