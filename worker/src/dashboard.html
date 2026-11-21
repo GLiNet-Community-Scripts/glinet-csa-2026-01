@@ -167,6 +167,30 @@ tr.row.fresh td { background: var(--accent-soft); }
 .glossary summary { cursor: pointer; font-weight: 650; font-size: 15.5px; }
 .glossary dl { margin: 12px 0 0; display: grid; grid-template-columns: minmax(0, 250px) minmax(0, 1fr); gap: 10px 24px; font-size: 13.5px; }
 .glossary dt b { display: block; font-weight: 650; } .glossary dd { margin: 0; color: var(--text-2); }
+.kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
+.kpis2 .kpi { padding: 12px 14px; background: var(--surface-2); border: 0; }
+.kpis2 .kpi .value { font-size: 24px; }
+.course { margin: 14px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px 0; }
+.course li { display: flex; align-items: center; }
+.course .step { padding: 8px 12px; border-radius: 10px; background: var(--surface-2); min-width: 118px; }
+.course .step b { display: block; font-size: 13px; font-weight: 650; }
+.course .step span { font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.course .gap { padding: 0 8px; font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; text-align: center; }
+.course .gap::after { content: '→'; display: block; font-size: 15px; line-height: 1; }
+.strip { position: relative; height: 44px; margin-top: 16px; border-bottom: 1px solid var(--grid); }
+.strip i { position: absolute; bottom: 0; width: 3px; height: 30px; margin-left: -1.5px; border-radius: 2px 2px 0 0; background: var(--s1); cursor: default; }
+.strip i:hover, .strip i:focus-visible { height: 40px; filter: brightness(1.2); }
+.stripaxis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.mx { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 12px; font-size: 13.5px; }
+.mx caption { text-align: left; font-size: 12px; font-weight: 650; color: var(--text-2); padding: 0 0 6px; }
+.mx thead th { padding: 6px 6px; text-align: center; font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); white-space: nowrap; }
+.mx tbody th { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; font-weight: 650; padding: 5px 12px 5px 0; white-space: nowrap; }
+.mx td { padding: 3px; border: 0; text-align: center; }
+.mx td button { width: 100%; min-width: 52px; border: 0; border-radius: 7px; padding: 5px 4px; font: 600 12.5px -apple-system, 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; cursor: pointer; color: var(--text-2); background: var(--surface-2); }
+.mx td button.h { color: var(--danger); background: color-mix(in srgb, var(--danger) calc(10% + var(--w) * 26%), transparent); }
+.mx td button.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mx td button small { font-weight: 500; opacity: .75; }
+.tag.odd { background: var(--warn-bg); color: var(--warn); }
 .foot { margin-top: 16px; font-size: 12.5px; color: var(--text-2); }
 #tip { position: fixed; z-index: 10; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 550; line-height: 1.45; white-space: pre-line; width: max-content; max-width: 400px; opacity: 0; translate: -50% calc(-100% - 12px); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -190,6 +214,7 @@ tr.row.fresh td { background: var(--accent-soft); }
     <span class="grow"></span>
     <span class="sub tnum live" id="live" hidden><i></i><span id="liveText"></span></span>
     <button class="btn" type="button" id="liveBtn" aria-pressed="true" hidden>Live: on</button>
+    <button class="btn" type="button" id="sinceBtn" hidden></button>
     <button class="btn" type="button" id="csv">Export CSV</button>
   </div>
 
@@ -205,6 +230,7 @@ tr.row.fresh td { background: var(--accent-soft); }
       <details class="ms" id="fKind"><summary>Evidence <b></b></summary><div class="pop"></div></details>
       <div class="seg" id="fRecv" role="group" aria-label="Received"><button type="button" data-v="all">Any time</button><button type="button" data-v="24h">Last 24 h</button><button type="button" data-v="7d">Last 7 days</button></div>
       <div class="seg" id="fRestart" role="group" aria-label="Restarted since the attack"><button type="button" data-v="any">Restarted or not</button><button type="button" data-v="yes">Restarted since 20 Nov</button><button type="button" data-v="no">Not restarted</button></div>
+      <label><input type="checkbox" id="onlyUnusual"> Unusual only</label>
       <label><input type="checkbox" id="perDevice" checked> One row per device</label>
       <label><input type="checkbox" id="hideTests" checked> Hide our tests</label>
     </div>
@@ -225,9 +251,30 @@ tr.row.fresh td { background: var(--accent-soft); }
     <p class="peak" id="peak"></p>
   </section>
 
+  <section class="grid two">
+    <div class="card">
+      <h2>How an attack ran</h2>
+      <p class="sub" id="courseSub"></p>
+      <ol class="course" id="course"></ol>
+      <div class="grid kpis2" id="courseStats"></div>
+    </div>
+    <div class="card">
+      <h2>Ports of the remote shells</h2>
+      <p class="sub">Every shell used its own port on the attacker’s server. One tick per shell.</p>
+      <div class="strip" id="strip"></div><div class="stripaxis" id="stripAxis"></div>
+      <p class="peak" id="portNote"></p>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="chead"><h2>Models and firmware</h2><span class="grow"></span><button class="btn" type="button" id="yamlBtn">Copy as advisory YAML</button></div>
+    <p class="sub">Devices with traces out of all reports for that model and firmware version. Click a cell to filter. An empty cell means no report, not “not affected”.</p>
+    <div id="matrix"></div>
+  </section>
+
   <section class="grid three">
     <div class="card"><h2>Devices</h2><p class="sub">Click a bar to filter.</p><ul class="rank" id="devices"></ul><p class="more" id="devicesMore"></p></div>
-    <div class="card"><h2>Firmware</h2><p class="sub">Version, type, build and build date as the device reports them.</p><ul class="rank" id="firmwares"></ul><p class="more" id="firmwaresMore"></p></div>
+    <div class="card"><h2>Firmware</h2><p class="sub">The version, with beta or rc where the device reports one. Build number and date are in each report.</p><ul class="rank" id="firmwares"></ul><p class="more" id="firmwaresMore"></p></div>
     <div class="card"><h2>Evidence</h2><p class="sub">Devices per kind of trace. One device can have several.</p><ul class="rank" id="kinds"></ul></div>
   </section>
 
@@ -300,11 +347,25 @@ const kindOf = (f) => { const w = f.split(' '); return w[0] === 'process' ? w[0]
 const STOCK = new Set(['exit 0', '. /lib/functions/gl_util.sh', '#!/bin/sh', '#!/bin/sh /etc/rc.common']);
 const stock = (line) => { const t = line.trim(); return t === '' || t.startsWith('#') || STOCK.has(t); };
 
+// The firmware as people name it: "4.9.0", or "4.9.0 beta4" for a test build. Newer
+// scripts also send release, build number and date ("4.8.3 release2 build 540 2026-10-02"),
+// KVMs a leading V; none of that belongs in a column heading.
+function fwShort(fw) {
+  const p = String(fw || '').trim().split(/\s+/);
+  if (!p[0] || p[0] === 'unknown') return 'unknown';
+  const v = p[0].replace(/^v/i, ''), t = (p[1] || '').toLowerCase();
+  return /^(beta|rc|alpha|snapshot|test)/.test(t) ? v + ' ' + t : v;
+}
+const verKey = (v) => v.replace(/(\d+)/g, (n) => n.padStart(5, '0'));
+const median = (a) => { const s = a.filter((n) => isFinite(n)).sort((x, y) => x - y); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
+const dur = (ms) => { if (!isFinite(ms)) return '–'; const m = Math.round(ms / 60000); return m < 1 ? 'under a minute' : m < 90 ? m + ' min' : m < 48 * 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : Math.round(m / 1440) + ' days'; };
+
 function shape(x) {
   const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', ...x.report };
   r.id = x.id || x.received + JSON.stringify(x.report).length;
   r.recvIso = x.received;
   r.dev = r.device_id || '';
+  r.fw = fwShort(r.firmware);
   r.recv = Date.parse(x.received);
   r.kinds = [...new Set(r.findings.map(kindOf))];
   r.isTest = r.model === 'unknown' && r.platform === 'unknown' && r.ioc === 0;
@@ -335,8 +396,9 @@ const count = (rows, key) => { const m = new Map(); for (const r of rows) for (c
 
 /* ---------- filters ---------- */
 let all = [], pool = [], NOW = Date.now();
-const F = { q: '', result: 'hit', type: 'all', model: new Set(), firmware: new Set(), kind: new Set(), recv: 'all', restart: 'any', hideTests: true, bin: null };
-const FACET = { model: (r) => r.model, firmware: (r) => r.firmware, kind: (r) => r.kinds };
+let zoom = 'attack', page = 0, sortKey = 'received', asc = false;
+const F = { q: '', result: 'hit', type: 'all', model: new Set(), firmware: new Set(), kind: new Set(), recv: 'all', restart: 'any', hideTests: true, bin: null, unusual: false, since: null };
+const FACET = { model: (r) => r.model, firmware: (r) => r.fw, kind: (r) => r.kinds };
 const LABEL = { model: 'Device', firmware: 'Firmware', kind: 'Evidence' };
 function pass(r, skip) {
   if (F.hideTests && r.isTest) return false;
@@ -347,6 +409,8 @@ function pass(r, skip) {
   if (F.restart !== 'any' && (F.restart === 'yes') !== r.restarted) return false;
   for (const k of ['model', 'firmware', 'kind']) if (skip !== k && F[k].size && ![].concat(FACET[k](r)).some((v) => F[k].has(v))) return false;
   if (skip !== 'bin' && F.bin && !(r.first >= F.bin[0] && r.first < F.bin[1])) return false;
+  if (F.unusual && !r.odd.length) return false;
+  if (F.since && !(r.recvIso > F.since)) return false;
   return true;
 }
 function seg(id, key) {
@@ -355,6 +419,32 @@ function seg(id, key) {
   for (const b of box.children) b.addEventListener('click', () => { F[key] = b.dataset.v; sync(); page = 0; render(); });
   sync(); return sync;
 }
+/* ---------- the filters in the address, so a view can be shared ---------- */
+const SIMPLE = { result: 'hit', type: 'all', recv: 'all', restart: 'any' };
+function toHash() {
+  const q = new URLSearchParams();
+  if (F.q) q.set('q', F.q);
+  for (const [k, d] of Object.entries(SIMPLE)) if (F[k] !== d) q.set(k, F[k]);
+  for (const k of ['model', 'firmware', 'kind']) for (const v of F[k]) q.append(k, v);
+  if (F.unusual) q.set('unusual', '1');
+  if (!$('perDevice').checked) q.set('all_reports', '1');
+  if (!F.hideTests) q.set('tests', '1');
+  if (zoom !== 'attack') q.set('chart', zoom);
+  if (sortKey !== 'received' || asc) q.set('sort', (asc ? '' : '-') + sortKey);
+  const h = q.toString(); if (h !== location.hash.slice(1)) history.replaceState(null, '', h ? '#' + h : location.pathname + location.search);
+}
+function fromHash() {
+  const q = new URLSearchParams(location.hash.slice(1));
+  F.q = (q.get('q') || '').toLowerCase(); $('q').value = F.q;
+  for (const [k, d] of Object.entries(SIMPLE)) F[k] = q.get(k) || d;
+  for (const k of ['model', 'firmware', 'kind']) F[k] = new Set(q.getAll(k));
+  F.unusual = q.has('unusual'); $('onlyUnusual').checked = F.unusual;
+  $('perDevice').checked = !q.has('all_reports'); F.hideTests = !q.has('tests'); $('hideTests').checked = F.hideTests;
+  if (['attack', 'all'].includes(q.get('chart'))) zoom = q.get('chart');
+  const so = q.get('sort'); if (so) { asc = !so.startsWith('-'); sortKey = so.replace(/^-/, ''); }
+}
+
+fromHash();
 const syncs = [seg('fResult', 'result'), seg('fType', 'type'), seg('fRecv', 'recv'), seg('fRestart', 'restart')];
 function facet(id, key) {
   const d = $(id), pop = d.querySelector('.pop'), val = d.querySelector('summary b');
@@ -387,8 +477,9 @@ function chips() {
   for (const k of ['model', 'firmware', 'kind']) for (const v of F[k]) add(LABEL[k] + ': ' + (k === 'kind' ? KIND[v] || v : v), () => F[k].delete(v));
   if (F.bin) add('First trace: ' + fmt(F.bin[0]) + ' – ' + fmt(F.bin[1]), () => (F.bin = null));
   if (F.q) add('Search: ' + F.q, () => { F.q = ''; $('q').value = ''; });
+  if (F.since) add('New since your last visit', () => (F.since = null));
   box.hidden = !box.children.length;
-  if (!box.hidden) { const r = el('button', 'Reset all filters', 'linkbtn'); r.type = 'button'; r.addEventListener('click', () => { Object.assign(F, { q: '', result: 'hit', type: 'all', recv: 'all', restart: 'any', bin: null }); for (const k of ['model', 'firmware', 'kind']) F[k].clear(); $('q').value = ''; syncs.forEach((s) => s()); page = 0; render(); }); box.append(r); }
+  if (!box.hidden) { const r = el('button', 'Reset all filters', 'linkbtn'); r.type = 'button'; r.addEventListener('click', () => { Object.assign(F, { q: '', result: 'hit', type: 'all', recv: 'all', restart: 'any', bin: null, unusual: false, since: null }); $('onlyUnusual').checked = false; for (const k of ['model', 'firmware', 'kind']) F[k].clear(); $('q').value = ''; syncs.forEach((s) => s()); page = 0; render(); }); box.append(r); }
 }
 
 /* ---------- pieces ---------- */
@@ -425,7 +516,6 @@ function binning(from, to) {
   for (const step of [HOUR, 3 * HOUR, 6 * HOUR, DAY, 7 * DAY, 30 * DAY]) if ((to - from) / step <= 72) return step;
   return 30 * DAY;
 }
-let zoom = 'attack';
 function chart(hit) {
   const pts = hit.filter((r) => !isNaN(r.first)), cols = $('cols'), xa = $('xaxis'), ya = $('yaxis');
   cols.replaceChildren(); xa.replaceChildren(); ya.replaceChildren();
@@ -492,10 +582,99 @@ function repool() {
   for (const r of pool) if (r.dev) r.reports = n.get(r.dev);
 }
 
+// What a device with traces has that no other device has: a file fingerprint, a command,
+// an autostart line, a firewall rule. Counted over all devices with traces, whatever the
+// filters say, and only once at least five devices carry that kind of detail; before
+// that everything would be "unusual".
+const normPort = (s) => s.replace(/(170\.39\.226\.\d+)[ :]\d+/g, '$1 PORT');
+function markUnusual() {
+  const hits = pool.filter((r) => r.ioc > 0 && !r.isTest);
+  const parts = (r) => ({
+    'file': r.files.map((f) => f.path + ' ' + f.sha256),
+    'command': r.commands.map(normPort),
+    'autostart line': r.persistence.flatMap((p) => p.lines.filter((l) => !stock(l)).map((l) => p.path + ': ' + l)),
+    'firewall rule': r.fw_rules,
+  });
+  const seen = new Map(), have = {};
+  for (const r of hits) { r.parts = parts(r); for (const [k, list] of Object.entries(r.parts)) { if (list.length) have[k] = (have[k] || 0) + 1; for (const v of new Set(list)) seen.set(k + '|' + v, (seen.get(k + '|' + v) || 0) + 1); } }
+  for (const r of all) r.odd = [];
+  for (const r of hits) for (const [k, list] of Object.entries(r.parts)) if (have[k] >= 5) for (const v of new Set(list)) if (seen.get(k + '|' + v) === 1) r.odd.push([k, v]);
+}
+
+// How an attack ran, from the times in the reports: the middle value of each, in order.
+function course(hit) {
+  const marks = [['Remote shell started', hit.map((r) => ts(r.shell_started))], ['Malware files written', hit.map((r) => (r.files.length ? Math.min(...r.files.map((f) => ts(f.mtime)).filter((n) => n > ATTACK - 45 * DAY)) : NaN))],
+    ['Last data through the shell', hit.map((r) => ts(r.pipe_time))], ['Cloud handler last ran', hit.map((r) => ts(r.state_file_time))], ['Device checked', hit.map((r) => (isFinite(r.first) ? ts(r.checked_at) : NaN))]]
+    .map(([name, list]) => ({ name, t: median(list), n: list.filter((x) => isFinite(x)).length })).filter((m) => isFinite(m.t)).sort((a, b) => a.t - b.t);
+  const ol = $('course'); ol.replaceChildren();
+  marks.forEach((m, i) => {
+    if (i) { const g = el('li'); g.append(el('span', dur(m.t - marks[i - 1].t), 'gap')); ol.append(g); }
+    const li = el('li'), st = el('div', null, 'step'); st.append(el('b', m.name), el('span', fmt(m.t))); hover(st, `${m.name}\nmiddle value of ${m.n} devices: ${fmt(m.t)} UTC`); li.append(st); ol.append(li);
+  });
+  const active = median(hit.map((r) => ts(r.pipe_time) - ts(r.shell_started)).filter((d) => d >= 0)), found = median(hit.map((r) => ts(r.checked_at) - r.first).filter((d) => d >= 0));
+  $('courseSub').textContent = marks.length ? 'The middle value of each time across the devices in this selection, in order. Times are UTC.' : 'No report with times in this selection (needs script 2.2 or newer).';
+  $('courseStats').replaceChildren(kpi('Attacker active for', dur(active), null, 'From the start of the shell to the last data through it.'), kpi('Found after', dur(found), null, 'From the first trace to the check that reported it.'));
+}
+// One tick per shell port. If later shells got higher ports, the server handed them out in
+// order and the span is a floor for how many connections it took; otherwise it says nothing.
+function ports(hit) {
+  const pts = hit.flatMap((r) => r.shell_ports.map((p) => ({ p, t: ts(r.shell_started), r }))), strip = $('strip'), ax = $('stripAxis');
+  strip.replaceChildren(); ax.replaceChildren();
+  if (!pts.length) { $('portNote').textContent = 'No report with a shell port in this selection.'; return; }
+  const lo = Math.min(...pts.map((x) => x.p)), hi = Math.max(...pts.map((x) => x.p)), span = Math.max(1, hi - lo);
+  for (const x of pts) { const i = el('i'); i.style.left = 1 + ((x.p - lo) / span) * 98 + '%'; hover(i, `Port ${x.p}\n${x.r.model} ${x.r.fw} · started ${fmt(x.t)}`); strip.append(i); }
+  ax.append(el('span', lo), el('span', Math.round(lo + span / 2)), el('span', hi));
+  const timed = pts.filter((x) => isFinite(x.t)).sort((a, b) => a.t - b.t || a.p - b.p), pairs = timed.slice(1).map((x, i) => x.p - timed[i].p).filter((d) => d !== 0), up = pairs.filter((d) => d > 0).length;
+  const uniq = new Set(pts.map((x) => x.p)).size, head = `${pts.length} shells on ${uniq} different ports, from ${lo} to ${hi}.`;
+  $('portNote').textContent = head + (pairs.length < 8 ? ' Too few with a start time to say whether the ports were handed out in order.'
+    : up / pairs.length >= 0.85 ? ` Later shells got higher ports in ${up} of ${pairs.length} steps, so the server seems to hand them out in order. The span then means it took at least ${(hi - lo + 1).toLocaleString('en')} connections in this period.`
+    : ` Port and start time do not rise together (${up} of ${pairs.length} steps), so the span says nothing about how many devices were hit.`);
+}
+// Models down, firmware versions across; routers and KVMs apart because their versions differ.
+const NAMES = { 'GL-BE9300': 'Flint 3', 'GL-MT6000': 'Flint 2', 'GL-MT5000': 'Brume 3', 'GL-MT3000': 'Beryl AX', 'GL-MT2500': 'Brume 2', 'GL-AXT1800': 'Slate AX', 'GL-AX1800': 'Flint', 'GL-E5800': 'Mudi 7', 'GL-X3000': 'Spitz AX', 'GL-XE3000': 'Puli AX', 'GL-A1300': 'Slate Plus', 'GL-RM1': 'Comet', 'GL-RM1PE': 'Comet PoE', 'GL-RM10': 'Comet Pro' };
+let grid = [];
+function matrix() {
+  const box = $('matrix'); box.replaceChildren(); grid = [];
+  // every filter applies except the three this grid sets itself
+  const scope = pool.filter((r) => { const m = F.model, f = F.firmware, res = F.result; F.model = new Set(); F.firmware = new Set(); F.result = 'all'; const ok = pass(r); F.model = m; F.firmware = f; F.result = res; return ok; });
+  for (const [title, kvm] of [['Routers', false], ['KVM devices', true]]) {
+    const part = scope.filter((r) => r.kvm === kvm && r.model !== 'unknown'); if (!part.length) continue;
+    const vers = [...new Set(part.map((r) => r.fw))].sort((a, b) => verKey(a).localeCompare(verKey(b))), models = count(part.filter((r) => r.ioc > 0), (r) => r.model).map((x) => x[0]);
+    for (const m of new Set(part.map((r) => r.model))) if (!models.includes(m)) models.push(m);
+    const max = Math.max(1, ...models.flatMap((m) => vers.map((v) => part.filter((r) => r.model === m && r.fw === v && r.ioc > 0).length)));
+    const t = el('table', null, 'mx'), hd = el('tr'); t.append(el('caption', title)); hd.append(el('th', ''));
+    for (const v of vers) hd.append(el('th', v)); const th = el('thead'); th.append(hd); t.append(th); const tb = el('tbody');
+    for (const m of models) {
+      const tr = el('tr'), h = el('th', m); h.scope = 'row'; tr.append(h); const hitVers = [];
+      for (const v of vers) {
+        const cell = part.filter((r) => r.model === m && r.fw === v), hits = cell.filter((r) => r.ioc > 0).length, td = el('td');
+        if (cell.length) {
+          const b = el('button', null, (hits ? 'h' : '') + (F.model.has(m) && F.firmware.has(v) ? ' sel' : '')); b.type = 'button'; b.style.setProperty('--w', hits / max);
+          b.append(String(hits), el('small', '/' + cell.length)); hover(b, `${m} · ${v}\n${hits} with traces of ${cell.length} report${cell.length === 1 ? '' : 's'}`);
+          b.addEventListener('click', () => { const on = F.model.has(m) && F.firmware.has(v) && F.model.size === 1 && F.firmware.size === 1; F.model = new Set(on ? [] : [m]); F.firmware = new Set(on ? [] : [v]); page = 0; render(); });
+          td.append(b); if (hits && v !== 'unknown') hitVers.push(v);
+        }
+        tr.append(td);
+      }
+      if (part.some((r) => r.model === m && r.ioc > 0)) grid.push({ m, kvm, vers: hitVers });
+      tb.append(tr);
+    }
+    t.append(tb); const wrap = el('div', null, 'scroll'); wrap.append(t); box.append(wrap);
+  }
+  if (!box.children.length) box.append(el('p', 'No report with a known model in this selection.', 'peak dim'));
+}
+$('yamlBtn').addEventListener('click', async () => {
+  const sku = (m) => (/^GL-/i.test(m) ? m.toUpperCase() : 'GL-' + m.toUpperCase());
+  const yaml = ['  reported:', `    as_of: ${new Date().toISOString().slice(0, 16)}Z`, '    source:', '      label: Anonymous reports of the community script', '      url: https://gl-i.net/security/csa-2026-01/fix/', '    models:',
+    ...grid.map((g) => `      - { name: ${NAMES[sku(g.m)] || sku(g.m)}, sku: ${sku(g.m)}, kind: ${g.kvm ? 'KVM' : 'Router'}, firmware: [${g.vers.join(', ')}] }`)].join('\n') + '\n';
+  const b = $('yamlBtn');
+  try { await navigator.clipboard.writeText(yaml); b.textContent = `Copied ${grid.length} models`; } catch { const ta = el('textarea'); ta.value = yaml; ta.style.cssText = 'width:100%;height:220px;margin-top:10px;font:12.5px ui-monospace,monospace'; $('matrix').prepend(ta); ta.select(); b.textContent = 'Select and copy below'; }
+  setTimeout(() => (b.textContent = 'Copy as advisory YAML'), 2500);
+});
+
 /* ---------- render ---------- */
-let page = 0, sortKey = 'received', asc = false;
 function render() {
-  repool();
+  repool(); markUnusual();
   const rows = pool.filter((r) => pass(r)), base = pool.filter((r) => pass(r, 'result')), hit = base.filter((r) => r.ioc > 0);
   facets.forEach((f) => f()); chips();
 
@@ -514,6 +693,7 @@ function render() {
   chart(pool.filter((r) => pass(r, 'bin') && r.ioc > 0));
   rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && r.ioc > 0), FACET.model), 0, 'model');
   rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && r.ioc > 0), FACET.firmware), 0, 'firmware');
+  course(hit); ports(hit); matrix();
   rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && r.ioc > 0), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
 
   const fm = new Map();
@@ -552,7 +732,7 @@ function render() {
   for (const r of rows.slice(page * size, (page + 1) * size)) {
     const tr = el('tr', null, 'row' + (r.fresh && Date.now() - r.fresh < 90_000 ? ' fresh' : '')); tr.tabIndex = 0;
     const dev = el('td', null, 'dev'); dev.append(el('b', r.model), el('small', r.type));
-    const fw = el('td', null, 'fw'), p = r.firmware.split(' '); fw.append(p[0], el('small', p.slice(1).join(' ')));
+    const fw = el('td', null, 'fw'); fw.append(r.fw, el('small', r.firmware === r.fw || r.firmware === 'unknown' ? '' : r.firmware.split(' ').slice(1).join(' ')));
     const res = el('td'); res.append(r.story); const tags = el('div', null, 'tags');
     if (r.shell) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s1)'; t.append(i, 'Remote shell'); tags.append(t); }
     if (r.implant) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s2)'; t.append(i, 'gl-helper malware'); tags.append(t); }
@@ -560,6 +740,7 @@ function render() {
     if (r.restarted) tags.append(el('span', 'Restarted since the attack', 'tag warn'));
     if (r.persist) tags.append(el('span', 'rc.local or crontab changed', 'tag'));
     if (r.reports > 1) tags.append(el('span', r.reports + ' reports from this device', 'tag'));
+    if (r.odd.length) { const t = el('span', 'Unusual', 'tag odd'); hover(t, 'Only on this device:\n' + r.odd.slice(0, 4).map((o) => o[0] + ': ' + o[1].slice(0, 90)).join('\n')); tags.append(t); }
     res.append(tags);
     tr.append(el('td', fmt(r.recv), 'tnum'), dev, fw, res, el('td', fmt(r.first), 'tnum hide-s'), el('td', fmt(r.upSince), 'tnum hide-s'), el('td', '›'));
     const toggle = () => { if (opened.delete(r.id)) { tr.nextSibling.remove(); tr.classList.remove('open'); } else { opened.add(r.id); tr.after(detail(r)); tr.classList.add('open'); } };
@@ -577,6 +758,7 @@ function render() {
   const total = all.filter((r) => !r.isTest).length;
   $('status').textContent = all.length ? `${total.toLocaleString('en')} report${total === 1 ? '' : 's'} · last received ${fmt(last)} UTC` : 'No reports yet.';
   current = rows;
+  toHash();
 }
 let current = [];
 const opened = new Set();
@@ -594,6 +776,7 @@ function detail(r) {
   const fl = el('ul', null, 'evs');
   for (const f of r.findings) { const k = kindOf(f), li = el('li'), b = el('span', KIND[k] || k, 'ev'); if (WHY[k]) { b.append(el('i', 'i')); hover(b, WHY[k]); } li.append(b, el('span', f.slice(k.length + 1), 'mono')); fl.append(li); }
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
+  if (r.odd.length) { const w = el('div'); for (const [k, v] of r.odd) w.append(el('pre', k + ':  ' + v)); sec('Only on this device', w, true); }
   if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); row.append(el('td', f.path, 'mono'), el('td', f.sha256, 'mono dim'), el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); t.append(row); } sec('Files', t, true); }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
   if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
@@ -602,6 +785,7 @@ function detail(r) {
 }
 
 for (const k of Object.keys(WHY)) { const dt = el('dt'); dt.append(el('b', KIND[k]), el('span', k === 'fw-rule' ? 'fw-rule nat:SDWAN_IP_MAPPING' : k === 'pipe' ? 'pipe /tmp/f' : k, 'mono dim')); $('glossaryList').append(dt, el('dd', WHY[k])); }
+for (const th of document.querySelectorAll('.reports th[data-k]')) { if (th.dataset.k === sortKey) th.setAttribute('aria-sort', asc ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort'); }
 for (const th of document.querySelectorAll('.reports th[data-k]')) th.addEventListener('click', () => {
   asc = sortKey === th.dataset.k ? !asc : ['model', 'firmware', 'story'].includes(th.dataset.k); sortKey = th.dataset.k;
   for (const o of document.querySelectorAll('.reports th')) o.removeAttribute('aria-sort');
@@ -609,13 +793,14 @@ for (const th of document.querySelectorAll('.reports th[data-k]')) th.addEventLi
 });
 let qt; $('q').addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(() => { F.q = $('q').value.trim().toLowerCase(); page = 0; render(); }, 150); });
 $('perDevice').addEventListener('input', () => { page = 0; render(); });
+$('onlyUnusual').addEventListener('input', () => { F.unusual = $('onlyUnusual').checked; page = 0; render(); });
 $('hideTests').addEventListener('input', () => { F.hideTests = $('hideTests').checked; page = 0; render(); });
 $('size').addEventListener('change', () => { page = 0; render(); });
 $('prev').addEventListener('click', () => { page--; render(); }); $('next').addEventListener('click', () => { page++; render(); });
 for (const b of $('zoom').children) { b.setAttribute('aria-pressed', String(b.dataset.v === zoom)); b.addEventListener('click', () => { zoom = b.dataset.v; F.bin = null; for (const o of $('zoom').children) o.setAttribute('aria-pressed', String(o === b)); render(); }); }
 addEventListener('resize', () => { clearTimeout(qt); qt = setTimeout(render, 150); });
 $('csv').addEventListener('click', () => {
-  const cols = [['received_utc', (r) => fmt(r.recv)], ['device_id', (r) => r.dev], ['reports_from_device', (r) => r.reports], ['model', (r) => r.model], ['platform', (r) => r.platform], ['firmware', (r) => r.firmware], ['script', (r) => r.tool], ['known_traces', (r) => r.ioc], ['persistence', (r) => r.persist], ['review', (r) => r.review],
+  const cols = [['received_utc', (r) => fmt(r.recv)], ['device_id', (r) => r.dev], ['reports_from_device', (r) => r.reports], ['model', (r) => r.model], ['platform', (r) => r.platform], ['firmware', (r) => r.fw], ['firmware_as_reported', (r) => r.firmware], ['unusual', (r) => r.odd.map((o) => o[0]).join(' ')], ['script', (r) => r.tool], ['known_traces', (r) => r.ioc], ['persistence', (r) => r.persist], ['review', (r) => r.review],
     ['remote_shell', (r) => r.shell], ['gl_helper', (r) => r.implant], ['first_trace_utc', (r) => fmt(r.first)], ['shell_ports', (r) => r.shell_ports.join(' ')], ['up_since_utc', (r) => fmt(r.upSince)], ['restarted_since_attack', (r) => r.restarted], ['findings', (r) => r.findings.join('; ')], ['file_hashes', (r) => r.files.map((f) => f.path + '=' + f.sha256).join('; ')]];
   // a leading = + - @ would be run as a formula by a spreadsheet
   const cell = (v) => { let s = String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
@@ -659,6 +844,16 @@ async function poll() {
   }
   timer = setTimeout(poll, 20_000);
 }
+// "New since your last visit": the newest report this browser saw last time is kept in
+// localStorage; without storage (private window) the button just does not appear.
+function sinceLastVisit() {
+  let last = '';
+  try { last = localStorage.getItem('csa-last-seen') || ''; } catch { return; }
+  const n = last ? all.filter((r) => !r.isTest && r.recvIso > last).length : 0, b = $('sinceBtn');
+  if (n) { b.hidden = false; b.textContent = `+${n} since your last visit`; b.addEventListener('click', () => { F.since = F.since ? null : last; F.result = 'all'; syncs.forEach((x) => x()); page = 0; render(); }); }
+  const remember = () => { try { if (newest) localStorage.setItem('csa-last-seen', newest); } catch { /* no storage */ } };
+  addEventListener('pagehide', remember); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') remember(); });
+}
 $('liveBtn').addEventListener('click', () => { live = !live; $('liveBtn').textContent = 'Live: ' + (live ? 'on' : 'off'); $('liveBtn').setAttribute('aria-pressed', String(live)); poll(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); });
 (async () => {
@@ -670,6 +865,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
       take(page.items, false); cursor = page.cursor; render();
     } while (cursor);
     if (!all.length) render();
+    sinceLastVisit();
     $('live').hidden = $('liveBtn').hidden = false;
     liveState('on', 'Live'); timer = setTimeout(poll, 20_000);
   } catch (e) { $('status').textContent = 'Could not load the reports: ' + e.message; }

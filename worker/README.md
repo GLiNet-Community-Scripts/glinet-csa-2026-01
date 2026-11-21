@@ -195,6 +195,18 @@ firmware builds, the malware's files by fingerprint, and the commands, autostart
 and firewall rules the attacker left, with identical ones grouped. Below that is a
 sortable, paged table of the reports; a row opens to its details.
 
+Beyond the counts it shows how an attack ran (the middle value of each time in the
+reports, with how long the attacker was active and how long it took to find), the ports
+of the remote shells and whether they were handed out in order, and a grid of models by
+firmware versions with the share of devices that had traces. "Copy as advisory YAML"
+turns that grid into the `reported` block of the advisory on gl-i.net. A report that
+carries something no other device has (a file fingerprint, a command, an autostart line)
+is marked "Unusual". Firmware is shown as the version, with beta or rc where there is
+one; the build number and date are in each report.
+
+The filters are kept in the address, so a link shows someone else the same view, and the
+page offers the reports that are new since your last visit.
+
 Everything can be filtered: by device, firmware and kind of evidence (lists with counts),
 by result, device type, time received and whether the device was restarted since the
 attack, and by free text. Bars and chart columns set a filter when clicked. "Export CSV"
