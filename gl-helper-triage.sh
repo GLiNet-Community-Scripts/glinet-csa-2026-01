@@ -15,7 +15,10 @@
 # indicators, when) to the community, also from a device without indicators, so that we
 # see which devices were not hit. It shows the report and sends it only
 # after "y". --report sends it without asking, --no-report never asks, --show-report
-# prints the complete report and sends nothing.
+# prints the complete report and sends nothing. The report carries a device ID so that
+# several reports from one device count once: a hash of a hardware address, never the
+# address itself, and the server hashes it again with a secret before it stores it.
+# --no-device-id leaves it out.
 #
 # Output is coloured on a terminal. --color forces colours (e.g. through ssh without a
 # tty), --no-color or NO_COLOR=1 turns them off. The report in the archive is plain text.
@@ -39,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.8
+VERSION=2.9
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -71,7 +74,7 @@ SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
-MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask
+MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask DEVICE_ID=1
 REPORT_URL=${GL_TRIAGE_REPORT_URL:-https://app.gl-i.net/csa-2026-01-report}
 
 usage() {
@@ -89,6 +92,7 @@ gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" impla
   --report             send the short anonymous report without asking (it is shown first)
   --no-report          never offer to send a report
   --show-report        print the complete report and send nothing
+  --no-device-id       leave the device ID out of the report
   --root/--upper/--lower DIR   override merged root, overlay upper and base image
   -V, --version        print version
 
@@ -120,6 +124,7 @@ while [ $# -gt 0 ]; do
 	--report) REPORT=yes ;;
 	--no-report) REPORT=no ;;
 	--show-report) REPORT=show ;;
+	--no-device-id) DEVICE_ID=0 ;;
 	-o | --out) [ $# -ge 2 ] || die "$1 needs a directory"; OUTDIR=$2; shift ;;
 	--root) [ $# -ge 2 ] || die "$1 needs a directory"; ROOT=$2; shift ;;
 	--upper) [ $# -ge 2 ] || die "$1 needs a directory"; UPPER=$2; UPPER_SET=1; shift ;;
@@ -1023,7 +1028,17 @@ jlines() { while IFS= read -r line; do printf '%s,' "$(jtxt "$line" "${1:-300}")
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
 build_report() {
-	local model fw up quick started ports ptime list files stime f persist rules cmds kind
+	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid
+	# Device ID: the hardware address of the first network interface, hashed. The address
+	# itself never leaves the device.
+	devid=''
+	if [ "$DEVICE_ID" = 1 ]; then
+		mac=$(cat /sys/class/net/eth0/address 2>/dev/null)
+		if [ -z "$mac" ] || [ "$mac" = 00:00:00:00:00:00 ]; then
+			mac=$(for f in /sys/class/net/*/address; do case $f in */lo/address) continue ;; esac; cat "$f" 2>/dev/null; done | grep -v '^00:00:00:00:00:00$' | sort | head -n 1)
+		fi
+		[ -n "$mac" ] && devid=$(printf 'csa-2026-01:%s' "$mac" | tr 'A-F' 'a-f' | sha256sum 2>/dev/null | cut -c1-16)
+	fi
 	model=$(cat /proc/gl-hw-info/model 2>/dev/null)
 	[ -n "$model" ] || model=$(cat /tmp/sysinfo/model 2>/dev/null)
 	# GL.iNet re-issues builds under the same version number, so the build tells them
@@ -1094,7 +1109,7 @@ build_report() {
 	fi
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 3,
+"schema": 4,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -1113,7 +1128,8 @@ build_report() {
 "files": [$files],
 "persistence": [$persist],
 "fw_rules": [$rules],
-"commands": [$cmds]
+"commands": [$cmds],
+"device_id": $(jstr "$devid")
 }
 EOF
 }
@@ -1158,13 +1174,15 @@ offer_report() {
 	grep -q '^"shell_started": "..*",$' "$TMP/report.json" && say "   - when the remote shell started and which port it used"
 	n=$(grep -o '"sha256"' "$TMP/report.json" | wc -l | tr -d ' ')
 	[ "$n" -gt 0 ] && say "   - fingerprint, size and time of $n malware file(s), not the files themselves"
-	grep -q '^"commands": \[\]$' "$TMP/report.json" || say "   - the command lines of the attacker's processes"
+	grep -q '^"commands": \[\],$' "$TMP/report.json" || say "   - the command lines of the attacker's processes"
 	if [ -s "$TMP/rlines" ]; then
 		say "   - these lines from your autostart files and firewall, word for word:"
 		sed 's/^/        /' "$TMP/rlines" >&3
 		say "     ${YEL}If one of them is a password or token of yours, do not send.${N}"
 	fi
-	say "   ${D}Not included: host name, addresses or keys of this device, any other file. The sender's${N}"
+	grep -q '^"device_id": "..*"$' "$TMP/report.json" && say "   - a device ID, so that several reports from this device count once: a hash of a" &&
+		say "     hardware address, not the address. The server hashes it again before storing it."
+	say "   ${D}Not included: host name, IP or MAC addresses, keys of this device, any other file. The sender's${N}"
 	say "   ${D}address is not stored. It goes to $REPORT_URL${N}"
 	if [ "$REPORT" != yes ]; then
 		if [ -t 0 ] && [ -t 3 ]; then

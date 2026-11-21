@@ -213,6 +213,7 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 | `--archive --stdout` | Evidence archive to stdout, log to stderr |
 | `--fix [-o DIR]` | Archive first (aborts if that fails), then remediate and re-check |
 | `--report`, `--no-report`, `--show-report` | Send the anonymous report without asking, never offer it, or print it without sending. See below. |
+| `--no-device-id` | Leave the device ID out of the report. |
 | `--color`, `--no-color` | Force or disable coloured output. By default colours are used only on a terminal; `NO_COLOR=1` also turns them off. |
 
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
@@ -269,7 +270,15 @@ When indicators were found, it also contains what the attacker left, as text:
 `rc.local` or the crontab. The script always prints these lines word for word before it
 asks. Read them, and answer `n` if one of them is a password or token.
 
-It does not contain the host name or any other file. `REVIEW` findings are only counted.
+The report carries a **device ID**, so that several reports from one device count once.
+It is a hash of the hardware address of the first network interface; the address itself
+never leaves the device. A plain hash of such an address could be reversed by trying all
+addresses, so the server does not store it either: it hashes it again with a secret that
+only the server has, and keeps a short form of that. `--no-device-id` leaves the ID out.
+The ID makes the report pseudonymous rather than fully anonymous: two reports from the
+same device can be linked to each other, but not to you.
+
+It does not contain the host name, IP or MAC addresses, or any other file. `REVIEW` findings are only counted.
 The receiving [worker](worker/) stores no IP address.
 
 ---
