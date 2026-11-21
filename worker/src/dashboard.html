@@ -214,14 +214,20 @@ tr.row.fresh td { background: var(--accent-soft); }
 .mx td button small { font-weight: 500; opacity: .75; }
 .tag.odd { background: var(--warn-bg); color: var(--warn); }
 /* blocks can be folded; the heading is the switch */
-.fold { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font: inherit; letter-spacing: inherit; }
-.fold::before { content: '▾'; font-size: 12px; color: var(--text-2); transition: rotate .15s; }
-.card.closed .fold::before { rotate: -90deg; }
+.fold { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; font: inherit; letter-spacing: inherit; }
+/* the fold mark: a chevron in a small box, large and dark enough to be seen as a control */
+.fold::before { content: ''; flex: none; width: 24px; height: 24px; border-radius: 7px; background-color: var(--surface-2);
+  background-image: linear-gradient(to bottom right, transparent 50%, var(--text) 50%); background-size: 0 0; }
+.fold::after { content: ''; position: absolute; left: 8px; top: 50%; width: 7px; height: 7px; border-right: 2.5px solid var(--text); border-bottom: 2.5px solid var(--text); translate: 0 -70%; rotate: 45deg; transition: rotate .15s, translate .15s; }
+.fold { position: relative; }
+.fold:hover::before { background-color: var(--accent-soft); }
+.fold:hover::after { border-color: var(--accent); }
+.card.closed .fold::after { rotate: -45deg; translate: -1px -50%; }
 .fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 .card.closed { align-self: start; }
 .card.closed > :not(h2):not(.chead), .card.closed > .chead > :not(h2) { display: none; }
 .card.closed.reports .chead { padding-bottom: 14px; }
-@media (prefers-reduced-motion: reduce) { .fold::before { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .fold::after { transition: none; } }
 .foot { margin-top: 16px; font-size: 12.5px; color: var(--text-2); }
 #tip { position: fixed; z-index: 10; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 550; line-height: 1.45; white-space: pre-line; width: max-content; max-width: 400px; opacity: 0; translate: -50% calc(-100% - 12px); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
