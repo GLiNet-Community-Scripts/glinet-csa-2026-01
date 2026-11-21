@@ -165,6 +165,7 @@ if (process.argv[2] === 'serve') {
   const kvReports = [...store.keys()].filter((k) => k.startsWith('csa-2026-01/')).length;
   const auth = { authorization: 'Bearer test-token' }, mig = (q = '') => call('POST', undefined, auth, '/csa-2026-01-report/migrate' + q);
   expect('migrate refuses without a database', (await mig()).status === 400);
+  expect('migrate by GET says to use POST', (await call('GET', undefined, auth, '/csa-2026-01-report/migrate')).status === 405);
   env.DB = d1();
   expect('migrate needs the token', (await call('POST', undefined, {}, '/csa-2026-01-report/migrate')).status === 404);
   const m1 = await (await mig()).json();

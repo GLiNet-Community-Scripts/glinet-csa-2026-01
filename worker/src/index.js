@@ -282,7 +282,11 @@ export default {
   async fetch(request, env, ctx) {
     const { pathname } = new URL(request.url);
     if (/\/csa-2026-01-fix(\/|$)/.test(pathname)) return script(request, env, ctx, pathname);
-    if (request.method === 'POST' && pathname.endsWith('/migrate')) return migrate(request, env);
+    if (pathname.endsWith('/migrate')) {
+      // a browser, or curl without -X POST, sends GET and would only see the text below
+      if (request.method !== 'POST') return text('This address needs POST: curl -X POST -H "Authorization: Bearer <EXPORT_TOKEN>" <this address>', 405);
+      return migrate(request, env);
+    }
     if (request.method === 'POST') return submit(request, env);
     if (request.method === 'GET' && pathname.endsWith('/export')) return exportReports(request, env);
     if (request.method === 'GET' && /\/dashboard\/?$/.test(pathname)) return dashboard(request, env, false);
