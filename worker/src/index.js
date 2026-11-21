@@ -62,6 +62,9 @@ export function validate(report) {
 }
 
 const LATEST_KEY = 'meta/csa-2026-01-latest';
+// On the free Workers plan one request may make 50 subrequests, and every KV read is one.
+// Reports are therefore handed out 40 at a time.
+const PAGE = 40;
 
 async function submit(request, env) {
   const raw = await request.text();
@@ -86,12 +89,12 @@ async function submit(request, env) {
   return text('stored, thank you');
 }
 
-// For the maintainers: all reports as JSON lines, 100 per call. Only with the secret
+// For the maintainers: all reports as JSON lines, 40 per call. Only with the secret
 // EXPORT_TOKEN; without that secret the address does not exist.
 async function exportReports(request, env) {
   if (!env.EXPORT_TOKEN || request.headers.get('authorization') !== `Bearer ${env.EXPORT_TOKEN}`) return text('not found', 404);
   const cursor = new URL(request.url).searchParams.get('cursor') || undefined;
-  const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: 100, cursor });
+  const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: PAGE, cursor });
   const lines = await Promise.all(page.keys.map((k) => env.REPORTS.get(k.name)));
   return new Response(lines.filter(Boolean).join('\n') + '\n', {
     headers: { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'x-next-cursor': page.list_complete ? '' : page.cursor },
@@ -156,14 +159,16 @@ async function dashboard(request, env, data) {
       let cursor;
       do {
         const page = await env.REPORTS.list({ prefix: `csa-2026-01/${new Date(day).toISOString().slice(0, 10)}/`, cursor });
-        for (const k of page.keys) if (k.metadata && k.metadata.received > since) names.push(k.name);
+        for (const k of page.keys) if (k.metadata && k.metadata.received > since) names.push({ name: k.name, received: k.metadata.received });
         cursor = page.list_complete ? undefined : page.cursor;
       } while (cursor);
     }
-    return json({ items: await load(names.slice(0, 200)), cursor: '' });
+    // oldest first, so that a caller who gets a full page can ask again from the last one
+    names.sort((a, b) => (a.received < b.received ? -1 : 1));
+    return json({ items: await load(names.slice(0, PAGE).map((n) => n.name)), cursor: '' });
   }
   const cursor = params.get('cursor') || undefined;
-  const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: 100, cursor });
+  const page = await env.REPORTS.list({ prefix: 'csa-2026-01/', limit: PAGE, cursor });
   return json({ items: await load(page.keys.map((k) => k.name)), cursor: page.list_complete ? '' : page.cursor });
 }
 

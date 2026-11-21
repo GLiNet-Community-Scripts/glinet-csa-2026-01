@@ -59,7 +59,7 @@ curl https://app.gl-i.net/csa-2026-01-report
 curl -H "Authorization: Bearer <EXPORT_TOKEN>" https://app.gl-i.net/csa-2026-01-report/export
 ```
 
-The export returns up to 100 reports as JSON lines. When there are more, the response
+The export returns up to 40 reports as JSON lines. When there are more, the response
 header `x-next-cursor` has the value for `?cursor=`.
 
 To test a full round, run the script on a device with `--report`. It sends a report even
@@ -121,7 +121,8 @@ while the tab is in the background. KV is eventually consistent, so a new report
 up to a minute to appear. Each stored report costs two KV writes (the report and the
 marker); on the free plan KV allows 1,000 writes a day, which is about 500 reports.
 
-The page loads all reports into the browser, 100 per request. That is fine for a few
+The page loads all reports into the browser, 40 per request (the free Workers plan allows
+50 subrequests per request, and every KV read is one). That is fine for a few
 thousand; beyond that the worker should pre-aggregate.
 
 The page is `src/dashboard.html`. The worker imports `src/dashboard.js`, which

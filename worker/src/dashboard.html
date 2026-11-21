@@ -613,7 +613,11 @@ async function poll() {
     try {
       const { latest } = await getJson('/latest');
       let added = 0;
-      if (latest > newest) added = take((await getJson('/data?since=' + encodeURIComponent(newest || '1970-01-01T00:00:00.000Z'))).items, true);
+      // new reports come 40 at a time, oldest first; a full page means there may be more
+      for (let n = 40, rounds = 0; latest > newest && n >= 40 && rounds < 25; rounds++) {
+        const items = (await getJson('/data?since=' + encodeURIComponent(newest || '1970-01-01T00:00:00.000Z'))).items;
+        n = items.length; added += take(items, true); if (!n) break;
+      }
       NOW = Date.now();
       if (added) render();
       liveState('on', `Live · checked ${new Date().toISOString().slice(11, 19)} UTC` + (added ? ` · ${added} new` : ''));
