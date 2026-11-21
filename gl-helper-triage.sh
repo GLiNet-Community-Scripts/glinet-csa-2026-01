@@ -1162,10 +1162,10 @@ offer_report() {
 	# yellow, so the offer stands apart from the result above; short, "v" shows everything
 	ysay() { say "   ${YEL}$*${N}"; }
 	extra=''
-	grep -q '^"shell_started": "..*",$' "$TMP/report.json" && extra="$extra, start and port of the remote shell"
+	grep -q '^"shell_started": "..*",$' "$TMP/report.json" && extra="$extra, shell start and port"
 	n=$(grep -o '"sha256"' "$TMP/report.json" | wc -l | tr -d ' ')
-	[ "$n" -gt 0 ] && extra="$extra, fingerprints of $n malware file(s)"
-	grep -q '^"commands": \[\],$' "$TMP/report.json" || extra="$extra, the attacker's command lines"
+	[ "$n" -gt 0 ] && extra="$extra, fingerprints of $n file(s)"
+	grep -q '^"commands": \[\],$' "$TMP/report.json" || extra="$extra, the attacker's commands"
 	if [ "$ioc" = 0 ]; then
 		ysay "Nothing known was found. Sending that helps too: it shows which devices were not hit."
 		ysay "Sent: model, firmware, time of the check and that no known traces were found."
