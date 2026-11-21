@@ -1,0 +1,652 @@
+#!/bin/sh
+# shellcheck shell=sh disable=SC3043
+#
+# gl-helper-triage.sh - triage for the "gl-helper" implant (GL.iNet incident 2026-11-20)
+#
+# Runs ON the device as root: GL.iNet KVMs (buildroot) and GL.iNet / OpenWrt routers.
+# Needs only busybox sh/ash or bash.
+#
+#   sh gl-helper-triage.sh [--check]            read-only detection (default)
+#   sh gl-helper-triage.sh --archive [-o DIR]   collect evidence into DIR (default /tmp)
+#   sh gl-helper-triage.sh --archive --stdout   stream the evidence tar.gz to stdout
+#   sh gl-helper-triage.sh --fix [-o DIR]       archive first (mandatory), then remediate
+#
+# From a PC (or use triage-remote.sh, which pulls and verifies the evidence before fixing):
+#   ssh root@DEVICE 'sh -s -- --check' < gl-helper-triage.sh
+#   ssh root@DEVICE 'sh -s -- --archive --stdout' < gl-helper-triage.sh > evidence.tar.gz
+#
+# The overlay is detected automatically: upper /userdata/overlay/upper (KVM) or
+# /overlay/upper (OpenWrt), read-only base image /rom.
+# Test options: --root DIR (merged root, default /), --upper DIR, --lower DIR.
+#
+# Exit codes: 0 clean | 1 IOC found | 2 fixed, no IOC left | 3 fix incomplete | 4 error
+#
+# The IOCs come from GL.iNet's own boot cleanup in RM1PE firmware 1.10.2
+# (/etc/init.d/S08overlayfs). That cleanup only fires when one of four marker files
+# exists and only removes a fixed set. This script also flags busybox applets replaced
+# by foreign binaries, IOC processes and other overlay changes worth reviewing.
+# --fix only touches IOC items and their persistence. REVIEW items are archived and
+# reported, never changed. This is a stopgap: a factory reset is still recommended.
+
+VERSION=1.1
+
+MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
+MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
+PERSIST="etc/rc.local etc/crontabs/root"
+APPLET_DIRS="bin sbin usr/bin usr/sbin"
+REVIEW_PATHS="etc/init.d etc/rc.d etc/inittab etc/profile etc/profile.d etc/hotplug.d
+etc/uci-defaults etc/kvmd/user/scripts etc/crontabs root/.ssh etc/dropbear
+etc/sysupgrade.conf lib/upgrade/keep.d"
+IOC_RE='gl-helper|/\.gl/|/\.cache/gb'
+FULL_UPPER_MAX_KB=65536
+TAB=$(printf '\t')
+
+MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0
+
+usage() {
+	cat <<'EOF'
+gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" implant
+(GL.iNet KVMs and GL.iNet / OpenWrt routers)
+
+  --check              read-only detection (default)
+  --archive            collect evidence as tar.gz into -o DIR (default /tmp)
+  --stdout             with --archive: write the tar.gz to stdout, log to stderr
+  --fix                archive (mandatory), kill IOC processes, remove IOC persistence,
+                       restore replaced base files from the read-only image
+  -o, --out DIR        output directory for the archive
+  --root/--upper/--lower DIR   override merged root, overlay upper and base image
+  -V, --version        print version
+
+Exit: 0 clean, 1 IOC found, 2 fixed, 3 fix incomplete, 4 error
+EOF
+}
+
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 4; }
+
+while [ $# -gt 0 ]; do
+	case $1 in
+	--check) MODE=check ;;
+	--archive) MODE=archive ;;
+	--fix) MODE=fix ;;
+	--stdout) STDOUT=1 ;;
+	-o | --out) [ $# -ge 2 ] || die "$1 needs a directory"; OUTDIR=$2; shift ;;
+	--root) [ $# -ge 2 ] || die "$1 needs a directory"; ROOT=$2; shift ;;
+	--upper) [ $# -ge 2 ] || die "$1 needs a directory"; UPPER=$2; UPPER_SET=1; shift ;;
+	--lower) [ $# -ge 2 ] || die "$1 needs a directory"; LOWER=$2; LOWER_SET=1; shift ;;
+	-h | --help) usage; exit 0 ;;
+	-V | --version) echo "$VERSION"; exit 0 ;;
+	*) die "unknown option: $1 (see --help)" ;;
+	esac
+	shift
+done
+[ "$STDOUT" = 1 ] && [ "$MODE" != archive ] && die "--stdout only works together with --archive"
+
+# Log goes to fd 3: stdout normally, stderr when the archive itself goes to stdout.
+if [ "$STDOUT" = 1 ]; then exec 3>&2; else exec 3>&1; fi
+say() { printf '%s\n' "$*" >&3; }
+umask 077
+
+TMP=${TMPDIR:-/tmp}/.gl-triage.$$
+mkdir -m 700 "$TMP" 2>/dev/null || die "cannot create work dir $TMP"
+trap 'rm -rf "$TMP"' EXIT
+trap 'exit 4' INT TERM HUP
+
+LIVE=0
+[ "$ROOT" = / ] && LIVE=1
+[ -d "$ROOT" ] || die "root not found: $ROOT"
+if [ "$UPPER_SET" = 0 ] && [ "$LIVE" = 1 ]; then
+	for d in /userdata/overlay/upper /overlay/upper; do
+		[ -d "$d" ] && { UPPER=$d; break; }
+	done
+fi
+if [ "$LOWER_SET" = 0 ] && [ "$LIVE" = 1 ] && [ -d /rom/bin ]; then LOWER=/rom; fi
+[ -z "$UPPER" ] || [ -d "$UPPER" ] || die "upper dir not found: $UPPER"
+[ -z "$LOWER" ] || [ -d "$LOWER" ] || die "lower dir not found: $LOWER"
+
+r() { if [ "$ROOT" = / ]; then printf '/%s' "$1"; else printf '%s/%s' "${ROOT%/}" "$1"; fi; }
+u() { printf '%s/%s' "${UPPER%/}" "$1"; }
+l() { printf '%s/%s' "${LOWER%/}" "$1"; }
+exists() { [ -e "$1" ] || [ -L "$1" ]; }
+
+# The implant replaced at least /usr/bin/netstat. Use the busybox from the read-only
+# base image for every tool this script calls, so a replaced applet cannot lie to us.
+TRUSTED=no
+if [ -n "$LOWER" ] && [ -x "$(l bin/busybox)" ] && "$(l bin/busybox)" true 2>/dev/null; then
+	TBB=$(l bin/busybox)
+	mkdir "$TMP/bin"
+	for a in $("$TBB" --list 2>/dev/null); do ln -s "$TBB" "$TMP/bin/$a" 2>/dev/null; done
+	PATH="$TMP/bin:$PATH"
+	export PATH
+	TRUSTED="yes ($TBB)"
+fi
+
+if [ -f "$(r etc/openwrt_release)" ]; then
+	PLATFORM=openwrt
+elif grep -q '^RK_MODEL=' "$(r etc/version)" 2>/dev/null; then
+	PLATFORM="glkvm-$(sed -n 's/^RK_MODEL=//p' "$(r etc/version)")"
+else
+	PLATFORM=unknown
+fi
+
+if [ "$LIVE" = 1 ]; then
+	HOST=$(cat /proc/sys/kernel/hostname 2>/dev/null)
+else
+	HOST=$(cat "$(r etc/hostname)" 2>/dev/null)
+fi
+HOST=$(printf '%s' "${HOST:-unknown}" | tr -c 'A-Za-z0-9._-' '_')
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+
+filecmp() {
+	if command -v cmp >/dev/null 2>&1; then cmp -s "$1" "$2"; return; fi
+	[ "$(sha256sum <"$1")" = "$(sha256sum <"$2")" ]
+}
+
+# ---------------------------------------------------------------- findings
+# One line per finding: LEVEL<TAB>KIND<TAB>PATH<TAB>DETAIL
+#   IOC      known indicator; remediated by --fix
+#   PERSIST  persistence file; removed by --fix only when an IOC is present
+#   REVIEW   unusual overlay change; archived and reported, never changed
+#   INFO     context
+add() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$FIND"; }
+
+# Package that installed a file: apk (OpenWrt 24.10+), opkg (older OpenWrt / GL 4.x).
+pkg_owner() {
+	local p db info
+	p=${1#/}
+	db=$(r lib/apk/db/installed)
+	if [ -f "$db" ]; then
+		awk -v t="$p" '/^P:/{pk=substr($0,3)} /^F:/{d=substr($0,3)}
+			/^R:/{f = (d == "" ? "" : d "/") substr($0,3); if (f == t) {print pk; exit}}' "$db"
+		return
+	fi
+	info=$(r usr/lib/opkg/info)
+	[ -d "$info" ] && grep -lxF "/$p" "$info"/*.list 2>/dev/null | head -n 1 | sed 's#.*/##; s#\.list$##'
+}
+
+# Where a file of the overlay lives: the upper layer if we know it, else the merged view.
+src() { if [ -n "$UPPER" ]; then u "$1"; else r "$1"; fi; }
+
+# Absolute, normalized target of a symlink: $1 = relative path of the link, $2 = raw target.
+# "busybox" and "/bin/busybox" for /bin/login are the same target.
+link_target() {
+	local t
+	case $2 in /*) t=$2 ;; *) t="/${1%/*}/$2" ;; esac
+	printf '%s\n' "$t" | awk -F/ '{n=0; for (i=1; i<=NF; i++) { if ($i=="" || $i==".") continue;
+		if ($i=="..") { if (n>0) n--; continue } s[++n]=$i }
+		o=""; for (i=1; i<=n; i++) o=o "/" s[i]; print (o=="" ? "/" : o)}'
+}
+
+# Overlay whiteout (char device 0/0): the file was deleted, e.g. a uci-defaults script
+# after first boot or a disabled service link. Not a change we need to look at.
+whiteout() { [ -c "$1" ]; }
+
+same_as_lower() {
+	[ -n "$LOWER" ] || return 1
+	local a b
+	a=$(src "$1") b=$(l "$1")
+	if [ -L "$a" ]; then
+		[ -L "$b" ] && [ "$(link_target "$1" "$(readlink "$a")")" = "$(link_target "$1" "$(readlink "$b")")" ]
+		return
+	fi
+	[ -f "$a" ] && [ -f "$b" ] && [ ! -L "$b" ] && filecmp "$a" "$b"
+}
+
+check_markers() {
+	local p hit d
+	for p in $MARKERS; do
+		hit=
+		[ -n "$UPPER" ] && exists "$(u "$p")" && hit=upper
+		exists "$(r "$p")" && hit=${hit:+$hit+}merged
+		[ -n "$hit" ] && add IOC marker "/$p" "present ($hit)"
+	done
+	for d in $MARKER_DIRS; do
+		if exists "$(src "$d")" && ! grep -q "${TAB}/$d/" "$FIND" && { [ -z "$LOWER" ] || ! exists "$(l "$d")"; }; then
+			add REVIEW hidden-dir "/$d" "hidden directory not in base image, no known marker inside"
+		fi
+	done
+}
+
+# Relative paths below the applet dirs that the overlay changed.
+applet_candidates() {
+	local d base
+	if [ -n "$UPPER" ]; then base=$UPPER; elif [ -n "$LOWER" ]; then base=${ROOT%/}; else return 0; fi
+	for d in $APPLET_DIRS; do
+		[ -d "$base/$d" ] || continue
+		find "$base/$d" -xdev ! -type d 2>/dev/null | sed "s#^${base%/}/##"
+	done
+}
+
+check_applets() {
+	local p up lp owner
+	applet_candidates >"$TMP/cand"
+	while IFS= read -r p; do
+		up=$(src "$p") lp=
+		[ -n "$LOWER" ] && lp=$(l "$p")
+		same_as_lower "$p" && continue
+		# without an upper layer only files that differ from an existing base file count
+		if [ -z "$UPPER" ] && ! exists "$lp"; then continue; fi
+		if [ -L "$up" ]; then
+			[ -n "$lp" ] && exists "$lp" &&
+				add REVIEW symlink "/$p" "-> $(readlink "$up") (base: $(readlink "$lp" 2>/dev/null || echo file))"
+			continue
+		fi
+		[ -f "$up" ] || continue
+		owner=$(pkg_owner "/$p")
+		if [ -n "$owner" ]; then
+			add INFO package-file "/$p" "installed by package $owner"
+		elif [ -n "$lp" ] && [ -L "$lp" ]; then
+			add IOC applet-hijack "/$p" "regular file shadows base symlink -> $(readlink "$lp")"
+		elif [ "${p##*/}" = netstat ]; then
+			add IOC applet-hijack "/$p" "netstat replaced by a foreign regular file"
+		elif [ -n "$lp" ] && [ -f "$lp" ]; then
+			add REVIEW modified-binary "/$p" "differs from base image"
+		else
+			add REVIEW new-binary "/$p" "not in base image, not owned by a package"
+		fi
+	done <"$TMP/cand"
+	# Without any base image, at least look at netstat itself.
+	if [ -z "$LOWER" ] && [ -z "$UPPER" ]; then
+		for p in usr/bin/netstat bin/netstat; do
+			[ -f "$(r "$p")" ] && [ ! -L "$(r "$p")" ] && [ -z "$(pkg_owner "/$p")" ] &&
+				add REVIEW netstat "/$p" "regular file instead of busybox symlink (no base image to compare)"
+		done
+	fi
+}
+
+check_persist() {
+	local p f
+	for p in $PERSIST; do
+		f=$(src "$p")
+		exists "$f" || continue
+		same_as_lower "$p" && continue
+		if grep -qE "$IOC_RE" "$f" 2>/dev/null; then
+			add IOC persist-ref "/$p" "references gl-helper paths"
+		else
+			add PERSIST persistence "/$p" "present in overlay ($(grep -cvE '^[[:space:]]*(#|$)' "$f" 2>/dev/null) active lines)"
+		fi
+	done
+}
+
+# rc.d symlink to an init script from the base image or a package: normal service enable
+known_service_link() {
+	local t n
+	[ -L "$1" ] || return 1
+	t=$(readlink "$1") n=${t##*/}
+	case $t in ../init.d/* | /etc/init.d/*) ;; *) return 1 ;; esac
+	{ [ -n "$LOWER" ] && exists "$(l "etc/init.d/$n")"; } || [ -n "$(pkg_owner "/etc/init.d/$n")" ]
+}
+
+check_review() {
+	local p e base
+	if [ -n "$UPPER" ]; then base=$UPPER; elif [ -n "$LOWER" ]; then base=${ROOT%/}; else base=; fi
+	if [ -n "$base" ]; then
+		for p in $REVIEW_PATHS; do
+			e="$base/$p"
+			exists "$e" || continue
+			find "$e" -xdev ! -type d 2>/dev/null | while IFS= read -r f; do
+				rel=${f#"${base%/}"/}
+				case $rel in
+				etc/crontabs/root) continue ;;
+				etc/dropbear/dropbear_*_host_key | etc/dropbear/dropbear_*_host_key.pub) continue ;;
+				esac
+				whiteout "$f" && continue
+				same_as_lower "$rel" && continue
+				grep -q "${TAB}/$rel${TAB}" "$FIND" && continue
+				[ -n "$(pkg_owner "/$rel")" ] && continue
+				case $rel in etc/rc.d/*) known_service_link "$f" && continue ;; esac
+				# any autostart/config file that starts the implant is persistence too
+				if [ -f "$f" ] && [ ! -L "$f" ] && grep -qE "$IOC_RE" "$f" 2>/dev/null; then
+					case $rel in
+					etc/sysupgrade.conf | lib/upgrade/keep.d/*)
+						add IOC keep-ref "/$rel" "keeps gl-helper paths across firmware updates" ;;
+					*) add IOC persist-ref "/$rel" "references gl-helper paths" ;;
+					esac
+					continue
+				fi
+				if [ -n "$LOWER" ] && exists "$(l "$rel")"; then
+					add REVIEW changed "/$rel" "differs from base image"
+				elif [ -n "$UPPER" ]; then
+					add REVIEW new "/$rel" "not in base image"
+				fi
+			done
+		done
+	fi
+	# accounts
+	awk -F: '$3 == 0 && $1 != "root" {print $1}' "$(r etc/passwd)" 2>/dev/null | while IFS= read -r a; do
+		add REVIEW uid0-account "/etc/passwd" "second uid 0 account: $a"
+	done
+	if [ -n "$LOWER" ] && [ -f "$(l etc/passwd)" ]; then
+		awk -F: 'NR==FNR {seen[$1]=1; next} !($1 in seen) {print $1 " (shell " $7 ")"}' \
+			"$(l etc/passwd)" "$(r etc/passwd)" 2>/dev/null | while IFS= read -r a; do
+			add REVIEW new-account "/etc/passwd" "account not in base image: $a"
+		done
+	fi
+	# other hidden files and dirs in the overlay
+	if [ -n "$UPPER" ]; then
+		find "$UPPER" -xdev -name '.*' 2>/dev/null | sed "s#^${UPPER%/}/##" | while IFS= read -r rel; do
+			case $rel in
+			etc/glinet/.cache* | etc/config/.gl*) continue ;;
+			root/.ash_history | root/.bash_history | root/.ssh | root/.ssh/*) continue ;;
+			*/.uci | */.uci/* | etc/.extroot-uuid | .fs_state | etc/luci-uploads/.placeholder) continue ;;
+			esac
+			add REVIEW hidden "/$rel" "hidden file in overlay"
+		done
+	fi
+}
+
+# Process scan (live system only). Also maps socket inodes to pids for the net output.
+check_procs() {
+	[ "$LIVE" = 1 ] && [ -r /proc/1/cmdline ] || return 0
+	: >"$TMP/procs"
+	: >"$TMP/sockets"
+	local d pid exe comm cmd
+	for d in /proc/[0-9]*; do
+		pid=${d#/proc/}
+		[ "$pid" = $$ ] && continue
+		exe=$(readlink "$d/exe" 2>/dev/null)
+		comm=$(cat "$d/comm" 2>/dev/null)
+		cmd=$(tr '\0' ' ' <"$d/cmdline" 2>/dev/null)
+		[ -n "$comm" ] || continue
+		printf '%s\t%s\t%s\t%s\n' "$pid" "$comm" "$exe" "$cmd" >>"$TMP/procs"
+		# shellcheck disable=SC2012 # fd names are numbers
+		ls -l "$d/fd" 2>/dev/null | awk -v p="$pid" -v c="$comm" \
+			'/socket:\[/ {s=$NF; gsub(/[^0-9]/,"",s); print s "\t" p "\t" c}' >>"$TMP/sockets"
+		case "$cmd" in *gl-helper-triage*) continue ;; esac
+		if printf '%s\n%s\n%s\n' "$exe" "$cmd" "$comm" | grep -qE "$IOC_RE"; then
+			add IOC process "$pid" "comm=$comm exe=$exe cmd=$cmd"
+			continue
+		fi
+		if [ -n "$exe" ] && grep -q "^IOC${TAB}applet-hijack${TAB}${exe}${TAB}" "$FIND"; then
+			add IOC process "$pid" "runs replaced applet: comm=$comm exe=$exe cmd=$cmd"
+			continue
+		fi
+		case "$exe" in
+		*' (deleted)') add REVIEW deleted-exe "$pid" "running from deleted binary: comm=$comm exe=$exe" ;;
+		esac
+	done
+}
+
+decode_tcp() {
+	# established IPv4 connections from /proc/net/tcp with the owning process
+	awk 'function h(s,  i,n){n=0; s=toupper(s); for(i=1;i<=length(s);i++) n=n*16+index("0123456789ABCDEF",substr(s,i,1))-1; return n}
+		function ip(x){return h(substr(x,7,2)) "." h(substr(x,5,2)) "." h(substr(x,3,2)) "." h(substr(x,1,2))}
+		NR==FNR {own[$1]=$2 "/" $3; next}
+		FNR>1 && $4=="01" {split($2,a,":"); split($3,b,":");
+			printf "%s:%d -> %s:%d  %s\n", ip(a[1]), h(a[2]), ip(b[1]), h(b[2]), ($10 in own ? own[$10] : "?")}' \
+		"$TMP/sockets" /proc/net/tcp 2>/dev/null
+}
+
+detect() {
+	FIND=$1
+	: >"$FIND"
+	check_markers
+	check_applets
+	check_persist
+	check_procs
+	check_review
+}
+
+count() { grep -c "^$1${TAB}" "$FIND"; }
+
+report() {
+	local n_ioc lvl pat
+	n_ioc=$(count IOC)
+	say "== gl-helper triage $VERSION  host=$HOST  platform=$PLATFORM  time=$STAMP  mode=$MODE"
+	say "   root=$ROOT  upper=${UPPER:-none}  lower=${LOWER:-none}  trusted-busybox=$TRUSTED"
+	[ "$TRUSTED" = no ] && say "   WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered"
+	[ -z "$UPPER" ] && say "   NOTE: overlay upper layer unknown, results are less precise"
+	if [ -s "$FIND" ]; then
+		say ""
+		for lvl in IOC PERSIST REVIEW INFO; do
+			grep "^$lvl${TAB}" "$FIND" | awk -F '\t' '{printf "[%-7s] %-15s %s\n          %s\n", $1, $2, $3, $4}' >&3
+		done
+	fi
+	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ]; then
+		decode_tcp >"$TMP/established"
+		say ""
+		say "Established IPv4 TCP connections: $(wc -l <"$TMP/established" | tr -d ' ') (full list in the archive)"
+		pat=$(awk -F '\t' '$1=="IOC" && $2=="process" {printf "%s  %s/", sep, $3; sep="|"}' "$FIND")
+		[ -n "$pat" ] && grep -E "$pat" "$TMP/established" | sed 's/^/   IOC process connection: /' >&3
+	fi
+	say ""
+	say "Summary: IOC=$n_ioc PERSIST=$(count PERSIST) REVIEW=$(count REVIEW) INFO=$(count INFO)"
+	if [ "$n_ioc" -gt 0 ]; then say "Verdict: INFECTED - gl-helper indicators found"; else say "Verdict: no gl-helper indicators found"; fi
+}
+
+# ---------------------------------------------------------------- archive
+ARCHIVE=
+collect() {
+	local E list f pid size avail base_shadow
+	E=$TMP/evidence
+	mkdir -p "$E/meta" "$E/overlay" "$E/files" "$E/proc" "$E/net" "$E/logs" "$E/etc"
+	cp "$FIND" "$E/findings.tsv"
+	report 3>"$E/report.txt"
+
+	{
+		echo "tool: gl-helper-triage $VERSION"
+		echo "collected: $STAMP"
+		echo "host: $HOST"
+		echo "platform: $PLATFORM"
+		echo "root=$ROOT upper=${UPPER:-none} lower=${LOWER:-none} trusted-busybox=$TRUSTED"
+		uname -a 2>/dev/null
+		if [ "$LIVE" = 1 ]; then
+			echo "uptime: $(cat /proc/uptime 2>/dev/null)"
+			echo "gl model: $(cat /proc/gl-hw-info/model 2>/dev/null)"
+			id 2>/dev/null
+		fi
+	} >"$E/meta/info.txt"
+	for f in etc/version etc/glversion etc/os-release etc/openwrt_release etc/openwrt_version etc/manifest; do
+		[ -f "$(r "$f")" ] && cp "$(r "$f")" "$E/meta/$(echo "$f" | tr / _)"
+	done
+	if [ "$LIVE" = 1 ]; then
+		cp /proc/mounts "$E/meta/mounts.txt" 2>/dev/null
+		cp /proc/cmdline "$E/meta/kernel-cmdline.txt" 2>/dev/null
+		df -k >"$E/meta/df.txt" 2>/dev/null
+	fi
+
+	# Overlay upper: listing with hashes always, complete copy if small and /tmp has room.
+	if [ -n "$UPPER" ]; then
+		find "$UPPER" -xdev -exec stat -c '%A %U:%G %s %y %N' {} + >"$E/overlay/upper-listing.txt" 2>/dev/null ||
+			find "$UPPER" -xdev -exec ls -lad {} + >"$E/overlay/upper-listing.txt" 2>/dev/null
+		find "$UPPER" -xdev -type f -size -51200k -exec sha256sum {} + >"$E/overlay/upper-sha256.txt" 2>/dev/null
+		size=$(du -sk "$UPPER" 2>/dev/null | awk '{print $1}')
+		avail=$(df -k "$TMP" 2>/dev/null | tail -n 1 | awk '{print $(NF-2)}')
+		if [ "${size:-0}" -le "$FULL_UPPER_MAX_KB" ] && [ $((${size:-0} * 3)) -lt "${avail:-0}" ]; then
+			mkdir -p "$E/files/upper"
+			tar -C "$UPPER" -cf - . 2>/dev/null | tar -C "$E/files/upper" -xf - 2>/dev/null
+			echo "complete copy of the upper layer (${size} KiB)" >"$E/overlay/README.txt"
+		else
+			echo "upper layer is ${size:-?} KiB (free in work dir: ${avail:-?} KiB): only finding paths copied" >"$E/overlay/README.txt"
+		fi
+	fi
+	# Always copy the finding paths (merged view) and key files.
+	list=$TMP/copylist
+	awk -F '\t' '$3 ~ /^\// {print substr($3,2)}' "$FIND" >"$list"
+	for f in $MARKER_DIRS $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
+		etc/passwd etc/group etc/sysupgrade.conf lib/upgrade/keep.d; do echo "$f"; done >>"$list"
+	mkdir -p "$E/files/merged"
+	sort -u "$list" | while IFS= read -r f; do
+		exists "$(r "$f")" || continue
+		tar -C "${ROOT%/}/" -cf - "./$f" 2>/dev/null | tar -C "$E/files/merged" -xf - 2>/dev/null
+	done
+	# shadow: whether a hash changed, never the hash itself
+	if [ -r "$(r etc/shadow)" ]; then
+		base_shadow=/dev/null
+		[ -n "$LOWER" ] && [ -r "$(l etc/shadow)" ] && base_shadow=$(l etc/shadow)
+		awk -F: 'NR==FNR {b[$1]=$2; next}
+			{st = ($1 in b) ? (b[$1]==$2 ? "same as base" : "CHANGED vs base") : "not in base"
+			 printf "%s\t%s\tlastchg=%s\n", $1, ($2 ~ /^[!*]/ || $2=="" ? "locked/empty" : "hash set, " st), $3}' \
+			"$base_shadow" "$(r etc/shadow)" >"$E/etc/shadow-summary.txt" 2>/dev/null
+	fi
+
+	if [ "$LIVE" = 1 ]; then
+		cp "$TMP/procs" "$E/proc/all-processes.tsv" 2>/dev/null
+		cp "$TMP/sockets" "$E/net/socket-owners.tsv" 2>/dev/null
+		awk -F '\t' '($1=="IOC" || $2=="deleted-exe") && $3 ~ /^[0-9]+$/ {print $3}' "$FIND" | sort -u | while read -r pid; do
+			[ -d "/proc/$pid" ] || continue
+			mkdir -p "$E/proc/$pid"
+			for f in cmdline environ status maps stat; do cat "/proc/$pid/$f" >"$E/proc/$pid/$f" 2>/dev/null; done
+			readlink "/proc/$pid/exe" >"$E/proc/$pid/exe.link" 2>/dev/null
+			readlink "/proc/$pid/cwd" >"$E/proc/$pid/cwd.link" 2>/dev/null
+			ls -l "/proc/$pid/fd" >"$E/proc/$pid/fd.txt" 2>/dev/null
+			cat "/proc/$pid/exe" >"$E/proc/$pid/exe.bin" 2>/dev/null
+		done
+		for f in tcp tcp6 udp udp6 raw raw6 unix route arp; do cat "/proc/net/$f" >"$E/net/$f" 2>/dev/null; done
+		decode_tcp >"$E/net/tcp-established.txt"
+		dmesg >"$E/logs/dmesg.txt" 2>/dev/null
+		command -v logread >/dev/null 2>&1 && logread >"$E/logs/logread.txt" 2>/dev/null
+		for f in /var/log/messages /var/log/messages.0 /var/log/messages.1 /userdata/log/messages; do
+			[ -f "$f" ] && cp "$f" "$E/logs/$(echo "${f#/}" | tr / _)" 2>/dev/null
+		done
+	fi
+
+	(cd "$E" && find . -type f -exec sha256sum {} + >"$TMP/manifest") && mv "$TMP/manifest" "$E/MANIFEST.sha256"
+
+	if [ "$STDOUT" = 1 ]; then
+		tar -C "$TMP" -czf - evidence || die "writing archive to stdout failed"
+		say "Evidence archive written to stdout."
+		return 0
+	fi
+	mkdir -p "$OUTDIR" || die "cannot create $OUTDIR"
+	ARCHIVE=$OUTDIR/gl-triage-$HOST-$STAMP.tar.gz
+	tar -C "$TMP" -czf "$ARCHIVE" evidence || { rm -f "$ARCHIVE"; die "writing $ARCHIVE failed"; }
+	tar -tzf "$ARCHIVE" >/dev/null 2>&1 || die "archive verification failed: $ARCHIVE"
+	(cd "$OUTDIR" && sha256sum "${ARCHIVE##*/}" >"${ARCHIVE##*/}.sha256")
+	say ""
+	say "Evidence archive: $ARCHIVE"
+	say "  sha256:         $(cut -d ' ' -f1 "$ARCHIVE.sha256")"
+	case $OUTDIR in /tmp | /tmp/* | /var/run* | /run* | /var/tmp*)
+		say "  /tmp is RAM: copy it off the device before rebooting." ;;
+	esac
+}
+
+# ---------------------------------------------------------------- fix
+restore_from_lower() {
+	local p="$1"
+	rm -rf "$(r "$p")" || return 1
+	if [ -n "$LOWER" ] && exists "$(l "$p")"; then
+		cp -a "$(l "$p")" "$(r "$p")" && say "   restored /$p from base image"
+	else
+		say "   removed /$p (not in base image)"
+	fi
+}
+
+fix() {
+	local pid p f failed=0
+	if [ "$LIVE" = 1 ] && [ "$(id -u)" != 0 ]; then die "--fix needs root"; fi
+	if [ "$(count IOC)" = 0 ]; then
+		say ""
+		say "No IOC found, nothing to remediate. REVIEW items were not touched."
+		return 0
+	fi
+	say ""
+	say "== Remediation"
+	# 1. processes: freeze all first so they cannot restart each other, then kill
+	awk -F '\t' '$1=="IOC" && $2=="process" {print $3}' "$FIND" | sort -u >"$TMP/pids"
+	while read -r pid; do kill -STOP "$pid" 2>/dev/null; done <"$TMP/pids"
+	while read -r pid; do kill -KILL "$pid" 2>/dev/null && say "   killed pid $pid"; done <"$TMP/pids"
+	# 2. the implant's own files
+	for p in $MARKER_DIRS; do
+		exists "$(r "$p")" || continue
+		if rm -rf "$(r "$p")"; then say "   removed /$p"; else failed=1; fi
+	done
+	# 3. persistence, only because an IOC was found (same set as the vendor cleanup)
+	for p in $PERSIST; do
+		exists "$(src "$p")" || continue
+		same_as_lower "$p" && continue
+		restore_from_lower "$p" || failed=1
+		say "     (previous version: files/merged/$p in the archive)"
+	done
+	# 4. other files that start the implant (init scripts, hotplug, profile, ...)
+	#    and replaced applets: put the base image version back or remove them
+	awk -F '\t' '$1=="IOC" && ($2=="persist-ref" || $2=="applet-hijack") {print substr($3,2)}' "$FIND" |
+		while IFS= read -r p; do
+			case " $PERSIST " in *" $p "*) continue ;; esac
+			exists "$(r "$p")" || continue
+			restore_from_lower "$p" || echo fail >>"$TMP/fixfail"
+			case $p in etc/init.d/*) exists "$(r "$p")" || echo "${p##*/}" >>"$TMP/removed-init" ;; esac
+		done
+	[ -f "$TMP/fixfail" ] && failed=1
+	# 5. OpenWrt: service links to init scripts removed in step 4
+	if [ -s "$TMP/removed-init" ] && [ -d "$(r etc/rc.d)" ]; then
+		for f in "$(r etc/rc.d)"/*; do
+			[ -L "$f" ] || continue
+			grep -qxF "$(readlink "$f" | sed 's#.*/##')" "$TMP/removed-init" || continue
+			rm -f "$f" && say "   removed service link /etc/rc.d/${f##*/}"
+		done
+	fi
+	# 6. sysupgrade keep lists: drop only the lines that keep implant paths
+	awk -F '\t' '$1=="IOC" && $2=="keep-ref" {print substr($3,2)}' "$FIND" | while IFS= read -r p; do
+		f=$(r "$p")
+		[ -f "$f" ] || continue
+		grep -vE "$IOC_RE" "$f" >"$TMP/keep.new"
+		cat "$TMP/keep.new" >"$f" && say "   removed gl-helper lines from /$p" || echo fail >>"$TMP/fixfail"
+	done
+	[ -f "$TMP/fixfail" ] && failed=1
+	# 7. make cron forget a removed crontab (KVM: S50crond, OpenWrt: cron)
+	if [ "$LIVE" = 1 ]; then
+		for s in /etc/init.d/S50crond /etc/init.d/cron; do
+			[ -x "$s" ] && "$s" restart >/dev/null 2>&1 && say "   restarted cron ($s)" && break
+		done
+		sync
+	fi
+	return $failed
+}
+
+recommend() {
+	say ""
+	say "Next steps:"
+	say " - Copy the evidence archive off the device and keep it."
+	case $PLATFORM in
+	openwrt)
+		say " - Update the firmware WITHOUT keeping settings: OpenWrt keeps /etc/config across"
+		say "   sysupgrade, and the implant hides in /etc/config/.gl."
+		say " - A factory reset (firstboot / reset button) wipes the whole overlay and is the safe option."
+		say " - Check every client that used this router as gateway or DNS." ;;
+	glkvm-*)
+		say " - Update to fixed firmware (RM1PE 1.10.2 removes these IOCs at every boot)."
+		say " - A factory reset is still recommended: this cleanup only removes known IOCs."
+		say " - Check the computer connected to the KVM (unknown software, accounts, autostart)." ;;
+	*)
+		say " - Update the firmware and do a factory reset: this cleanup only removes known IOCs." ;;
+	esac
+	say " - Change the device password, the GL.iNet cloud account password and SSH keys."
+}
+
+# ---------------------------------------------------------------- main
+detect "$TMP/findings"
+case $MODE in
+check)
+	report
+	[ "$(count IOC)" -gt 0 ] && { recommend; exit 1; }
+	exit 0
+	;;
+archive)
+	report
+	collect
+	[ "$(count IOC)" -gt 0 ] && exit 1
+	exit 0
+	;;
+fix)
+	report
+	collect
+	{ [ -n "$ARCHIVE" ] && [ -s "$ARCHIVE" ]; } || die "no verified archive, refusing to change anything"
+	[ "$(count IOC)" -gt 0 ] || { fix; exit 0; }
+	fix
+	FIXRC=$?
+	sleep 2
+	detect "$TMP/findings.after"
+	say ""
+	say "== Re-check after remediation"
+	if [ "$(count IOC)" -gt 0 ]; then
+		grep "^IOC${TAB}" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
+		say "Verdict: remediation INCOMPLETE"
+		recommend
+		exit 3
+	fi
+	if [ "$FIXRC" != 0 ]; then say "Verdict: IOCs gone, but some steps reported errors"; recommend; exit 3; fi
+	say "Verdict: no gl-helper indicators left"
+	recommend
+	exit 2
+	;;
+esac
