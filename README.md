@@ -82,6 +82,21 @@ This script also detects:
   implant survive a firmware update with "keep settings"),
 - implant persistence even when the marker files were deleted.
 
+### Running processes
+
+On 2026-11-21 GL.iNet posted a [quick check for routers](https://forum.gl-inet.com/t/quickly-check-if-your-router-is-under-attack/73070):
+a router is under attack when `ps | grep tmp` shows a process `crond -i /tmp/.log`. The
+script runs the same check and reports the process as `IOC`.
+
+In the same thread users reported a remote root shell on GL-AXT1800 routers (firmware
+4.8.3): a loop around a pipe at `/tmp/f` that connects `/bin/sh -i` through `nc` to
+`170.39.226.219`. GL.iNet has not confirmed that it belongs to this incident. The script
+reports such processes and open connections to that address as `IOC` and says so.
+
+Both are checks of what is running **right now**. `/tmp` is RAM: after a restart these
+traces are gone, and a clean result does not show that a device was never compromised.
+`--fix` stops the processes. It cannot tell what started them.
+
 It also lists other overlay changes as `REVIEW` for a human to judge: new or modified
 binaries, new init scripts, `authorized_keys`, extra uid 0 accounts, hidden files and
 processes running from deleted binaries.

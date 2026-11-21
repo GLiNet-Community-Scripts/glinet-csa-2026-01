@@ -27,11 +27,13 @@
 # The IOCs come from GL.iNet's own boot cleanup in RM1PE firmware 1.10.2
 # (/etc/init.d/S08overlayfs). That cleanup only fires when one of four marker files
 # exists and only removes a fixed set. This script also flags busybox applets replaced
-# by foreign binaries, IOC processes and other overlay changes worth reviewing.
+# by foreign binaries, IOC processes and other overlay changes worth reviewing. It also
+# runs GL.iNet's quick check for routers (a process "crond -i /tmp/.log") and looks for a
+# remote shell that users reported in GL.iNet's forum.
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.2
+VERSION=1.3
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -41,6 +43,13 @@ REVIEW_PATHS="etc/init.d etc/rc.d etc/inittab etc/profile etc/profile.d etc/hotp
 etc/uci-defaults etc/kvmd/user/scripts etc/crontabs root/.ssh etc/dropbear
 etc/sysupgrade.conf lib/upgrade/keep.d"
 IOC_RE='gl-helper|/\.gl/|/\.cache/gb'
+# Running processes. PROC_RE is GL.iNet's own quick check for routers (forum, 2026-11-21):
+# "ps | grep tmp" shows "crond -i /tmp/.log". SHELL_RE is a remote root shell that users
+# reported in the same thread (a loop around a pipe at /tmp/f and nc to SHELL_IP); GL.iNet
+# has not confirmed that it belongs to the incident.
+PROC_RE='crond -i /tmp/\.log'
+SHELL_IP='170.39.226.219'
+SHELL_RE="170\\.39\\.226\\.219|/tmp/f([ ;|>]|\$)"
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
@@ -382,6 +391,14 @@ check_procs() {
 			add IOC process "$pid" "comm=$comm exe=$exe cmd=$cmd"
 			continue
 		fi
+		if printf '%s\n' "$cmd" | grep -qE "$PROC_RE"; then
+			add IOC process "$pid" "GL.iNet's quick check (crond -i /tmp/.log): comm=$comm exe=$exe cmd=$cmd"
+			continue
+		fi
+		if printf '%s\n' "$cmd" | grep -qE "$SHELL_RE"; then
+			add IOC process "$pid" "remote shell reported by users, not confirmed by GL.iNet: comm=$comm cmd=$cmd"
+			continue
+		fi
 		if [ -n "$exe" ] && grep -q "^IOC${TAB}applet-hijack${TAB}${exe}${TAB}" "$FIND"; then
 			add IOC process "$pid" "runs replaced applet: comm=$comm exe=$exe cmd=$cmd"
 			continue
@@ -390,6 +407,14 @@ check_procs() {
 		*' (deleted)') add REVIEW deleted-exe "$pid" "running from deleted binary: comm=$comm exe=$exe" ;;
 		esac
 	done
+}
+
+# Files in /tmp that belong to the process indicators. /tmp is RAM: they are gone after a
+# restart, so they are evidence to archive, not something --fix has to clean up.
+check_tmp() {
+	exists "$(r tmp/.log)" && add REVIEW tmp-file /tmp/.log "path from GL.iNet's quick check (crond -i /tmp/.log) exists"
+	[ -p "$(r tmp/f)" ] && add REVIEW tmp-file /tmp/f "pipe used by the remote shell that users reported"
+	return 0
 }
 
 decode_tcp() {
@@ -409,6 +434,10 @@ detect() {
 	check_applets
 	check_persist
 	check_procs
+	check_tmp
+	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ] && decode_tcp | grep -F -- "-> $SHELL_IP:" >"$TMP/shellconn"; then
+		while IFS= read -r line; do add IOC connection "$SHELL_IP" "open connection to the address of the reported remote shell: $line"; done <"$TMP/shellconn"
+	fi
 	check_review
 }
 
