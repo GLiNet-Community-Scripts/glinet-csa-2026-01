@@ -1,9 +1,11 @@
+# The guide lives at https://gl-i.net/security/csa-2026-01/fix/ (community-website).
+# This only publishes a redirect for the old address.
 name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
-    paths: [site/**, images/logo.svg, .github/workflows/pages.yml]
+    paths: [site/**, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: cp images/logo.svg site/
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
