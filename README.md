@@ -225,8 +225,9 @@ Findings are labeled:
 
 ## 📮 Anonymous Report
 
-When the script finds indicators, it offers to send a short report to the community, so
-that we can see which models and firmware versions were hit and when. At the end of its
+At the end of a run the script offers to send a short report to the community, so that
+we can see which models and firmware versions were hit and when. It offers this on a
+device without indicators too: those reports show which devices were not hit. At the end of its
 run it says in a few lines what the report contains and sends it only after you answer
 `y`; `v` shows the complete report first. Without a terminal (for example through
 `ssh ... 'sh -s'`) it never sends on its own; add `--report` to send. `--show-report`

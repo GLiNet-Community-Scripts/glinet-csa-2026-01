@@ -11,8 +11,9 @@
 #   sh gl-helper-triage.sh --archive --stdout   stream the evidence tar.gz to stdout
 #   sh gl-helper-triage.sh --fix [-o DIR]       archive first (mandatory), then remediate
 #
-# When indicators are found, the script offers to send a short anonymous report (model,
-# firmware, which indicators, when) to the community. It shows the report and sends it only
+# At the end the script offers to send a short anonymous report (model, firmware, which
+# indicators, when) to the community, also from a device without indicators, so that we
+# see which devices were not hit. It shows the report and sends it only
 # after "y". --report sends it without asking, --no-report never asks, --show-report
 # prints the complete report and sends nothing.
 #
@@ -38,7 +39,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.6
+VERSION=2.7
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -1049,22 +1050,32 @@ send_report() {
 	fi
 }
 
-# Offered at the very end, only on a live device with indicators. The summary says in a
+# Offered at the very end on a live device, with or without indicators: clean devices
+# show which models and firmware versions were not hit. The summary says in a
 # few lines what the report holds. The lines taken from the user's own files and firewall
 # are always shown word for word: they are the only part that can hold a secret of theirs.
 offer_report() {
-	local answer n
+	local answer n ioc
 	[ "$LIVE" = 1 ] && [ "$REPORT" != no ] && [ -s "$TMP/report.json" ] || return 0
 	if [ "$REPORT" = show ]; then
 		section "Anonymous report (not sent)"
 		sed 's/^/   /' "$TMP/report.json" >&3
 		return 0
 	fi
-	grep -q '^"ioc": 0,' "$TMP/report.json" && [ "$REPORT" != yes ] && return 0
+	ioc=$(sed -n 's/^"ioc": \(.*\),$/\1/p' "$TMP/report.json")
 	section "Anonymous report (optional)"
-	say "   Help the community see which devices were hit and how. The report would contain:"
+	if [ "$ioc" = 0 ]; then
+		say "   No known traces here. That is worth knowing too: reports from clean devices show"
+		say "   which models and firmware versions were not hit. The report would contain:"
+	else
+		say "   Help the community see which devices were hit and how. The report would contain:"
+	fi
 	say "   - the device: $(sed -n 's/^"model": "\(.*\)",$/\1/p' "$TMP/report.json"), firmware $(sed -n 's/^"firmware": "\(.*\)",$/\1/p' "$TMP/report.json"), time of this check, uptime"
-	say "   - the $(sed -n 's/^"ioc": \(.*\),$/\1/p' "$TMP/report.json") known traces found above (kind and path), and how many other findings"
+	if [ "$ioc" = 0 ]; then
+		say "   - that no known traces were found, and how many other findings there were"
+	else
+		say "   - the $ioc known traces found above (kind and path), and how many other findings"
+	fi
 	grep -q '^"shell_started": "..*",$' "$TMP/report.json" && say "   - when the remote shell started and which port it used"
 	n=$(grep -o '"sha256"' "$TMP/report.json" | wc -l | tr -d ' ')
 	[ "$n" -gt 0 ] && say "   - fingerprint, size and time of $n malware file(s), not the files themselves"
