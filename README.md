@@ -161,7 +161,7 @@ processes running from deleted binaries.
 Run the check on the device (SSH as root), without cloning the repository:
 
 ```bash
-wget -q https://app.gl-i.net/csa-2026-01-fix -O gl-helper-triage.sh ; sh gl-helper-triage.sh
+curl -fsSL https://app.gl-i.net/csa-2026-01-fix -o gl-helper-triage.sh ; sh gl-helper-triage.sh
 ```
 
 This only reads. It changes nothing and prints a report.
