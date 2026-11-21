@@ -234,7 +234,10 @@ switches the offer off.
 The report contains: script version, platform, model, firmware version, time of the
 check, uptime, the number of findings per label, the kind and path of each `IOC` and
 `PERSIST` finding, whether GL.iNet's quick check hit, and for the reported remote shell
-its start time, the remote port and the time of its pipe.
+its start time, the remote port and the time of its pipe. For the implant's own files and
+for replaced system tools it adds the SHA-256, size and time of the file, and it gives
+the time of the cloud handler's state file. `REVIEW` findings are only counted: they are
+your own changes more often than not.
 
 It does not contain the host name, any address or key of the device, or any file. The
 receiving [worker](worker/) stores no IP address.

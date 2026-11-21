@@ -3,7 +3,7 @@
 // were found, when). The worker stores exactly the fields listed below and nothing
 // about the sender: no IP address, no country, no headers.
 
-const MAX_BYTES = 4096;
+const MAX_BYTES = 8192;
 const SAFE = /^[A-Za-z0-9 ._:\/+@=,()-]*$/;
 const TIME = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)?$/;
 
@@ -14,7 +14,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1,
+  schema: (v) => v === 1 || v === 2,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -31,13 +31,22 @@ const FIELDS = {
   pipe_time: time,
 };
 
+// Since script 2.2 (schema 2): fingerprints of the implant's files and the time of the
+// cloud handler's state file.
+const FILE = { path: str(120), sha256: (v) => typeof v === 'string' && /^([0-9a-f]{64})?$/.test(v), size: int, mtime: time };
+const isFile = (v) =>
+  v !== null && typeof v === 'object' && !Array.isArray(v) &&
+  Object.keys(v).length === Object.keys(FILE).length && Object.entries(FILE).every(([k, ok]) => ok(v[k]));
+const FIELDS_V2 = { ...FIELDS, state_file_time: time, files: list(12, isFile) };
+
 const text = (body, status = 200) =>
   new Response(body + '\n', { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  for (const key of Object.keys(report)) if (!(key in FIELDS)) return `unknown field ${key.slice(0, 32)}`;
-  for (const [key, ok] of Object.entries(FIELDS)) if (!ok(report[key])) return `bad or missing field ${key}`;
+  const fields = report.schema === 2 ? FIELDS_V2 : FIELDS;
+  for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
+  for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;
 }
 

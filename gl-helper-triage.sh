@@ -37,7 +37,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.1
+VERSION=2.2
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -934,7 +934,7 @@ recommend() {
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
 build_report() {
-	local model fw up quick started ports ptime list
+	local model fw up quick started ports ptime list files stime f
 	model=$(cat /proc/gl-hw-info/model 2>/dev/null)
 	[ -n "$model" ] || model=$(cat /tmp/sysinfo/model 2>/dev/null)
 	fw=$(cat "$(r etc/glversion)" 2>/dev/null)
@@ -945,12 +945,31 @@ build_report() {
 		sed -n 's/.*started \([0-9-]* [0-9:]* UTC\).*/\1/p' | sort | head -n 1)
 	ports=$(grep "^IOC${TAB}" "$FIND" | grep -oE '170\.39\.226\.[0-9]+[: ][0-9]+' | sed 's/.*[: ]//' | sort -un | head -n 10 | tr '\n' ',' | sed 's/,$//')
 	ptime=$(grep "^IOC${TAB}pipe${TAB}" "$FIND" | sed -n 's/.*last data \([0-9-]* [0-9:]* UTC\).*/\1/p' | head -n 1)
-	# kind and, where it is a path or a name and not a process number, what was found
-	list=$(awk -F '\t' '$1=="IOC" || $1=="PERSIST" {print ($3 ~ /^[0-9]+$/) ? $2 : $2 " " $3}' "$FIND" | sort -u | head -n 40 |
+	# kind and what was found: a path or a name. For a process, what sort it is and its
+	# binary, never its number or its full command line.
+	list=$(awk -F '\t' '$1=="IOC" || $1=="PERSIST" {
+			if ($2 != "process") { print $2 " " $3; next }
+			exe = ""; if (match($4, /exe=[^ ]+/)) exe = " " substr($4, RSTART + 4, RLENGTH - 4)
+			if ($4 ~ /^GL.iNet.s quick check/) print "process quick-check"
+			else if ($4 ~ /^remote shell/) print "process remote-shell"
+			else if ($4 ~ /^runs replaced applet/) print "process replaced-tool" exe
+			else print "process implant" exe
+		}' "$FIND" | sort -u | head -n 30 |
 		while IFS= read -r line; do printf '%s,' "$(jstr "$line" 120)"; done | sed 's/,$//')
+	# fingerprints of the implant's own files and of replaced system tools: the hash shows
+	# whether everyone has the same variant, the time when it arrived
+	files=$(awk -F '\t' '$1=="IOC" && ($2=="marker" || $2=="applet-hijack") {print $3}' "$FIND" | sort -u | head -n 12 |
+		while IFS= read -r f; do
+			[ -f "$(r "${f#/}")" ] && [ ! -L "$(r "${f#/}")" ] || continue
+			printf '{"path": %s, "sha256": %s, "size": %s, "mtime": %s},' "$(jstr "$f" 120)" \
+				"$(jstr "$(sha256sum "$(r "${f#/}")" 2>/dev/null | cut -c1-64)")" \
+				"$(wc -c <"$(r "${f#/}")" 2>/dev/null | tr -d ' ')" "$(jstr "$(file_time "$(r "${f#/}")")")"
+		done | sed 's/,$//')
+	stime=
+	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)")
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 1,
+"schema": 2,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -964,7 +983,9 @@ build_report() {
 "quick_check": $quick,
 "shell_started": $(jstr "$started"),
 "shell_ports": [$ports],
-"pipe_time": $(jstr "$ptime")
+"pipe_time": $(jstr "$ptime"),
+"state_file_time": $(jstr "$stime"),
+"files": [$files]
 }
 EOF
 }
@@ -989,7 +1010,7 @@ offer_report() {
 	say "   Help the community see which devices were hit. Only this would be sent,"
 	say "   to $REPORT_URL:"
 	sed 's/^/      /' "$TMP/report.json" >&3
-	say "   ${D}No host name, no address or key of this device, no file. The sender's address is not stored.${N}"
+	say "   ${D}No host name, no address or key of this device, no file contents. The sender's address is not stored.${N}"
 	if [ "$REPORT" != yes ]; then
 		if [ -t 0 ] && [ -t 3 ]; then
 			printf '   Send it? [y/N] ' >&3

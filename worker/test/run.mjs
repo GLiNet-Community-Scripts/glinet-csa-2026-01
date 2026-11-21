@@ -18,6 +18,8 @@ const good = {
   findings: ['process', 'pipe /tmp/f', 'connection 170.39.226.0/24'], quick_check: false,
   shell_started: '2026-11-20 21:40:24 UTC', shell_ports: [42499], pipe_time: '',
 };
+const file = { path: '/etc/config/.gl/gl-helper', sha256: 'a'.repeat(64), size: 123456, mtime: '2026-11-20 21:40:30 UTC' };
+const good2 = { ...good, schema: 2, tool: '2.2', state_file_time: '2026-11-20 22:15:18 UTC', files: [file] };
 const call = (method, body, headers = {}, path = '/') =>
   worker.fetch(new Request(`https://example.org${path}`, { method, body, headers }), env);
 
@@ -40,7 +42,13 @@ if (process.argv[2] === 'serve') {
   expect('refuses a missing field', (await call('POST', JSON.stringify({ ...good, model: undefined }))).status === 400);
   expect('refuses odd characters', (await call('POST', JSON.stringify({ ...good, model: '<script>' }))).status === 400);
   expect('refuses a long list', (await call('POST', JSON.stringify({ ...good, findings: Array(41).fill('x') }))).status === 400);
-  expect('refuses a large body', (await call('POST', 'x'.repeat(5000))).status === 413);
+  expect('refuses a large body', (await call('POST', 'x'.repeat(9000))).status === 413);
+  expect('a schema 2 report is valid', validate(good2) === null && validate({ ...good2, files: [] }) === null);
+  expect('schema 1 must not carry schema 2 fields', validate({ ...good, files: [] }) !== null);
+  expect('schema 2 needs its fields', validate({ ...good, schema: 2 }) !== null);
+  expect('refuses a bad hash', validate({ ...good2, files: [{ ...file, sha256: 'xyz' }] }) !== null);
+  expect('refuses an extra field in a file', validate({ ...good2, files: [{ ...file, content: 'x' }] }) !== null);
+  expect('refuses more than 12 files', validate({ ...good2, files: Array(13).fill(file) }) !== null);
   expect('refuses text that is not JSON', (await call('POST', 'hello')).status === 400);
   expect('nothing but the good report was stored', store.size === 1);
   expect('export needs the token', (await call('GET', undefined, {}, '/export')).status === 404);
