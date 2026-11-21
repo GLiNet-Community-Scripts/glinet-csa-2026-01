@@ -33,7 +33,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.8
+VERSION=1.9
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -535,14 +535,37 @@ check_firewall() {
 	return 0
 }
 
+# Byte order of this machine, from the ELF header of the running shell (byte 5: 1 = little
+# endian, 2 = big endian). /proc/net/tcp prints addresses in the machine's byte order, and
+# some GL.iNet routers (MIPS) are big endian.
+BIG_ENDIAN=0
+case $(dd if=/proc/self/exe bs=1 skip=5 count=1 2>/dev/null | tr '\001\002' 'LB') in B) BIG_ENDIAN=1 ;; esac
+
 decode_tcp() {
-	# established IPv4 connections from /proc/net/tcp with the owning process
-	awk 'function h(s,  i,n){n=0; s=toupper(s); for(i=1;i<=length(s);i++) n=n*16+index("0123456789ABCDEF",substr(s,i,1))-1; return n}
-		function ip(x){return h(substr(x,7,2)) "." h(substr(x,5,2)) "." h(substr(x,3,2)) "." h(substr(x,1,2))}
-		NR==FNR {own[$1]=$2 "/" $3; next}
+	# established IPv4 and IPv6 connections from /proc/net/tcp and tcp6 with the owning
+	# process. Input: socket owners, then the tcp tables. An IPv6 address that only wraps
+	# an IPv4 one (::ffff:a.b.c.d, a dual-stack socket) is shown as IPv4.
+	local files=/proc/net/tcp
+	[ -r /proc/net/tcp6 ] && files="$files /proc/net/tcp6"
+	# shellcheck disable=SC2086 # $files is a list
+	awk -v be="$BIG_ENDIAN" '
+		function h(s,  i,n){n=0; s=toupper(s); for(i=1;i<=length(s);i++) n=n*16+index("0123456789ABCDEF",substr(s,i,1))-1; return n}
+		# the four bytes of one 32-bit word in network order
+		function word(x){return be ? x : substr(x,7,2) substr(x,5,2) substr(x,3,2) substr(x,1,2)}
+		function ip4(w){return h(substr(w,1,2)) "." h(substr(w,3,2)) "." h(substr(w,5,2)) "." h(substr(w,7,2))}
+		function ip(x,  i,w,o,g){
+			if (length(x) == 8) return ip4(word(x))
+			w = ""; for (i = 0; i < 4; i++) w = w word(substr(x, i*8+1, 8))
+			w = tolower(w)
+			if (substr(w,1,24) == "00000000000000000000ffff") return ip4(substr(w,25,8))
+			o = ""; for (i = 0; i < 8; i++) { g = substr(w, i*4+1, 4); sub(/^0+/, "", g); o = o (i ? ":" : "") (g == "" ? "0" : g) }
+			return "[" o "]"
+		}
+		FNR==1 {nfile++}
+		nfile==1 {own[$1]=$2 "/" $3; next}
 		FNR>1 && $4=="01" {split($2,a,":"); split($3,b,":");
 			printf "%s:%d -> %s:%d  %s\n", ip(a[1]), h(a[2]), ip(b[1]), h(b[2]), ($10 in own ? own[$10] : "?")}' \
-		"$TMP/sockets" /proc/net/tcp 2>/dev/null
+		"$TMP/sockets" $files 2>/dev/null
 }
 
 detect() {
@@ -616,7 +639,7 @@ report_body() {
 		decode_tcp >"$TMP/established"
 		section "Network"
 		n_conn=$(wc -l <"$TMP/established" | tr -d ' ')
-		say "   Established IPv4 TCP connections: $n_conn ${D}(local -> remote, owning process)${N}"
+		say "   Established TCP connections, IPv4 and IPv6: $n_conn ${D}(local -> remote, owning process)${N}"
 		# aligned columns, connections to the reported shell address in red, at most 40 lines
 		head -n 40 "$TMP/established" | awk -v ip="$SHELL_IP" -v red="$RED" -v n="$N" -v d="$D" \
 			'{c = (index($3, ip ":") == 1) ? red : ""; printf "   %s%-21s -> %-21s%s %s%s%s\n", c, $1, $3, (c == "" ? "" : n), d, $4, n}' >&3

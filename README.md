@@ -97,7 +97,7 @@ processes and open connections to that address as `IOC`.
 The same post adds two wider checks, which the script runs as well and reports as
 `REVIEW`: processes that look like `nc`, `netcat`, `socat`, `/bin/sh -i` or `mkfifo`, and
 established connections held by a shell or by such a tool. The post uses `netstat -tnp`
-for the connections. The script reads the kernel's list in `/proc/net/tcp` instead,
+for the connections. The script reads the kernel's lists in `/proc/net/tcp` and `/proc/net/tcp6` instead,
 because the implant is known to replace `netstat`.
 
 The script also looks at where every running program comes from. A program started
