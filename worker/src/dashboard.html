@@ -170,13 +170,19 @@ tr.row.fresh td { background: var(--accent-soft); }
 .kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
 .kpis2 .kpi { padding: 12px 14px; background: var(--surface-2); border: 0; }
 .kpis2 .kpi .value { font-size: 24px; }
-.course { margin: 14px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px 0; }
-.course li { display: flex; align-items: center; }
-.course .step { padding: 8px 12px; border-radius: 10px; background: var(--surface-2); min-width: 118px; }
-.course .step b { display: block; font-size: 13px; font-weight: 650; }
-.course .step span { font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.course .gap { padding: 0 8px; font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; text-align: center; }
-.course .gap::after { content: '→'; display: block; font-size: 15px; line-height: 1; }
+.course { margin: 16px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: max-content 18px minmax(0, 1fr); column-gap: 12px; }
+.course li { display: contents; }
+.course .t { padding: 7px 0; font-size: 13.5px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.course .rail { position: relative; }
+.course .rail::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--grid); }
+.course li:first-child .rail::before { top: 18px; } .course li:last-child .rail::before { bottom: calc(100% - 18px); }
+.course .rail i { position: absolute; left: 3px; top: 18px; translate: 0 -50%; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--surface); }
+.course .what { padding: 7px 0; }
+.course .what b { font-size: 14.5px; font-weight: 650; }
+.course .what small { display: block; font-size: 12.5px; color: var(--text-2); }
+.course li.gap .t { padding: 2px 0; font-size: 12px; }
+.course li.gap .what { padding: 2px 0; font-size: 12px; color: var(--text-2); }
+.course li.gap .rail i { display: none; }
 .strip { position: relative; height: 44px; margin-top: 16px; border-bottom: 1px solid var(--grid); }
 .strip i { position: absolute; bottom: 0; width: 3px; height: 30px; margin-left: -1.5px; border-radius: 2px 2px 0 0; background: var(--s1); cursor: default; }
 .strip i:hover, .strip i:focus-visible { height: 40px; filter: brightness(1.2); }
@@ -596,7 +602,7 @@ function repool() {
 // an autostart line, a firewall rule. Counted over all devices with traces, whatever the
 // filters say, and only once at least five devices carry that kind of detail; before
 // that everything would be "unusual".
-const normPort = (s) => s.replace(/(170\.39\.226\.\d+)[ :]\d+/g, '$1 PORT');
+const normPort = (s) => s.replace(/\s+/g, ' ').trim().replace(/(170\.39\.226\.\d+)[ :]\d+/g, '$1 PORT');
 function markUnusual() {
   const hits = pool.filter((r) => r.ioc > 0 && !r.isTest);
   const parts = (r) => ({
@@ -617,9 +623,13 @@ function course(hit) {
     ['Last data through the shell', hit.map((r) => ts(r.pipe_time))], ['Cloud handler last ran', hit.map((r) => ts(r.state_file_time))], ['Device checked', hit.map((r) => (isFinite(r.first) ? ts(r.checked_at) : NaN))]]
     .map(([name, list]) => ({ name, t: median(list), n: list.filter((x) => isFinite(x)).length })).filter((m) => isFinite(m.t)).sort((a, b) => a.t - b.t);
   const ol = $('course'); ol.replaceChildren();
+  // one row per event down a rail: time on the left, what happened on the right, and
+  // between two events how much later the next one came
   marks.forEach((m, i) => {
-    if (i) { const g = el('li'); g.append(el('span', dur(m.t - marks[i - 1].t), 'gap')); ol.append(g); }
-    const li = el('li'), st = el('div', null, 'step'); st.append(el('b', m.name), el('span', fmt(m.t))); hover(st, `${m.name}\nmiddle value of ${m.n} devices: ${fmt(m.t)} UTC`); li.append(st); ol.append(li);
+    if (i) { const g = el('li', null, 'gap'); g.append(el('span', '', 't'), el('span', null, 'rail'), el('span', dur(m.t - marks[i - 1].t) + ' later', 'what')); ol.append(g); }
+    const li = el('li'), rail = el('span', null, 'rail'), what = el('span', null, 'what'); rail.append(el('i'));
+    what.append(el('b', m.name), el('small', m.n === 1 ? 'from 1 device' : `middle value of ${m.n} devices`));
+    li.append(el('span', fmt(m.t), 't'), rail, what); ol.append(li);
   });
   const active = median(hit.map((r) => ts(r.pipe_time) - ts(r.shell_started)).filter((d) => d >= 0)), found = median(hit.map((r) => ts(r.checked_at) - r.first).filter((d) => d >= 0));
   $('courseSub').textContent = marks.length ? 'The middle value of each time across the devices in this selection, in order. Times are UTC.' : 'No report with times in this selection (needs script 2.2 or newer).';
@@ -746,7 +756,7 @@ function render() {
     if (multi.length) hs.append(el('p', multi.map((p) => `${p[0]}: ${p[1]} different versions`).join(' · '), 'peak'));
   } else hs.append(el('p', 'No report with file fingerprints in this selection (needs script 2.2 or newer).', 'peak dim'));
 
-  const norm = (s) => s.replace(/(170\.39\.226\.\d+)[ :]\d+/g, '$1 PORT'), left = $('left'); left.replaceChildren();
+  const norm = normPort, left = $('left'); left.replaceChildren();
   const block = (title, pairs) => { if (!pairs.length) return; const d = el('div'); d.append(el('h3', title + (pairs.length > 4 ? ` (4 of ${pairs.length})` : '')));
     for (const [line, n] of pairs.slice(0, 4)) { const p = el('pre', line); p.prepend(el('span', n + '×', 'count')); d.append(p); } left.append(d); };
   block('Commands of its processes', count(hit, (r) => [...new Set(r.commands.map(norm))]));
