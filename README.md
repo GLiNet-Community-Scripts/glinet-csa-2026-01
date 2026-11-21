@@ -203,6 +203,7 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 | `--archive [-o DIR]` | Report plus evidence archive in `DIR` (default `/tmp`) |
 | `--archive --stdout` | Evidence archive to stdout, log to stderr |
 | `--fix [-o DIR]` | Archive first (aborts if that fails), then remediate and re-check |
+| `--report`, `--no-report` | Send the anonymous report without asking, or never offer it. See below. |
 | `--color`, `--no-color` | Force or disable coloured output. By default colours are used only on a terminal; `NO_COLOR=1` also turns them off. |
 
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
@@ -219,6 +220,24 @@ Findings are labeled:
   `--fix` resets it only when an IOC was found, like the vendor cleanup.
 - `REVIEW`: unusual change. Archived and reported, never modified.
 - `INFO`: context, for example files installed by a package.
+
+---
+
+## 📮 Anonymous Report
+
+When the script finds indicators, it offers to send a short report to the community, so
+that we can see which models and firmware versions were hit and when. It prints the
+report and sends it only after you answer `y`. Without a terminal (for example through
+`ssh ... 'sh -s'`) it never sends on its own; add `--report` to send. `--no-report`
+switches the offer off.
+
+The report contains: script version, platform, model, firmware version, time of the
+check, uptime, the number of findings per label, the kind and path of each `IOC` and
+`PERSIST` finding, whether GL.iNet's quick check hit, and for the reported remote shell
+its start time, the remote port and the time of its pipe.
+
+It does not contain the host name, any address or key of the device, or any file. The
+receiving [worker](worker/) stores no IP address.
 
 ---
 

@@ -1,0 +1,14 @@
+# Cloudflare Worker for the anonymous reports of gl-helper-triage.sh. See worker/README.md.
+name = "csa-2026-01-report"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+# Keep the sender out of the logs as well.
+[observability]
+enabled = false
+
+[[kv_namespaces]]
+binding = "REPORTS"
+# Put the id that "npx wrangler kv namespace create REPORTS" prints here.
+id = "REPLACE_WITH_KV_NAMESPACE_ID"

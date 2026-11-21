@@ -11,6 +11,10 @@
 #   sh gl-helper-triage.sh --archive --stdout   stream the evidence tar.gz to stdout
 #   sh gl-helper-triage.sh --fix [-o DIR]       archive first (mandatory), then remediate
 #
+# When indicators are found, the script offers to send a short anonymous report (model,
+# firmware, which indicators, when) to the community. It shows the report and sends it only
+# after "y". --report sends it without asking, --no-report never asks.
+#
 # Output is coloured on a terminal. --color forces colours (e.g. through ssh without a
 # tty), --no-color or NO_COLOR=1 turns them off. The report in the archive is plain text.
 #
@@ -33,7 +37,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.0
+VERSION=2.1
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -65,7 +69,8 @@ SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
-MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto
+MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask
+REPORT_URL=${GL_TRIAGE_REPORT_URL:-https://app.gl-i.net/csa-2026-01-report}
 
 usage() {
 	cat <<'EOF'
@@ -79,6 +84,8 @@ gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" impla
                        restore replaced base files from the read-only image
   -o, --out DIR        output directory for the archive
   --color, --no-color  force or disable coloured output (default: only on a terminal)
+  --report             send the short anonymous report without asking (it is shown first)
+  --no-report          never offer to send a report
   --root/--upper/--lower DIR   override merged root, overlay upper and base image
   -V, --version        print version
 
@@ -107,6 +114,8 @@ while [ $# -gt 0 ]; do
 	--stdout) STDOUT=1 ;;
 	--color) COLOR=1 ;;
 	--no-color) COLOR=0 ;;
+	--report) REPORT=yes ;;
+	--no-report) REPORT=no ;;
 	-o | --out) [ $# -ge 2 ] || die "$1 needs a directory"; OUTDIR=$2; shift ;;
 	--root) [ $# -ge 2 ] || die "$1 needs a directory"; ROOT=$2; shift ;;
 	--upper) [ $# -ge 2 ] || die "$1 needs a directory"; UPPER=$2; UPPER_SET=1; shift ;;
@@ -919,26 +928,104 @@ recommend() {
 	say "   - Change the device password, the GL.iNet cloud account password and SSH keys."
 }
 
+# ---------------------------------------------------------------- anonymous report
+# A few facts for the community's picture of the incident. Built from the first scan,
+# before anything is changed. No host name, no address or key of the device, no file.
+jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
+
+build_report() {
+	local model fw up quick started ports ptime list
+	model=$(cat /proc/gl-hw-info/model 2>/dev/null)
+	[ -n "$model" ] || model=$(cat /tmp/sysinfo/model 2>/dev/null)
+	fw=$(cat "$(r etc/glversion)" 2>/dev/null)
+	up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+	quick=false
+	grep -q "^IOC${TAB}process${TAB}[0-9]*${TAB}GL.iNet's quick check" "$FIND" && quick=true
+	started=$(grep "^IOC${TAB}process${TAB}[0-9]*${TAB}remote shell" "$FIND" |
+		sed -n 's/.*started \([0-9-]* [0-9:]* UTC\).*/\1/p' | sort | head -n 1)
+	ports=$(grep "^IOC${TAB}" "$FIND" | grep -oE '170\.39\.226\.[0-9]+[: ][0-9]+' | sed 's/.*[: ]//' | sort -un | head -n 10 | tr '\n' ',' | sed 's/,$//')
+	ptime=$(grep "^IOC${TAB}pipe${TAB}" "$FIND" | sed -n 's/.*last data \([0-9-]* [0-9:]* UTC\).*/\1/p' | head -n 1)
+	# kind and, where it is a path or a name and not a process number, what was found
+	list=$(awk -F '\t' '$1=="IOC" || $1=="PERSIST" {print ($3 ~ /^[0-9]+$/) ? $2 : $2 " " $3}' "$FIND" | sort -u | head -n 40 |
+		while IFS= read -r line; do printf '%s,' "$(jstr "$line" 120)"; done | sed 's/,$//')
+	cat >"$TMP/report.json" <<EOF
+{
+"schema": 1,
+"tool": $(jstr "$VERSION" 16),
+"platform": $(jstr "$PLATFORM" 48),
+"model": $(jstr "${model:-unknown}"),
+"firmware": $(jstr "${fw:-unknown}" 48),
+"checked_at": $(jstr "$WHEN"),
+"uptime_s": ${up:-0},
+"ioc": $(count IOC),
+"persist": $(count PERSIST),
+"review": $(count REVIEW),
+"findings": [$list],
+"quick_check": $quick,
+"shell_started": $(jstr "$started"),
+"shell_ports": [$ports],
+"pipe_time": $(jstr "$ptime")
+}
+EOF
+}
+
+send_report() {
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsS -m 20 -o /dev/null -H 'Content-Type: application/json' --data-binary "@$TMP/report.json" "$REPORT_URL" 2>/dev/null
+	elif command -v wget >/dev/null 2>&1; then
+		wget -q -T 20 -O /dev/null --header='Content-Type: application/json' --post-file="$TMP/report.json" "$REPORT_URL" 2>/dev/null ||
+			wget -q -T 20 -O /dev/null --header='Content-Type: application/json' --post-data="$(cat "$TMP/report.json")" "$REPORT_URL" 2>/dev/null
+	else
+		return 1
+	fi
+}
+
+# Offered only on a live device with indicators, never in the middle of the work.
+offer_report() {
+	local answer
+	[ "$LIVE" = 1 ] && [ "$REPORT" != no ] && [ -s "$TMP/report.json" ] || return 0
+	grep -q '^"ioc": 0,' "$TMP/report.json" && [ "$REPORT" != yes ] && return 0
+	section "Anonymous report (optional)"
+	say "   Help the community see which devices were hit. Only this would be sent,"
+	say "   to $REPORT_URL:"
+	sed 's/^/      /' "$TMP/report.json" >&3
+	say "   ${D}No host name, no address or key of this device, no file. The sender's address is not stored.${N}"
+	if [ "$REPORT" != yes ]; then
+		if [ -t 0 ] && [ -t 3 ]; then
+			printf '   Send it? [y/N] ' >&3
+			read -r answer || answer=
+			case $answer in y | Y | yes | Yes | YES) ;; *) say "   Not sent."; return 0 ;; esac
+		else
+			say "   Not sent. To send it, run the script again with --report."
+			return 0
+		fi
+	fi
+	if send_report; then act "Sent. Thank you."; else say "   ${YEL}Could not send the report (no connection, or no curl or wget). Nothing was sent.${N}"; fi
+}
+
+finish() { offer_report; exit "$1"; }
+
 # ---------------------------------------------------------------- main
 report_head
 detect "$TMP/findings"
+[ "$LIVE" = 1 ] && build_report
 case $MODE in
 check)
 	report_body
-	[ "$(count IOC)" -gt 0 ] && { recommend; exit 1; }
-	exit 0
+	[ "$(count IOC)" -gt 0 ] && { recommend; finish 1; }
+	finish 0
 	;;
 archive)
 	report_body
 	collect
-	[ "$(count IOC)" -gt 0 ] && exit 1
-	exit 0
+	[ "$(count IOC)" -gt 0 ] && finish 1
+	finish 0
 	;;
 fix)
 	report_body
 	collect
 	{ [ -n "$ARCHIVE" ] && [ -s "$ARCHIVE" ]; } || die "no verified archive, refusing to change anything"
-	[ "$(count IOC)" -gt 0 ] || { fix; exit 0; }
+	[ "$(count IOC)" -gt 0 ] || { fix; finish 0; }
 	fix
 	FIXRC=$?
 	sleep 2
@@ -948,11 +1035,11 @@ fix)
 		grep "^IOC${TAB}" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
 		say "   ${RED}Verdict: remediation INCOMPLETE${N}"
 		recommend
-		exit 3
+		finish 3
 	fi
-	if [ "$FIXRC" != 0 ]; then say "   ${YEL}Verdict: IOCs gone, but some steps reported errors${N}"; recommend; exit 3; fi
+	if [ "$FIXRC" != 0 ]; then say "   ${YEL}Verdict: IOCs gone, but some steps reported errors${N}"; recommend; finish 3; fi
 	say "   ${GRN}${B}Verdict: no gl-helper indicators left${N}"
 	recommend
-	exit 2
+	finish 2
 	;;
 esac
