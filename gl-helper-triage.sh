@@ -13,7 +13,8 @@
 #
 # When indicators are found, the script offers to send a short anonymous report (model,
 # firmware, which indicators, when) to the community. It shows the report and sends it only
-# after "y". --report sends it without asking, --no-report never asks.
+# after "y". --report sends it without asking, --no-report never asks, --show-report
+# prints the complete report and sends nothing.
 #
 # Output is coloured on a terminal. --color forces colours (e.g. through ssh without a
 # tty), --no-color or NO_COLOR=1 turns them off. The report in the archive is plain text.
@@ -37,7 +38,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.5
+VERSION=2.6
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -86,6 +87,7 @@ gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" impla
   --color, --no-color  force or disable coloured output (default: only on a terminal)
   --report             send the short anonymous report without asking (it is shown first)
   --no-report          never offer to send a report
+  --show-report        print the complete report and send nothing
   --root/--upper/--lower DIR   override merged root, overlay upper and base image
   -V, --version        print version
 
@@ -116,6 +118,7 @@ while [ $# -gt 0 ]; do
 	--no-color) COLOR=0 ;;
 	--report) REPORT=yes ;;
 	--no-report) REPORT=no ;;
+	--show-report) REPORT=show ;;
 	-o | --out) [ $# -ge 2 ] || die "$1 needs a directory"; OUTDIR=$2; shift ;;
 	--root) [ $# -ge 2 ] || die "$1 needs a directory"; ROOT=$2; shift ;;
 	--upper) [ $# -ge 2 ] || die "$1 needs a directory"; UPPER=$2; UPPER_SET=1; shift ;;
@@ -986,6 +989,7 @@ build_report() {
 	# that are not in the base image (up to 20 per file); from the lists of files a
 	# firmware update keeps only the lines that name the implant, the rest is yours.
 	persist='' rules='' cmds=''
+	: >"$TMP/rlines"   # the same lines as plain text, to show before asking
 	if [ "$(count IOC)" -gt 0 ]; then
 		persist=$(awk -F '\t' '$2=="persist-ref" || $2=="keep-ref" || $2=="persistence" {print $2 "\t" $3}' "$FIND" | sort -u -k2 | head -n 6 |
 			while IFS="$TAB" read -r kind f; do
@@ -997,10 +1001,15 @@ build_report() {
 				else
 					cat "$(r "${f#/}")"
 				fi 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 20 >"$TMP/plines"
+				sed "s|^|$f:  |" "$TMP/plines" >>"$TMP/rlines"
 				printf '{"path": %s, "lines": [%s]},' "$(jstr "$f" 120)" "$(jlines <"$TMP/plines")"
 			done | sed 's/,$//')
 		# the chain the reported attack writes to, as it is now
-		[ -s "$TMP/fw-rules" ] && rules=$(awk -F '\t' '$2 ~ /^-A SDWAN_IP_MAPPING / {print $1 ": " $2}' "$TMP/fw-rules" | head -n 10 | jlines)
+		if [ -s "$TMP/fw-rules" ]; then
+			awk -F '\t' '$2 ~ /^-A SDWAN_IP_MAPPING / {print "firewall " $1 ": " $2}' "$TMP/fw-rules" | head -n 10 >"$TMP/rfw"
+			cat "$TMP/rfw" >>"$TMP/rlines"
+			rules=$(sed 's/^firewall //' "$TMP/rfw" | jlines)
+		fi
 		cmds=$(grep "^IOC${TAB}process${TAB}" "$FIND" | sed -n 's/.* cmd=//p' | sort -u | head -n 5 | jlines 400)
 	fi
 	cat >"$TMP/report.json" <<EOF
@@ -1040,27 +1049,46 @@ send_report() {
 	fi
 }
 
-# Offered only on a live device with indicators, never in the middle of the work.
+# Offered at the very end, only on a live device with indicators. The summary says in a
+# few lines what the report holds. The lines taken from the user's own files and firewall
+# are always shown word for word: they are the only part that can hold a secret of theirs.
 offer_report() {
-	local answer
+	local answer n
 	[ "$LIVE" = 1 ] && [ "$REPORT" != no ] && [ -s "$TMP/report.json" ] || return 0
+	if [ "$REPORT" = show ]; then
+		section "Anonymous report (not sent)"
+		sed 's/^/   /' "$TMP/report.json" >&3
+		return 0
+	fi
 	grep -q '^"ioc": 0,' "$TMP/report.json" && [ "$REPORT" != yes ] && return 0
 	section "Anonymous report (optional)"
-	say "   Help the community see which devices were hit. Only this would be sent,"
-	say "   to $REPORT_URL:"
-	sed 's/^/      /' "$TMP/report.json" >&3
-	say "   ${D}No host name and no file of this device. The sender's address is not stored.${N}"
-	if ! grep -q '^"persistence": \[\],$' "$TMP/report.json" || ! grep -q '^"fw_rules": \[\],$' "$TMP/report.json"; then
-		say "   ${YEL}It contains lines from your autostart files or firewall, exactly as shown above.${N}"
-		say "   ${YEL}Check that none of them is a password or token of yours before you send.${N}"
+	say "   Help the community see which devices were hit and how. The report would contain:"
+	say "   - the device: $(sed -n 's/^"model": "\(.*\)",$/\1/p' "$TMP/report.json"), firmware $(sed -n 's/^"firmware": "\(.*\)",$/\1/p' "$TMP/report.json"), time of this check, uptime"
+	say "   - the $(sed -n 's/^"ioc": \(.*\),$/\1/p' "$TMP/report.json") known traces found above (kind and path), and how many other findings"
+	grep -q '^"shell_started": "..*",$' "$TMP/report.json" && say "   - when the remote shell started and which port it used"
+	n=$(grep -o '"sha256"' "$TMP/report.json" | wc -l | tr -d ' ')
+	[ "$n" -gt 0 ] && say "   - fingerprint, size and time of $n malware file(s), not the files themselves"
+	grep -q '^"commands": \[\]$' "$TMP/report.json" || say "   - the command lines of the attacker's processes"
+	if [ -s "$TMP/rlines" ]; then
+		say "   - these lines from your autostart files and firewall, word for word:"
+		sed 's/^/        /' "$TMP/rlines" >&3
+		say "     ${YEL}If one of them is a password or token of yours, do not send.${N}"
 	fi
+	say "   ${D}Not included: host name, addresses or keys of this device, any other file. The sender's${N}"
+	say "   ${D}address is not stored. It goes to $REPORT_URL${N}"
 	if [ "$REPORT" != yes ]; then
 		if [ -t 0 ] && [ -t 3 ]; then
-			printf '   Send it? [y/N] ' >&3
-			read -r answer || answer=
-			case $answer in y | Y | yes | Yes | YES) ;; *) say "   Not sent."; return 0 ;; esac
+			while :; do
+				printf '   Send it? [y/N, v = show the complete report] ' >&3
+				read -r answer || answer=
+				case $answer in
+				v | V) sed 's/^/      /' "$TMP/report.json" >&3 ;;
+				y | Y | yes | Yes | YES) break ;;
+				*) say "   Not sent."; return 0 ;;
+				esac
+			done
 		else
-			say "   Not sent. To send it, run the script again with --report."
+			say "   Not sent. To send it, run the script again with --report (--show-report prints all of it)."
 			return 0
 		fi
 	fi

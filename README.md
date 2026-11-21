@@ -203,7 +203,7 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 | `--archive [-o DIR]` | Report plus evidence archive in `DIR` (default `/tmp`) |
 | `--archive --stdout` | Evidence archive to stdout, log to stderr |
 | `--fix [-o DIR]` | Archive first (aborts if that fails), then remediate and re-check |
-| `--report`, `--no-report` | Send the anonymous report without asking, or never offer it. See below. |
+| `--report`, `--no-report`, `--show-report` | Send the anonymous report without asking, never offer it, or print it without sending. See below. |
 | `--color`, `--no-color` | Force or disable coloured output. By default colours are used only on a terminal; `NO_COLOR=1` also turns them off. |
 
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
@@ -226,10 +226,11 @@ Findings are labeled:
 ## 📮 Anonymous Report
 
 When the script finds indicators, it offers to send a short report to the community, so
-that we can see which models and firmware versions were hit and when. It prints the
-report and sends it only after you answer `y`. Without a terminal (for example through
-`ssh ... 'sh -s'`) it never sends on its own; add `--report` to send. `--no-report`
-switches the offer off.
+that we can see which models and firmware versions were hit and when. At the end of its
+run it says in a few lines what the report contains and sends it only after you answer
+`y`; `v` shows the complete report first. Without a terminal (for example through
+`ssh ... 'sh -s'`) it never sends on its own; add `--report` to send. `--show-report`
+prints the complete report and sends nothing, `--no-report` switches the offer off.
 
 The report contains: script version, platform, model, firmware version, time of the
 check, uptime, the number of findings per label, the kind and path of each `IOC` and
@@ -247,8 +248,8 @@ When indicators were found, it also contains what the attacker left, as text:
 - the command lines of the implant's and the remote shell's processes.
 
 **Your own lines in those files are part of this**, for example a line you added to
-`rc.local` or the crontab. The script prints everything before it asks, and says so when
-such lines are included. Read them, and answer `n` if one of them is a password or token.
+`rc.local` or the crontab. The script always prints these lines word for word before it
+asks. Read them, and answer `n` if one of them is a password or token.
 
 It does not contain the host name or any other file. `REVIEW` findings are only counted.
 The receiving [worker](worker/) stores no IP address.
