@@ -33,7 +33,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=1.9
+VERSION=2.0
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -56,9 +56,12 @@ FW_RULE_RE='^-A SDWAN_IP_MAPPING .*-d 127\.0\.0\.1(/32)? .*--to-destination 127\
 # and for connections held by a shell or by such a tool (netstat -tnp).
 PROC_RE='crond -i /tmp/\.log'
 SHELL_IP='170.39.226.219'
+# Three reports so far, the same address with a different port each. Connections are
+# matched against the whole /24 in case the other end moves.
+SHELL_NET='170.39.226.'
 TOOL_RE='(^|[ /])(nc|netcat|socat) |/bin/sh -i|mkfifo'
 CONN_RE='/(nc|netcat|socat|sh|ash|bash)$'
-SHELL_RE="170\\.39\\.226\\.219|/tmp/f([ ;|>]|\$)"
+SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
@@ -394,6 +397,19 @@ check_review() {
 	fi
 }
 
+# When a process started, in UTC, from its start tick in /proc/<pid>/stat and the boot
+# time. The reported shells all started at about the same time (21:40 UTC, 2026-11-20).
+proc_start() {
+	local bt tk
+	bt=$(awk '/^btime /{print $2}' /proc/stat 2>/dev/null)
+	tk=$(sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | awk '{print $20}')
+	[ -n "$bt" ] && [ -n "$tk" ] || return 0
+	date -u -d "@$((bt + tk / 100))" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null
+}
+
+# Time a file was last written, in UTC.
+file_time() { date -u -r "$1" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null; }
+
 # Process scan (live system only). Also maps socket inodes to pids for the net output.
 check_procs() {
 	[ "$LIVE" = 1 ] && [ -r /proc/1/cmdline ] || return 0
@@ -418,15 +434,15 @@ check_procs() {
 			continue
 		fi
 		if printf '%s\n' "$cmd" | grep -qE "$PROC_RE"; then
-			add IOC process "$pid" "GL.iNet's quick check (crond -i /tmp/.log): comm=$comm exe=$exe cmd=$cmd"
+			add IOC process "$pid" "GL.iNet's quick check (crond -i /tmp/.log): started $(proc_start "$pid") comm=$comm exe=$exe cmd=$cmd"
 			continue
 		fi
 		if printf '%s\n' "$cmd" | grep -qE "$SHELL_RE"; then
-			add IOC process "$pid" "remote shell reported by users (GL.iNet staff: treat the router as compromised): comm=$comm cmd=$cmd"
+			add IOC process "$pid" "remote shell reported by users (GL.iNet staff: treat the router as compromised): started $(proc_start "$pid") comm=$comm cmd=$cmd"
 			continue
 		fi
 		if printf '%s\n' "$cmd" | grep -qE "$TOOL_RE"; then
-			add REVIEW process "$pid" "tool that remote shells use (GL.iNet staff's process check): comm=$comm cmd=$cmd"
+			add REVIEW process "$pid" "tool that remote shells use (GL.iNet staff's process check): started $(proc_start "$pid") comm=$comm cmd=$cmd"
 		fi
 		if [ -n "$exe" ] && grep -q "^IOC${TAB}applet-hijack${TAB}${exe}${TAB}" "$FIND"; then
 			add IOC process "$pid" "runs replaced applet: comm=$comm exe=$exe cmd=$cmd"
@@ -477,11 +493,20 @@ check_exes() {
 	done
 }
 
-# Files in /tmp that belong to the process indicators. /tmp is RAM: they are gone after a
-# restart, so they are evidence to archive, not something --fix has to clean up.
+# Files that belong to the process indicators. /tmp is RAM, so these are gone after a
+# restart. The pipe /tmp/f stays after the shell was stopped: it shows that the shell ran
+# since the last boot, and its time is the last data that went through it.
+# /etc/mp_ip_mapping_info is the state file of the cloud handler (SD-WAN IP mapping) that
+# the reported command came through; the handler rewrites it each time it runs.
 check_tmp() {
+	local f
 	exists "$(r tmp/.log)" && add REVIEW tmp-file /tmp/.log "path from GL.iNet's quick check (crond -i /tmp/.log) exists"
-	[ -p "$(r tmp/f)" ] && add REVIEW tmp-file /tmp/f "pipe used by the remote shell that users reported"
+	f=$(r tmp/f)
+	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(file_time "$f")"
+	f=$(r etc/mp_ip_mapping_info)
+	if [ -f "$f" ]; then
+		add REVIEW state-file /etc/mp_ip_mapping_info "written $(file_time "$f"), $(wc -c <"$f" | tr -d ' ') bytes: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
+	fi
 	return 0
 }
 
@@ -581,10 +606,10 @@ detect() {
 	progress "network connections"
 	if [ "$LIVE" = 1 ] && [ -r /proc/net/tcp ]; then
 		decode_tcp >"$TMP/conns"
-		grep -F -- "-> $SHELL_IP:" "$TMP/conns" | while IFS= read -r line; do
-			add IOC connection "$SHELL_IP" "open connection to the address of the reported remote shell: $line"
+		grep -F -- "-> $SHELL_NET" "$TMP/conns" | while IFS= read -r line; do
+			add IOC connection "${SHELL_NET}0/24" "open connection to the network of the reported remote shell ($SHELL_IP): $line"
 		done
-		grep -vF -- "-> $SHELL_IP:" "$TMP/conns" | grep -E "$CONN_RE" | while IFS= read -r line; do
+		grep -vF -- "-> $SHELL_NET" "$TMP/conns" | grep -E "$CONN_RE" | while IFS= read -r line; do
 			add REVIEW connection "${line##* }" "connection held by a shell or a netcat-like tool: $line"
 		done
 	fi
@@ -641,8 +666,8 @@ report_body() {
 		n_conn=$(wc -l <"$TMP/established" | tr -d ' ')
 		say "   Established TCP connections, IPv4 and IPv6: $n_conn ${D}(local -> remote, owning process)${N}"
 		# aligned columns, connections to the reported shell address in red, at most 40 lines
-		head -n 40 "$TMP/established" | awk -v ip="$SHELL_IP" -v red="$RED" -v n="$N" -v d="$D" \
-			'{c = (index($3, ip ":") == 1) ? red : ""; printf "   %s%-21s -> %-21s%s %s%s%s\n", c, $1, $3, (c == "" ? "" : n), d, $4, n}' >&3
+		head -n 40 "$TMP/established" | awk -v ip="$SHELL_NET" -v red="$RED" -v n="$N" -v d="$D" \
+			'{c = (index($3, ip) == 1) ? red : ""; printf "   %s%-21s -> %-21s%s %s%s%s\n", c, $1, $3, (c == "" ? "" : n), d, $4, n}' >&3
 		[ "$n_conn" -gt 40 ] && say "   ${D}... $((n_conn - 40)) more in the archive${N}"
 		pat=$(awk -F '\t' '$1=="IOC" && $2=="process" {printf "%s  %s/", sep, $3; sep="|"}' "$FIND")
 		[ -n "$pat" ] && grep -E "$pat" "$TMP/established" | sed "s/^/   ${RED}IOC process connection:${N} /" >&3
@@ -727,7 +752,7 @@ collect() {
 	# Always copy the finding paths (merged view) and key files.
 	list=$TMP/copylist
 	awk -F '\t' '$3 ~ /^\// {print substr($3,2)}' "$FIND" >"$list"
-	for f in $FW_PATHS $MARKER_DIRS $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
+	for f in etc/mp_ip_mapping_info $FW_PATHS $MARKER_DIRS $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
 		etc/passwd etc/group etc/sysupgrade.conf lib/upgrade/keep.d; do echo "$f"; done >>"$list"
 	mkdir -p "$E/files/merged"
 	sort -u "$list" | while IFS= read -r f; do
@@ -817,6 +842,9 @@ fix() {
 		exists "$(r "$p")" || continue
 		if rm -rf "$(r "$p")"; then act "removed /$p"; else failed=1; fi
 	done
+	if [ -p "$(r tmp/f)" ] && grep -q "^IOC${TAB}pipe${TAB}" "$FIND"; then
+		if rm -f "$(r tmp/f)"; then act "removed the pipe /tmp/f"; else failed=1; fi
+	fi
 	# 3. persistence, only because an IOC was found (same set as the vendor cleanup)
 	for p in $PERSIST; do
 		exists "$(src "$p")" || continue

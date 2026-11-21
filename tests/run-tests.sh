@@ -188,14 +188,27 @@ D=$(mkscen fw "$OWL"); U=$D/u
 mkdir -p "$U/etc/config" "$U/etc/nftables.d"
 printf "config defaults\n\toption input 'REJECT'\n\nconfig redirect\n\toption name 'evil'\n\toption dest_ip '10.9.9.9'\n" >"$U/etc/config/firewall"
 printf '# comment\nchain x { tcp dport 22 accept }\n' >"$U/etc/nftables.d/10-x.nft"
+: >"$U/etc/mp_ip_mapping_info"
 mnt "$D" "$OWL"
 run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
 sed -n '/== Firewall/,/== Result/p' "$D/check.txt"
 expect "changed firewall config = REVIEW with 3 new lines, exit 0" '[ $rc = 0 ] && grep -q "REVIEW  *fw-config  *\/etc\/config\/firewall" "$D/check.txt" && grep -q "3 lines that are not in it" "$D/check.txt"'
 expect "new lines are listed, unchanged ones are not" 'grep -q "option dest_ip .10.9.9.9." "$D/check.txt" && ! grep -q "option input" "$D/check.txt"'
 expect "new nftables include = REVIEW, comment not listed" 'grep -q "REVIEW  *fw-config  *\/etc\/nftables.d\/10-x.nft" "$D/check.txt" && grep -q "tcp dport 22 accept" "$D/check.txt" && ! grep -q "# comment" "$D/check.txt"'
+expect "state file of the cloud handler = REVIEW with its time" 'grep -A1 "REVIEW  *state-file  *\/etc\/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 20.* UTC, 0 bytes"'
 run "$D" "$OWL" --archive >/dev/null
 expect "firewall config is in the archive" 'tar -tzf "$(ls "$D"/out/*.tar.gz)" | grep -q "files/merged/etc/config/firewall"'
+umount "$D/m"
+
+echo; echo "=== 8. Pipe of the reported remote shell left in /tmp"
+D=$(mkscen pipe "$OWL")
+mnt "$D" "$OWL"
+mkdir -p "$D/m/tmp"; mkfifo "$D/m/tmp/f"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+grep -E -A1 '^ +IOC ' "$D/check.txt"
+expect "pipe /tmp/f = IOC, exit 1" '[ $rc = 1 ] && grep -q "IOC  *pipe  *\/tmp\/f" "$D/check.txt" && grep -q "last data 20.* UTC" "$D/check.txt"'
+run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
+expect "fix removes the pipe, exit 2" '[ $rc = 2 ] && [ ! -e "$D/m/tmp/f" ] && grep -q "removed the pipe" "$D/fix.txt"'
 umount "$D/m"
 
 echo; echo "RESULT: $pass passed, $fail failed"

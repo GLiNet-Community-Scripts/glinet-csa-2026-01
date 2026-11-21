@@ -88,11 +88,22 @@ On 2026-11-21 GL.iNet posted a [quick check for routers](https://forum.gl-inet.c
 a router is under attack when `ps | grep tmp` shows a process `crond -i /tmp/.log`. The
 script runs the same check and reports the process as `IOC`.
 
-In the same thread users reported a remote root shell on GL-AXT1800 routers (firmware
-4.8.3): a loop around a pipe at `/tmp/f` that connects `/bin/sh -i` through `nc` to
-`170.39.226.219`. GL.iNet staff [recommends checking for it](https://forum.gl-inet.com/t/quickly-check-if-your-router-is-under-attack/73070/32)
-and says to treat a router with such a shell as compromised. The script reports these
-processes and open connections to that address as `IOC`.
+In the same thread three users reported a remote root shell on GL-AXT1800 routers
+(firmware 4.8.3): a loop around a pipe at `/tmp/f` that connects `/bin/sh -i` through `nc`
+to `170.39.226.219`, on a different port each time. Where it was measured, the shell
+started at about 21:40 UTC on 2026-11-20. One of them traced it to the GoodCloud client
+on the router (`gl-sdk4-cloud`): a cloud command for SD-WAN IP mapping puts an address
+into an `iptables` command without checking it. GL.iNet has not confirmed this analysis. GL.iNet staff [recommends checking for it](https://forum.gl-inet.com/t/quickly-check-if-your-router-is-under-attack/73070/32)
+and says to treat a router with such a shell as compromised. The script reports as `IOC`:
+
+- these processes, with the time they started,
+- open connections to `170.39.226.0/24`,
+- the pipe `/tmp/f`. It stays after the shell was stopped and only goes away at a
+  restart, so it shows that the shell ran since the last boot. Its time is the last data
+  that went through it. `--fix` removes it after the archive is written.
+
+`/etc/mp_ip_mapping_info`, the state file that the cloud handler rewrites each time it
+runs, is listed as `REVIEW` with its time. It is normal on a router that uses AstroWarp.
 
 The same post adds two wider checks, which the script runs as well and reports as
 `REVIEW`: processes that look like `nc`, `netcat`, `socat`, `/bin/sh -i` or `mkfifo`, and
