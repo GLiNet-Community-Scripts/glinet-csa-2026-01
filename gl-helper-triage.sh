@@ -39,7 +39,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.7
+VERSION=2.8
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -923,13 +923,17 @@ recommend() {
 		say "   - A factory reset (firstboot / reset button) wipes the whole overlay and is the safe option."
 		say "   - Check every client that used this router as gateway or DNS." ;;
 	glkvm-*)
-		say "   - Update to fixed firmware (RM1PE 1.10.2 removes these IOCs at every boot)."
+		say "   - Install GL.iNet's security firmware. Only RM1PE 1.10.2 removes these IOCs at boot;"
+		say "     an update that keeps settings also keeps the password, SSH keys and /etc/kvmd/user."
 		say "   - A factory reset is still recommended: this cleanup only removes known IOCs."
 		say "   - Check the computer connected to the KVM (unknown software, accounts, autostart)." ;;
 	*)
 		say "   - Update the firmware and do a factory reset: this cleanup only removes known IOCs." ;;
 	esac
 	say "   - Change the device password, the GL.iNet cloud account password and SSH keys."
+	say "   - Everything this device held a key for is exposed too: remove its VPN profile on the"
+	say "     server or with the VPN provider and create a new one, and remove its SSH keys from"
+	say "     every machine that trusts them."
 }
 
 # ---------------------------------------------------------------- anonymous report

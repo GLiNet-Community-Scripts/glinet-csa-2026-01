@@ -282,7 +282,7 @@ const WHY = {
   'process replaced-tool': 'A system tool that had been swapped for another program was running.',
   'pipe': '/tmp/f is the named pipe the remote shell talks through. It stays until the next restart, so it shows that the shell ran since the last boot, even when it is no longer running.',
   'connection': 'An open TCP connection to 170.39.226.0/24, the network of the server the remote shells connect to.',
-  'fw-rule': 'nat:SDWAN_IP_MAPPING is a chain in the NAT table of the firewall. GL.iNet’s cloud client fills it for the AstroWarp / SD-WAN IP mapping. The attack came in as a made-up “address” for such a rule, which the client passed to the shell unchecked. The leftover rule that maps 127.0.0.1 to 127.0.0.1 shows that the injected command ran. This cause is one forum user’s analysis, not confirmed by GL.iNet.',
+  'fw-rule': 'nat:SDWAN_IP_MAPPING is a chain in the NAT table of the firewall. GL.iNet’s cloud client fills it for the AstroWarp / SD-WAN IP mapping. The attack came in as a made-up “address” for such a rule, which the client passed to the shell unchecked. The leftover rule that maps 127.0.0.1 to 127.0.0.1 shows that the injected command ran. RemoteToHome found this by reading the client’s code; GL.iNet has not confirmed it.',
 };
 const FIELD_WHY = {
   'Shell pipe, last data': 'Time on /tmp/f: the last moment data went through the remote shell.',

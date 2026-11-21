@@ -88,12 +88,19 @@ On 2026-11-21 GL.iNet posted a [quick check for routers](https://forum.gl-inet.c
 a router is under attack when `ps | grep tmp` shows a process `crond -i /tmp/.log`. The
 script runs the same check and reports the process as `IOC`.
 
-In the same thread three users reported a remote root shell on GL-AXT1800 routers
-(firmware 4.8.3): a loop around a pipe at `/tmp/f` that connects `/bin/sh -i` through `nc`
-to `170.39.226.219`, on a different port each time. Where it was measured, the shell
-started at about 21:40 UTC on 2026-11-20. One of them traced it to the GoodCloud client
-on the router (`gl-sdk4-cloud`): a cloud command for SD-WAN IP mapping puts an address
-into an `iptables` command without checking it. GL.iNet has not confirmed this analysis. GL.iNet staff [recommends checking for it](https://forum.gl-inet.com/t/quickly-check-if-your-router-is-under-attack/73070/32)
+There are three reports of a remote root shell on GL-AXT1800 routers (firmware 4.8.3):
+two from forum users (kosrkosr and TakashiSasaki) and one from
+[RemoteToHome Consulting](https://github.com/RemoteToHome-io/gl-security-incident-2026), found on one of its own routers. It is a loop around a
+pipe at `/tmp/f` that connects `/bin/sh -i` through `nc` to `170.39.226.219`, on a
+different port each time. Where it was measured, the shell started at about 21:40 UTC on
+2026-11-20. GL.iNet's indicator process was not running on RemoteToHome's router.
+
+RemoteToHome read the code of the GoodCloud client taken from that router
+(`gl-sdk4-cloud`): a cloud command for SD-WAN IP mapping puts an address into an
+`iptables` command without checking it. It reports that this runs whether or not
+AstroWarp is enabled, and that the same code is in the 4.8.4 beta for the GL-AXT1800 and
+in GL-MT3000 4.11.0. GL.iNet has not confirmed this analysis. See
+[RemoteToHome's write-up](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/router-reverse-shell.md). GL.iNet staff [recommends checking for it](https://forum.gl-inet.com/t/quickly-check-if-your-router-is-under-attack/73070/32)
 and says to treat a router with such a shell as compromised. The script reports as `IOC`:
 
 - these processes, with the time they started,
@@ -141,9 +148,10 @@ It also lists other overlay changes as `REVIEW` for a human to judge: new or mod
 binaries, new init scripts, `authorized_keys`, extra uid 0 accounts, hidden files and
 processes running from deleted binaries.
 
-> ⚠️ **Do not run `netstat` on a device you suspect.** It may be the implant's replacement.
-> The script never calls it and uses the busybox from the read-only base image (`/rom`)
-> for its own tools.
+> ⚠️ **Do not run `netstat` on a device you suspect.** It may be the implant's replacement,
+> and GL.iNet staff [says](https://forum.gl-inet.com/t/quickly-check-if-your-router-is-under-attack/73070/41)
+> that running the replacement starts the malware. The script never calls it and uses the
+> busybox from the read-only base image (`/rom`) for its own tools.
 
 ---
 
@@ -295,13 +303,25 @@ On the device `/tmp` is RAM. Copy the archive off the device before rebooting.
 
 ## ✅ After Triage
 
-- Keep the evidence archive.
-- KVM: update to fixed firmware. RM1PE 1.10.2 runs the vendor cleanup at every boot.
+- Keep the evidence archive. Run the triage **before** you restart, reset or update:
+  some traces live only in memory, and the RM1PE 1.10.2 cleanup deletes the implant's
+  files at boot without keeping a copy.
+- KVM: install GL.iNet's security firmware. Only RM1PE 1.10.2 runs the vendor cleanup;
+  the builds for RM1 and RM1V2 do not. On an RM1, an update that keeps settings carries
+  over the password file, the SSH keys and everything under `/etc/kvmd/user`
+  (found by RemoteToHome): change them and look for keys and scripts you did not add.
 - Router: update **without keeping settings**. OpenWrt keeps `/etc/config` across a
   sysupgrade, and the implant hides in `/etc/config/.gl`.
 - A factory reset wipes the whole overlay and is the safe option on both.
 - Check the computer attached to a KVM, and the clients behind a router.
 - Change the device password, the GL.iNet cloud account password and SSH keys.
+- If the device was hit, everything it held a key for is exposed as well. Remove the
+  router's VPN profile on the server or with the VPN provider and create a new one,
+  and remove the router's SSH keys from every machine that trusts them.
+  [RemoteToHome's recovery steps](https://github.com/RemoteToHome-io/gl-security-incident-2026#if-you-find-something) go through each kind of VPN.
+- Until GL.iNet's security firmware is installed, consider switching GoodCloud off on
+  the device. [RemoteToHome](https://github.com/RemoteToHome-io/gl-security-incident-2026#reducing-exposure-until-fixed-firmware-is-installed)
+  shows how and what it costs you.
 
 ---
 
@@ -311,6 +331,8 @@ From the firmware images we compared (1.10.1 vs 1.10.2; both 1.10.2 builds are f
 
 - **RM1PE 1.10.2** contains the boot cleanup in `/etc/init.d/S08overlayfs`.
 - **RM1V2 1.10.2** does not contain it. Its `S08overlayfs` is unchanged.
+- **RM1 1.10.2** does not contain it either, as [RemoteToHome found](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/kvm-firmware.md).
+  Their page also covers what an RM1 update keeps and that it leaves SSH switched off.
 - Both 1.10.2 builds change `rtty` (the cloud remote terminal): the `-s`, `-C/--cacert`
   and `-x/--insecure` options are gone, the CA path `/var/run/gl-rtty/ca.crt` is built
   in, and `S99rtty` no longer reads a `tls` setting from the cloud-provided config.
@@ -349,8 +371,25 @@ was also run in check and archive mode on a GL.iNet router with firmware 4.11
 - 📘 [Guide on gl-i.net](https://gl-i.net/security/csa-2026-01/fix/) – The steps on one page
 - 🛡️ [Advisory CSA-2026-01 on gl-i.net](https://gl-i.net/security/csa-2026-01/) – What happened and what GL.iNet recommends
 - 💬 [GL.iNet's notice in the forum](https://forum.gl-inet.com/t/2026-11-20-gl-inet-security-notice-goodcloud-kvm-routers/73056) – Discussion and updates from GL.iNet
+- 🔬 [RemoteToHome's findings on the incident](https://github.com/RemoteToHome-io/gl-security-incident-2026) – How the remote shell got in, the KVM firmware, how to recover
 - 🐛 [Report issues on GitHub](https://github.com/admonstrator/glinet-csa-2026-01/issues) – Bugs and false positives. Never attach an evidence archive.
 - 📧 GL.iNet support (support@gl-inet.com) – If you are not sure whether your device is affected
+
+---
+
+## 👥 Credits
+
+This is community work, and not one person's.
+
+- [RemoteToHome Consulting](https://remotetohome.io) – The [analysis of the remote shell](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/router-reverse-shell.md)
+  and its cause in the GoodCloud client, the [KVM firmware findings](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/kvm-firmware.md),
+  the [recovery steps](https://github.com/RemoteToHome-io/gl-security-incident-2026#if-you-find-something), the look at the attacker's address,
+  and [how to read the real firmware build](https://remotetohome.io/blog/glinet-router-firmware-versions/),
+  which the report uses. Their [findings list](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/findings.md) says for
+  every item how it was checked.
+- kosrkosr and TakashiSasaki – The first two reports of the remote shell in GL.iNet's forum
+- AdamK – The connection and process checks
+- Everyone who sent an anonymous report or posted their output in the forum
 
 ---
 
