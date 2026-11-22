@@ -661,7 +661,8 @@ This is community work, and not one person's.
   ([#3](https://github.com/admonstrator/glinet-csa-2026-01/issues/3), [#4](https://github.com/admonstrator/glinet-csa-2026-01/issues/4), [#9](https://github.com/admonstrator/glinet-csa-2026-01/issues/9)),
   read the script against the published sources ([#10](https://github.com/admonstrator/glinet-csa-2026-01/issues/10)),
   and found that blocking the older backdoor's servers read as infected, that a clean result said nothing about a
-  restart, and that `--fix` reset autostart files it had no reason to touch ([#5](https://github.com/admonstrator/glinet-csa-2026-01/issues/5))
+  restart, and that `--fix` reset autostart files it had no reason to touch ([#5](https://github.com/admonstrator/glinet-csa-2026-01/issues/5)),
+  and that "trusted tools" claimed more than the script checked ([#8](https://github.com/admonstrator/glinet-csa-2026-01/issues/8))
 - Everyone who sent an anonymous report or posted their output in the forum
 
 ---
