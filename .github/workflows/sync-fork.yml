@@ -1,0 +1,211 @@
+name: Sync Fork with Upstream (Hourly)
+
+# Keeps this fork current with its parent repository.
+# - Runs every hour, plus on demand.
+# - Local content is preserved: on any conflicting change the fork's version wins (-X ours),
+#   and this fork's .github/workflows files are restored after the merge.
+# - Delivery is via pull request which is then merged automatically (no force-push, no direct
+#   write to the default branch).
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # hourly, on the hour
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run - build the sync branch but do not push, open a PR, or merge'
+        type: boolean
+        default: false
+      protect_workflows:
+        description: 'Keep this fork''s .github/workflows files (do not take upstream versions)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-fork-hourly
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync fork via PR
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO }}
+    steps:
+      - name: Detect upstream repository
+        id: upstream
+        run: |
+          PARENT="$UPSTREAM_REPO"
+          if [ -z "$PARENT" ]; then
+            PARENT=$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.parent.full_name // empty')
+          fi
+          if [ -z "$PARENT" ]; then
+            echo "::error::This repository is not a fork (no parent). Aborting."
+            exit 1
+          fi
+          UP_BRANCH=$(gh api "repos/${PARENT}" --jq '.default_branch')
+          echo "repo=$PARENT" >> "$GITHUB_OUTPUT"
+          echo "branch=$UP_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "Upstream: ${PARENT} @ ${UP_BRANCH}"
+
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch upstream and check for new commits
+        id: check
+        env:
+          UPSTREAM_REPO: ${{ steps.upstream.outputs.repo }}
+          UPSTREAM_BRANCH: ${{ steps.upstream.outputs.branch }}
+        run: |
+          BASE_BRANCH=$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')
+          echo "base=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+          git checkout -B "$BASE_BRANCH" "origin/${BASE_BRANCH}"
+          echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+          BEHIND=$(git rev-list --count "HEAD..upstream/${UPSTREAM_BRANCH}")
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          echo "Fork is behind ${UPSTREAM_REPO}/${UPSTREAM_BRANCH} by ${BEHIND} commit(s)."
+
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build sync branch
+        id: build
+        if: steps.check.outputs.skip == 'false'
+        env:
+          UPSTREAM_BRANCH: ${{ steps.upstream.outputs.branch }}
+          BASE_SHA: ${{ steps.check.outputs.base_sha }}
+          BASE_BRANCH: ${{ steps.check.outputs.base }}
+          PROTECT_WORKFLOWS: ${{ inputs.protect_workflows == false && 'false' || 'true' }}
+        run: |
+          SYNC_BRANCH="sync/upstream-${GITHUB_RUN_ID}"
+          echo "branch=$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
+          git checkout -b "$SYNC_BRANCH"
+
+          # Merge upstream. "-X ours" keeps this fork's content wherever a hunk conflicts,
+          # so local edits are never silently replaced by upstream.
+          if ! git merge --no-ff --no-edit -X ours "upstream/${UPSTREAM_BRANCH}"; then
+            echo "::error::Merge failed unexpectedly (conflicts should have been resolved with -X ours)."
+            git merge --abort || true
+            exit 1
+          fi
+
+          # Restore this fork's workflow files, which are deliberately not synced.
+          if [ "$PROTECT_WORKFLOWS" = "true" ]; then
+            git rm -r --ignore-unmatch .github/workflows >/dev/null
+            if git cat-file -e "${BASE_SHA}:.github/workflows" 2>/dev/null; then
+              git restore --source="$BASE_SHA" --staged --worktree .github/workflows
+            fi
+            git add -A .github
+            if ! git diff --cached --quiet; then
+              git commit -m "chore(sync): keep fork workflow files"
+            fi
+          fi
+
+          CHANGED=$(git diff --name-only "origin/${BASE_BRANCH}...HEAD" | wc -l | tr -d ' ')
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          echo "Files differing from fork ${BASE_BRANCH}: ${CHANGED}"
+
+          git log --oneline "origin/${BASE_BRANCH}..HEAD" > sync-commits.txt || true
+          echo "--- commits to merge ---"
+          cat sync-commits.txt
+
+      - name: Push sync branch
+        id: push
+        if: steps.check.outputs.skip == 'false' && steps.build.outputs.changed != '0' && inputs.dry_run != true
+        run: |
+          git push origin "${{ steps.build.outputs.branch }}"
+
+      - name: Open pull request
+        id: pr
+        if: steps.check.outputs.skip == 'false' && steps.build.outputs.changed != '0' && inputs.dry_run != true
+        env:
+          BASE_BRANCH: ${{ steps.check.outputs.base }}
+          SYNC_BRANCH: ${{ steps.build.outputs.branch }}
+          UPSTREAM_REPO: ${{ steps.upstream.outputs.repo }}
+          UPSTREAM_BRANCH: ${{ steps.upstream.outputs.branch }}
+        run: |
+          COMMITS=$(cat sync-commits.txt 2>/dev/null | sed 's/^/- /' | head -50)
+          {
+            echo "Hourly sync of \`${UPSTREAM_REPO}/${UPSTREAM_BRANCH}\` into this fork."
+            echo ""
+            echo "Local content is preserved: conflicting changes keep the fork's version,"
+            echo "and this fork's \`.github/workflows/\` files are restored after the merge."
+            echo ""
+            echo "### Upstream commits"
+            echo ""
+            echo "${COMMITS:-_none listed_}"
+            echo ""
+            echo "_Opened by \`.github/workflows/sync-fork.yml\` and merged automatically._"
+          } > pr-body.md
+
+          URL=$(gh pr create \
+            --base "$BASE_BRANCH" \
+            --head "$SYNC_BRANCH" \
+            --title "chore(sync): merge upstream $(date -u '+%Y-%m-%d %H:%M') UTC" \
+            --body-file pr-body.md)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Opened PR: $URL"
+
+      - name: Merge pull request
+        if: steps.pr.outputs.url != ''
+        env:
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if gh pr merge "$PR_URL" --merge --delete-branch; then
+              echo "Merged ${PR_URL}"
+              exit 0
+            fi
+            echo "Merge attempt ${attempt} failed; retrying in 15s..."
+            sleep 15
+          done
+          echo "::error::Could not merge ${PR_URL} after 5 attempts."
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Sync Fork with Upstream (Hourly)"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Fork | \`${GITHUB_REPOSITORY}\` |"
+            echo "| Upstream | \`${{ steps.upstream.outputs.repo }}\` |"
+            echo "| Branch | \`${{ steps.check.outputs.base }}\` |"
+            echo "| Triggered by | \`${GITHUB_EVENT_NAME}\` |"
+            echo "| Behind by | ${{ steps.check.outputs.behind }} commit(s) |"
+            echo "| Changed files | ${{ steps.build.outputs.changed }} |"
+            echo "| PR | ${{ steps.pr.outputs.url || '—' }} |"
+            echo "| Dry run | ${{ inputs.dry_run == true && 'Yes' || 'No' }} |"
+            echo "| Protect workflows | ${{ inputs.protect_workflows == false && 'No' || 'Yes' }} |"
+            echo "| Run at | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |"
+            echo ""
+            if [ "${{ steps.check.outputs.skip }}" = "true" ]; then
+              echo "_Already up to date — nothing to sync._"
+            elif [ "${{ steps.build.outputs.changed }}" = "0" ]; then
+              echo "_Upstream commits carried no content changes for this fork._"
+            elif [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "_Dry run — sync branch built but not pushed._"
+            else
+              echo "_Sync delivered via pull request and merged._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
