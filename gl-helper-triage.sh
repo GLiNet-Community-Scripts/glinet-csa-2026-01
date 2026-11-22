@@ -42,11 +42,16 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.21
+VERSION=2.22
 
-# watch.sh: reported for KVMs, run every three minutes by a second cron daemon
-MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/glinet/.cache/watch.sh etc/config/.gl/gl-helper etc/config/.gl/gb"
+# Where the malware lives and what it puts there. The first two directories are the ones
+# GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
+# (ni.sh, read by a forum user, topic 73056 post 90): it takes the first directory it can
+# write to, keeps a copy of everything in /etc/config/.gl because that survives a firmware
+# update, and writes these files. watch.sh runs every three minutes from cron.
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
+MARKER_DIRS_ALT="etc/gl_nas/.cache userdata/.gl overlay/.gl tmp/.gl"
+MARKER_FILES="gl-helper gb watch.sh run.sh wake.sh boot.sh rtty_keep.sh eco eco.tmp node .u .wc install.log"
 PERSIST="etc/rc.local etc/crontabs/root"
 APPLET_DIRS="bin sbin usr/bin usr/sbin"
 REVIEW_PATHS="etc/init.d etc/rc.d etc/inittab etc/profile etc/profile.d etc/hotplug.d
@@ -54,7 +59,7 @@ etc/uci-defaults etc/kvmd/user/scripts etc/crontabs root/.ssh etc/dropbear
 etc/sysupgrade.conf lib/upgrade/keep.d etc/udhcpc.user.d"
 # etc/udhcpc.user.d: the router runs every script there on each DHCP event, and the keep
 # list carries the directory across an update (read by RemoteToHome in two images).
-IOC_RE='gl-helper|/\.gl/|/\.cache/gb|/\.cache/watch\.sh'
+IOC_RE='gl-helper|/\.gl/|/\.cache/gb|/\.cache/(watch|run|wake|boot|rtty_keep)\.sh|gl_nas/\.cache'
 # Firewall configuration: files that fw3/fw4 and GL.iNet's scripts build the rules from.
 FW_PATHS="etc/config/firewall etc/firewall.user etc/firewall.d etc/nftables.d usr/share/nftables.d"
 # The command users found started with this rule (see SHELL_RE below): it is what is left
@@ -89,6 +94,10 @@ KVM_NETS='65.20.71.131 66.245.219.252'
 # autostart file. gl-inet.top is an old name of GL.iNet's that was registered anew on
 # 2026-11-16; who holds it now is not known.
 KVM_RE='65\.20\.71\.131|66\.245\.219\.252|gl-inet\.top'
+# The two addresses alone. They are in the installer as well (the servers it fetches the
+# malware from, ports 8000 and 8899, and the attacker's own rtty server), so with two
+# sources they count as indicators. The name stays a matter for review.
+KVM_IP_RE='65\.20\.71\.131|66\.245\.219\.252'
 CONN_RE='/(nc|netcat|socat|sh|ash|bash)$'
 SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 # A second, older backdoor that is not part of GL.iNet's notice of 2026-11-20. Users of
@@ -350,13 +359,16 @@ same_as_lower() {
 
 check_markers() {
 	local p hit d
-	for p in $MARKERS; do
-		hit=
-		[ -n "$UPPER" ] && exists "$(u "$p")" && hit=upper
-		exists "$(r "$p")" && hit=${hit:+$hit+}merged
-		[ -n "$hit" ] && add IOC marker "/$p" "present ($hit)"
+	for d in $MARKER_DIRS $MARKER_DIRS_ALT; do
+		exists "$(r "$d")" || { [ -n "$UPPER" ] && exists "$(u "$d")"; } || continue
+		for p in $MARKER_FILES; do
+			p=$d/$p hit=
+			[ -n "$UPPER" ] && exists "$(u "$p")" && hit=upper
+			exists "$(r "$p")" && hit=${hit:+$hit+}merged
+			[ -n "$hit" ] && add IOC marker "/$p" "present ($hit)"
+		done
 	done
-	for d in $MARKER_DIRS; do
+	for d in $MARKER_DIRS $MARKER_DIRS_ALT; do
 		if exists "$(src "$d")" && ! grep -q "${TAB}/$d/" "$FIND" && { [ -z "$LOWER" ] || ! exists "$(l "$d")"; }; then
 			add REVIEW hidden-dir "/$d" "hidden directory not in base image, no known marker inside"
 		fi
@@ -471,12 +483,20 @@ check_applets() {
 			# links are replaced by ordinary updates, for example Tailscale's combined binary.
 			case $(readlink "$lp") in
 			busybox | */busybox)
-				add IOC applet-hijack "/$p" "regular file shadows base symlink -> $(readlink "$lp")" ;;
+				if grep -q 'busybox netstat' "$up" 2>/dev/null; then
+					add IOC applet-hijack "/$p" "netstat replaced by a script that calls the real one and hides lines from its output"
+				else
+					add IOC applet-hijack "/$p" "regular file shadows base symlink -> $(readlink "$lp")"
+				fi ;;
 			*)
 				add REVIEW replaced-link "/$p" "regular file where the base image has a link -> $(readlink "$lp"); an update of that program can do this" ;;
 			esac
 		elif [ "${p##*/}" = netstat ]; then
-			add IOC applet-hijack "/$p" "netstat replaced by a foreign regular file"
+			if grep -q 'busybox netstat' "$up" 2>/dev/null; then
+				add IOC applet-hijack "/$p" "netstat replaced by a script that calls the real one and hides lines from its output"
+			else
+				add IOC applet-hijack "/$p" "netstat replaced by a foreign regular file"
+			fi
 		elif [ -n "$lp" ] && [ -f "$lp" ]; then
 			add REVIEW modified-binary "/$p" "differs from base image"
 		else
@@ -546,6 +566,10 @@ check_review() {
 					esac
 					continue
 				fi
+				if [ -f "$f" ] && [ ! -L "$f" ] && grep -qE "$KVM_IP_RE" "$f" 2>/dev/null; then
+					add IOC persist-ref "/$rel" "names a server of the malware ($(grep -oE "$KVM_IP_RE" "$f" | sort -u | tr '\n' ' ' | sed 's/ $//'))"
+					continue
+				fi
 				if [ -f "$f" ] && [ ! -L "$f" ] && grep -qE "$KVM_RE" "$f" 2>/dev/null; then
 					add REVIEW kvm-ref "/$rel" "names an address or name reported for the malware on a KVM ($(grep -oE "$KVM_RE" "$f" | sort -u | tr '\n' ' ' | sed 's/ $//'))"
 					continue
@@ -572,7 +596,7 @@ check_review() {
 	if [ -n "$UPPER" ]; then
 		find "$UPPER" -xdev -name '.*' 2>/dev/null | sed "s#^${UPPER%/}/##" | while IFS= read -r rel; do
 			case $rel in
-			etc/glinet/.cache* | etc/config/.gl*) continue ;;
+			etc/glinet/.cache* | etc/config/.gl* | etc/gl_nas/.cache*) continue ;;
 			root/.ash_history | root/.bash_history | root/.ssh | root/.ssh/*) continue ;;
 			*/.uci | */.uci/* | etc/.extroot-uuid | .fs_state | etc/luci-uploads/.placeholder) continue ;;
 			esac
@@ -705,11 +729,15 @@ check_procs() {
 			continue ;;
 		esac
 		if printf '%s\n' "$cmd" | grep -qE "$PROC_RE"; then
-			add IOC process "$pid" "GL.iNet's quick check (crond -i /tmp/.log): started $(proc_start "$pid") comm=$comm exe=$exe cmd=$cmd"
+			add IOC process "$pid" "GL.iNet's quick check (crond -i /tmp/.log, the name gl-helper gives itself): started $(proc_start "$pid") comm=$comm exe=$exe cmd=$cmd"
 			continue
 		fi
 		if printf '%s\n' "$cmd" | grep -qE "$SHELL_RE"; then
 			add IOC process "$pid" "remote shell reported by users (GL.iNet staff: treat the router as compromised): started $(proc_start "$pid") comm=$comm cmd=$cmd"
+			continue
+		fi
+		if printf '%s\n' "$cmd" | grep -qE "$KVM_IP_RE"; then
+			add IOC process "$pid" "names a server of the malware: started $(proc_start "$pid") comm=$comm exe=$exe cmd=$cmd"
 			continue
 		fi
 		if printf '%s\n' "$cmd" | grep -qE "$KVM_RE"; then
@@ -781,6 +809,20 @@ check_tmp() {
 	exists "$(r tmp/.log)" && add REVIEW tmp-file /tmp/.log "path from GL.iNet's quick check (crond -i /tmp/.log) exists"
 	f=$(r tmp/f)
 	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(file_time "$f")"
+	exists "$(r tmp/.dg)" && add REVIEW tmp-file /tmp/.dg "the malware's installer leaves a file of this name after its first report following a restart"
+	# the live crontab of GL.iNet's firmware; the installer adds its watchdog there too
+	f=$(r tmp/gl_crontabs/root)
+	safe "$f" && grep -qE "$IOC_RE" "$f" 2>/dev/null &&
+		add IOC cron-ref /tmp/gl_crontabs/root "the running crontab starts the malware: $(grep -E "$IOC_RE" "$f" | head -n 2 | tr '\n' ' ' | cut -c1-160)"
+	# the remote terminal service pointed at the attacker's server
+	f=$(r etc/rtty_conf)
+	safe "$f" && grep -qE "$KVM_IP_RE" "$f" 2>/dev/null &&
+		add IOC rtty-server /etc/rtty_conf "the remote terminal service (rtty) is set to a server of the malware ($(grep -oE "$KVM_IP_RE" "$f" | sort -u | tr '\n' ' ' | sed 's/ $//'))"
+	# a key the installer can add; it marks its own with this name
+	for f in etc/dropbear/authorized_keys root/.ssh/authorized_keys; do
+		safe "$(r "$f")" && grep -q 'gl-agent' "$(r "$f")" 2>/dev/null &&
+			add IOC ssh-key "/$f" "holds a key named gl-agent, as the malware's installer adds: whoever has the other half can log in"
+	done
 	f=$(r etc/mp_ip_mapping_info)
 	if safe "$f"; then
 		local t n aw
@@ -903,7 +945,7 @@ detect() {
 		done
 		for f in $KVM_NETS; do
 			grep -F -- "-> $f:" "$TMP/conns" "$TMP/conns-syn" | sed 's/^[^:]*://' | while IFS= read -r line; do
-				add REVIEW connection "$f" "open connection to an address reported for the malware on a KVM: $line"
+				add IOC connection "$f" "connection to a server of the malware: $line"
 			done
 		done
 		grep -vF -- "-> $SHELL_NET" "$TMP/conns" | grep -E "$CONN_RE" | while IFS= read -r line; do
@@ -917,7 +959,7 @@ detect() {
 
 count() { grep -c "^$1${TAB}" "$FIND"; }
 # IOC findings of the incident of 2026-11-20 (--fix handles these) and of the older backdoor
-count_gl() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command"' "$FIND" | wc -l | tr -d ' '; }
+count_gl() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command" && $2 != "rtty-server"' "$FIND" | wc -l | tr -d ' '; }
 # Traces that only say "a crafted command from the cloud ran": the rule it leaves in the
 # firewall and the handler's empty state file. And everything else of this incident:
 # malware files, autostart entries, a remote shell.
@@ -1164,7 +1206,7 @@ collect() {
 	# Always copy the finding paths (merged view) and key files.
 	list=$TMP/copylist
 	awk -F '\t' '$3 ~ /^\// {print substr($3,2)}' "$FIND" >"$list"
-	for f in etc/mp_ip_mapping_info $FW_PATHS $MARKER_DIRS $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
+	for f in etc/mp_ip_mapping_info etc/rtty_conf tmp/gl_crontabs $FW_PATHS $MARKER_DIRS $MARKER_DIRS_ALT $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
 		etc/passwd etc/group etc/sysupgrade.conf lib/upgrade/keep.d; do echo "$f"; done >>"$list"
 	mkdir -p "$E/files/merged"
 	sort -u "$list" | while IFS= read -r f; do
@@ -1263,6 +1305,11 @@ fix() {
 		exists "$(r "$p")" || continue
 		if rm -rf "$(r "$p")"; then act "removed /$p"; else failed=1; fi
 	done
+	# the other directories only when one of the malware's files was found in them
+	for p in $MARKER_DIRS_ALT; do
+		exists "$(r "$p")" && grep -q "^IOC${TAB}marker${TAB}/$p/" "$FIND" || continue
+		if rm -rf "$(r "$p")"; then act "removed /$p"; else failed=1; fi
+	done
 	if [ -p "$(r tmp/f)" ] && grep -q "^IOC${TAB}pipe${TAB}" "$FIND"; then
 		if rm -f "$(r tmp/f)"; then act "removed the pipe /tmp/f"; else failed=1; fi
 	fi
@@ -1292,6 +1339,13 @@ fix() {
 		done
 	fi
 	# 6. sysupgrade keep lists: drop only the lines that keep implant paths
+	# 6a. the running crontab and added SSH keys: drop only the malware's lines
+	awk -F '\t' '$1=="IOC" && ($2=="cron-ref" || $2=="ssh-key") {print $2 "\t" substr($3,2)}' "$FIND" | while IFS="$TAB" read -r pid p; do
+		f=$(r "$p")
+		safe "$f" || continue
+		if [ "$pid" = ssh-key ]; then grep -v 'gl-agent' "$f" >"$TMP/keep.new"; else grep -vE "$IOC_RE" "$f" >"$TMP/keep.new"; fi
+		cat "$TMP/keep.new" >"$f" && act "removed the malware's lines from /$p" || echo fail >>"$TMP/fixfail"
+	done
 	awk -F '\t' '$1=="IOC" && $2=="keep-ref" {print substr($3,2)}' "$FIND" | while IFS= read -r p; do
 		f=$(r "$p")
 		safe "$f" || continue
@@ -1599,6 +1653,7 @@ fix)
 	if [ "$FIXRC" != 0 ]; then say "   ${YEL}Verdict: IOCs gone, but some steps reported errors${N}"; recommend; finish 3; fi
 	say "   ${GRN}${B}Verdict: no gl-helper indicators left${N}"
 	[ "$(count_cmd)" -gt 0 ] && say "   ${D}The state file /etc/mp_ip_mapping_info was left in place: it only shows that the command ran.${N}"
+	grep -q "^IOC${TAB}rtty-server${TAB}" "$FIND" && say "   ${YEL}/etc/rtty_conf still names the attacker's server and was not changed. A factory reset or reflash puts it right.${N}"
 	recommend
 	finish 2
 	;;

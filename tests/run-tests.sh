@@ -416,9 +416,30 @@ run "$D" "$OWO" --check >"$D/check.txt"; rc=$?
 expect "a new netstat link that the firmware does not have = REVIEW" 'grep -A1 "REVIEW  *new-link  */usr/bin/netstat" "$D/check.txt" | grep -q "busybox"'
 expect "a script in udhcpc.user.d = REVIEW" 'grep -q "REVIEW  *new  */etc/udhcpc.user.d/10-mine" "$D/check.txt"'
 expect "an init script that starts watch.sh = IOC persist-ref" 'grep -q "IOC  *persist-ref  */etc/init.d/S99w" "$D/check.txt"'
-expect "an autostart file with the KVM dropper address = REVIEW kvm-ref" 'grep -A1 "REVIEW  *kvm-ref  */etc/hotplug.d/iface/99-x" "$D/check.txt" | grep -q "66.245.219.252"'
+expect "an autostart file with a server of the malware = IOC persist-ref" 'grep -A1 "IOC  *persist-ref  */etc/hotplug.d/iface/99-x" "$D/check.txt" | grep -q "66.245.219.252"'
 expect "the loader is recognised by its function names" 'grep -A1 "IOC  *backdoor-file  */bin/ulogd" "$D/check.txt" | grep -q "compiled Lua.*function names of the analysed loader"'
 expect "GoodCloud state and client version are printed" 'grep -q "GoodCloud now  *on (gl-sdk4-cloud 1.2.3-4)" "$D/check.txt"'
+umount "$D/m"
+
+echo "=== what the installer leaves (topic 73056, post 90)"
+D=$(mkscen inst "$OWL"); U=$D/u
+mkdir -p "$U/etc/gl_nas/.cache" "$U/userdata/.gl" "$U/tmp/gl_crontabs" "$U/etc/dropbear" "$U/root/.ssh" "$U/bin" "$U/overlay/.gl"
+echo elf >"$U/etc/gl_nas/.cache/gl-helper"; echo x >"$U/etc/gl_nas/.cache/run.sh"; echo x >"$U/etc/gl_nas/.cache/.u"
+echo mine >"$U/userdata/.gl/my-notes"
+printf '0 4 * * * /usr/bin/own-job\n*/3 * * * * /bin/sh /etc/gl_nas/.cache/watch.sh\n' >"$U/tmp/gl_crontabs/root"
+printf 'host 65.20.71.131\nport 5912\n' >"$U/etc/rtty_conf"
+printf 'ssh-ed25519 AAAAOWNER me@home\nssh-ed25519 AAAAEVIL gl-agent\n' >"$U/etc/dropbear/authorized_keys"
+mnt "$D" "$OWL"
+rm "$D/m/bin/netstat"; printf '#!/bin/sh\n/bin/busybox netstat "$@" | grep -v x\n' >"$D/m/bin/netstat"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "the malware in a fallback directory is found" '[ $rc = 1 ] && grep -q "IOC  *marker  */etc/gl_nas/.cache/gl-helper" "$D/check.txt" && grep -q "IOC  *marker  */etc/gl_nas/.cache/run.sh" "$D/check.txt" && grep -q "IOC  *marker  */etc/gl_nas/.cache/.u" "$D/check.txt"'
+expect "a fallback directory without its files is REVIEW only" 'grep -q "REVIEW  *hidden-dir  */userdata/.gl" "$D/check.txt" && ! grep -q "IOC.*userdata" "$D/check.txt"'
+expect "running crontab, rtty server and gl-agent key are IOC" 'grep -q "IOC  *cron-ref  */tmp/gl_crontabs/root" "$D/check.txt" && grep -q "IOC  *rtty-server  */etc/rtty_conf" "$D/check.txt" && grep -q "IOC  *ssh-key  */etc/dropbear/authorized_keys" "$D/check.txt"'
+expect "the netstat wrapper is named for what it is" 'grep -A1 "IOC  *applet-hijack  */bin/netstat" "$D/check.txt" | grep -q "hides lines"'
+run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
+expect "--fix removes the fallback directory with the malware, leaves the other" '[ ! -e "$D/m/etc/gl_nas/.cache" ] && [ -f "$D/m/userdata/.gl/my-notes" ]'
+expect "--fix strips only the malware's lines from crontab and authorized_keys" 'grep -q own-job "$D/m/tmp/gl_crontabs/root" && ! grep -q watch.sh "$D/m/tmp/gl_crontabs/root" && grep -q AAAAOWNER "$D/m/etc/dropbear/authorized_keys" && ! grep -q gl-agent "$D/m/etc/dropbear/authorized_keys"'
+expect "--fix leaves rtty_conf alone and says so (exit $rc)" '[ $rc = 2 ] && grep -q "65.20.71.131" "$D/m/etc/rtty_conf" && grep -q "rtty_conf still names" "$D/fix.txt"'
 umount "$D/m"
 
 echo; echo "RESULT: $pass passed, $fail failed"

@@ -75,14 +75,30 @@ layer when one of these marker files exists:
 The vendor cleanup only runs when a marker file is present and only touches this set.
 This script also detects:
 
-- `/etc/glinet/.cache/watch.sh`, which users reported on KVMs, as a further marker file,
-  and autostart files that start it,
+- what the malware's installer leaves besides the files above. A forum user read the
+  installer itself ([post 90](https://forum.gl-inet.com/t/2026-11-20-gl-inet-security-notice-goodcloud-kvm-routers/73056/90)
+  of the notice's thread, an analysis made with an AI tool; the names and addresses in
+  it decode as stated, the rest is not verified by us):
+  - the directories it falls back to when it cannot write to the first one:
+    `/etc/gl_nas/.cache`, `/userdata/.gl`, `/overlay/.gl`, `/tmp/.gl`,
+  - its other files in any of these directories: `watch.sh`, `run.sh`, `wake.sh`,
+    `boot.sh`, `rtty_keep.sh`, `eco`, `node`, `.u`, `.wc`, `install.log`,
+  - its watchdog line in the running crontab `/tmp/gl_crontabs/root` (`cron-ref`),
+  - `/etc/rtty_conf` set to the attacker's server (`rtty-server`),
+  - a key named `gl-agent` in `authorized_keys` (`ssh-key`),
+  - its servers `65.20.71.131` and `66.245.219.252` on a command line, in an autostart
+    file or as a connection. One user's network logs and the installer name the same
+    two, so they count as indicators now,
+  - the replaced `netstat`: a two-line script that calls the real one and hides the
+    connections to its server.
+
+  `crond -i /tmp/.log`, the process GL.iNet's check looks for, is the name the malware
+  gives its own process.
 - a link in a tool directory that the firmware does not have, for example a new
   `/usr/bin/netstat` (`REVIEW`),
 - scripts in `/etc/udhcpc.user.d`, which the router runs on every DHCP event (`REVIEW`),
-- the addresses and the name one user recorded from a KVM that was taken over on
-  19 November (`65.20.71.131`, `66.245.219.252`, `gl-inet.top`) on a command line, in an
-  autostart file or as a connection (`REVIEW`, it is one report),
+- the name `gl-inet.top`, which a KVM that was taken over on 19 November looked up, on
+  a command line or in an autostart file (`REVIEW`),
 - connections to the attacker's server that are attempted but not answered: the server
   was suspended on 21 November, so a shell loop that still runs never gets through,
 - busybox/coreutils applets in the overlay that were replaced by a foreign regular file
@@ -362,12 +378,15 @@ The receiving [worker](worker/) stores no IP address.
 
 1. Writes and verifies the evidence archive. No archive, no changes.
 2. Stops implant processes (SIGSTOP all, then SIGKILL).
-3. Removes `/etc/glinet/.cache/` and `/etc/config/.gl/`.
+3. Removes `/etc/glinet/.cache/` and `/etc/config/.gl/`, and a fallback directory of the
+   installer when one of the malware's files was found in it.
 4. Resets `rc.local` and the root crontab to the base image version, or removes them
    if the base image has none. The previous versions are in the archive.
 5. Restores replaced applets from the base image and removes other autostart files that
    start the implant, including OpenWrt `rc.d` links to removed init scripts.
-6. Removes only the implant lines from sysupgrade keep lists.
+6. Removes only the implant lines from sysupgrade keep lists, from the running crontab
+   `/tmp/gl_crontabs/root` and, for a key named `gl-agent`, from `authorized_keys`.
+   `/etc/rtty_conf` is not changed; the script says so when it names the attacker's server.
 7. Deletes the firewall rule that the command of the user-reported remote shell left
    behind. Other firewall rules and the firewall configuration are not changed.
 8. Restarts cron and checks again.
@@ -515,6 +534,7 @@ This is community work, and not one person's.
 - ehidle, acs, ikangshen, nick2 and the authors of posts 26, 63 and 65 in the notice's thread – The older backdoor
   in `urandom_seed` and `/bin/ulogd`, with its signs and the hash of the loader
 - AdamK – The connection and process checks
+- rdizzie – Read the malware's installer and posted what it does and where it puts its files
 - [joska252](https://github.com/joska252) – Found that the archive contained password hashes and private keys, and that
   changed files of the base image's own packages were skipped, and that a named pipe could hang the script
   ([#3](https://github.com/admonstrator/glinet-csa-2026-01/issues/3), [#4](https://github.com/admonstrator/glinet-csa-2026-01/issues/4), [#9](https://github.com/admonstrator/glinet-csa-2026-01/issues/9)),
