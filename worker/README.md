@@ -145,13 +145,13 @@ A mark belongs to a kind and a path and remembers the fingerprints known for tha
 the time. A file with another fingerprint at the same path brings the finding back, as "new
 file at a path marked safe": a replaced file is exactly what should not stay hidden.
 
-Every finding has a page of its own, reached by a click on it: the devices that sent it,
-the fingerprints behind its path with the number of devices for each, the models and
-firmware, and when the entry changed on the devices. That is the page to look at before
+A click on a finding opens it in the side panel: the devices that sent it, the
+fingerprints behind its path with the number of devices for each, the models and
+firmware, and when the entry changed on the devices. That is what to look at before
 marking something.
 
-The dashboard has a page "Probably safe" that lists every mark with its comment, who set
-it and when, and from which a mark can be removed.
+The "Review" page of the dashboard lists every mark with its comment, who set it and
+when, and from there a mark can be removed.
 
 The marks are kept in the D1 table `labels`, which the worker creates on first use, or in
 one KV entry when there is no database. They can be read at `<worker>/dashboard/labels`
@@ -218,8 +218,16 @@ still in place.
 `https://app.gl-i.net/csa-2026-01-report/dashboard` shows what the reports add up to:
 how many devices have traces and of which kind, when it started, which models and
 firmware builds, the malware's files by fingerprint, and the commands, autostart lines
-and firewall rules the attacker left, with identical ones grouped. Below that is a
-sortable, paged table of the reports; a row opens to its details.
+and firewall rules the attacker left, with identical ones grouped.
+
+It has six pages: Overview (the counts, when it started, whether it is still going on,
+how an attack ran), Devices & firmware, Attack (evidence, malware files, ports, what the
+attacker left), Older backdoor, Review (unusual changes, what was marked as probably
+safe, known release files) and Reports, a sortable, paged table. A row opens the report
+in a panel beside the table, with arrows to step through the rows; a finding from the
+review list opens there too, and so does the glossary. What a card shows and how to
+read it is behind the i next to its title. The arrows at the right of a title show the card over
+the whole page. Table headings stay in view while the rows scroll.
 
 Beyond the counts it shows how an attack ran (the middle value of each time in the
 reports, with how long the attacker was active and how long it took to find), the ports
@@ -230,18 +238,32 @@ carries something no other device has (a file fingerprint, a command, an autosta
 is marked "Unusual". Firmware is shown as the version, with beta or rc where there is
 one; the build number and date are in each report.
 
-The filters are kept in the address, so a link shows someone else the same view, and the
-page offers the reports that are new since your last visit.
+The filters, the page, an open report or finding and a card shown over the whole page
+are kept in the address, so a link shows someone else the same view. Links from before
+the pages (`view=safe`, `view=item`) still work. The page offers the reports that are
+new since your last visit.
+
+"Edit layout" arranges the cards: on a grid of twelve columns, each card spans a number
+of columns and rows. Drag the dots before a title to move a card, drag its corner to
+resize it (a double click on the corner gives it the template's size), move it to
+another page or hide it. Cards are placed in their order, and a card that fits goes
+into a gap left above it. Three templates (Standard, Compact, Large) give every card its
+page and size; "Back to the template" undoes what was changed by hand. The layout is
+kept in the browser (localStorage), not on the server, so each person has their own.
+The layout of before (order, hidden cards, widths) is taken over once. On a phone the
+cards stand in one column, and the layout cannot be edited there.
 
 Everything can be filtered: by device, firmware and kind of evidence (lists with counts),
 by result, device type, time received and whether the device was restarted since the
-attack, and by free text. Bars and chart columns set a filter when clicked. "Export CSV"
-downloads the reports that match. All times are UTC, to the minute.
+attack, and by free text; the last two and the view switches are under "More filters".
+Bars and chart columns set a filter when clicked, and the large numbers lead to the
+reports behind them. "Export CSV" downloads the reports that match. All times are UTC,
+to the minute.
 
 The page keeps itself up to date: every 20 seconds it asks for the time of the newest
 report and fetches new reports only when that has moved. New rows are highlighted, an
-open report stays open, and "Live: off" stops it. Polling pauses while the tab is in the
-background.
+open report stays open, and "Live: off" stops it. Only the page in view is drawn again.
+Polling pauses while the tab is in the background.
 
 The page loads all reports into the browser: 500 per request from D1, 40 from KV (the
 free Workers plan allows 50 subrequests per request, and every KV read is one). With KV
@@ -306,7 +328,7 @@ community's Tailscale and AdGuard Home builds, taken from the `checksums.txt` of
 release in `admonstrator/glinet-tailscale-updater` and `admonstrator/glinet-adguard-updater`.
 `build.mjs` puts the list into the dashboard. A finding whose every reported file has one
 of these fingerprints is a known release file: it is hidden like a finding marked as
-probably safe, needs no mark, and is listed with its release on the "Probably safe" page.
+probably safe, needs no mark, and is listed with its release on the "Review" page.
 Another file at the same path is still listed for review.
 
 After a new release:

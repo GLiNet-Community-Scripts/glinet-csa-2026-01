@@ -46,51 +46,110 @@ button, select, input { font: inherit; color: inherit; }
 .dim { color: var(--text-2); }
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
 .top .grow { flex: 1; }
-/* the board: every card is a unit that can be dragged to another place or hidden */
-.board { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
-.board > .card { flex: 1 1 100%; margin-top: 0 !important; }
-.board > .card[data-w=third] { flex: 1 1 300px; } .board > .card[data-w=half] { flex: 1 1 440px; }
-.board > .card.closed { flex: 1 1 100%; }
-/* a width someone set by hand: a fixed share of the row, also when the card is folded */
-.board > .card { position: relative; }
-.board > .card[data-size=third] { flex: 0 1 calc(33.333% - 8px); } .board > .card[data-size=half] { flex: 0 1 calc(50% - 6px); }
-.board > .card[data-size=twothirds] { flex: 0 1 calc(66.667% - 4px); } .board > .card[data-size=full] { flex: 0 1 100%; }
-@media (max-width: 760px) { .board > .card[data-size] { flex: 1 1 100%; } .sizer { display: none; } }
-.sizer { position: absolute; top: 10px; bottom: 10px; right: -7px; width: 14px; cursor: ew-resize; touch-action: none; z-index: 2; }
-.sizer::after { content: ''; position: absolute; top: 50%; left: 5px; width: 4px; height: 36px; margin-top: -18px; border-radius: 4px; background: var(--text-2); opacity: 0; transition: opacity .12s; }
-.board > .card:hover > .sizer::after, .sizer:focus-visible::after { opacity: .35; } .sizer:hover::after, .board > .card.sizing > .sizer::after { opacity: .9; background: var(--accent); }
-.board > .card.sizing { outline: 2px dashed var(--accent); outline-offset: -2px; user-select: none; }
-.layoutRow select { font: inherit; font-size: 12px; padding: 1px 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: inherit; }
-.board > .card.dragging { opacity: .45; outline: 2px dashed var(--accent); outline-offset: -2px; }
-.grip { flex: none; width: 18px; height: 24px; margin-right: 2px; border-radius: 5px; cursor: grab; color: var(--text-2); opacity: .45; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; user-select: none; }
-.grip:hover { opacity: 1; background: var(--surface-2); } .grip:active { cursor: grabbing; }
-.card h2 { display: flex; align-items: center; }
-.layoutRow { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 7px; }
-.layoutRow:hover { background: var(--surface-2); }
-.layoutRow label { flex: 1; display: flex; gap: 8px; align-items: center; font-size: 13.5px; cursor: pointer; min-width: 0; }
-.layoutRow label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.layoutRow button { border: 0; background: none; color: var(--text-2); cursor: pointer; padding: 2px 6px; border-radius: 6px; font-size: 13px; }
-.layoutRow button:hover:not(:disabled) { background: var(--surface); color: var(--text); } .layoutRow button:disabled { opacity: .3; cursor: default; }
-.kpis2 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.top .title .sub { margin-top: 1px; }
+/* the pages */
+.tabs { display: flex; gap: 2px; margin-top: 12px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tab { display: inline-flex; align-items: center; gap: 7px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; padding: 9px 14px 10px; font-size: 14px; font-weight: 600; color: var(--text-2); cursor: pointer; white-space: nowrap; }
+.tab:hover { color: var(--text); }
+.tab[aria-current=page] { color: var(--text); border-bottom-color: var(--accent); }
+.tab em { font-style: normal; font-size: 11.5px; font-weight: 650; padding: 0 7px; border-radius: 980px; background: var(--surface-2); color: var(--text-2); }
+.tab em:empty { display: none; }
+/* the board: twelve columns and rows of 52 px. Each card spans some of both; the cards are
+   placed in their order, and a card that fits goes into a gap left above it. */
+.board { position: relative; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: 52px; gap: 12px; margin-top: 14px; }
+.board > .card { grid-column: span var(--w, 12); grid-row: span var(--h, 4); }
+.card { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px 12px; }
+/* a card is a layer of its own; the one with an open note goes over its neighbours */
+.card.raise { z-index: 4; }
+.ch { display: flex; align-items: center; gap: 4px 6px; min-height: 28px; }
+.ch h2 { margin-right: 2px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ch .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; margin-left: 4px; }
+.ch .grow { flex: 1; }
+/* a title over two lines must not push its number below those of its neighbours */
+.card.kpi .ch { align-items: flex-start; min-height: 34px; }
+.card.kpi .ch h2 { font-size: 12.5px; font-weight: 600; color: var(--text-2); white-space: normal; padding-top: 4px; }
+/* the body of a card scrolls inside it; table headings stay at its top */
+.cb { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; margin-top: 4px; }
+.cb > * { flex: none; }
+.cb > button { align-self: flex-start; }
+.ib { flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--text-2); display: inline-grid; place-items: center; cursor: pointer; }
+.ib:hover:not(:disabled) { background: var(--surface-2); color: var(--text); } .ib:disabled { opacity: .3; cursor: default; }
+.ib[aria-expanded=true] { background: var(--accent-soft); color: var(--accent); }
+.ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ico .f { fill: currentColor; stroke: none; }
+/* what a card shows and how to read it: behind the i next to its title */
+.about { position: absolute; z-index: 10; top: 40px; left: 10px; width: 360px; max-width: calc(100vw - 32px); padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); font-size: 13px; line-height: 1.5; }
+.about.right { left: auto; right: 10px; }
+.about p + p { margin-top: 6px; }
+/* the tools of the layout, only while it is being edited */
+.board:not(.edit) .eo, .board.edit .vo { display: none !important; }
+.board.edit > .card { outline: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -1px; user-select: none; }
+.board.edit .ch { flex-wrap: wrap; }
+@container (max-width: 480px) { .card:not(.kpi) > .ch { flex-wrap: wrap; } }
+/* in a narrow card the tools go on a line of their own */
+@container (max-width: 420px) { .board.edit .ch h2 { flex: 1 1 calc(100% - 32px); } }
+.board > .card.dragging { opacity: .45; outline: 2px dashed var(--accent); }
+.board > .card.sizing { outline: 2px solid var(--accent); }
+.grip { flex: none; width: 22px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: var(--surface-2); color: var(--text-2); display: inline-grid; place-items: center; cursor: grab; touch-action: none; }
+.grip:active { cursor: grabbing; }
+.size { flex: none; padding: 1px 7px; border-radius: 980px; background: var(--accent-soft); color: var(--accent); font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+.mv { flex: none; max-width: 96px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 12px; }
+.rz { position: absolute; right: 2px; bottom: 2px; z-index: 3; width: 22px; height: 22px; padding: 0; border: 0; background: none; cursor: nwse-resize; touch-action: none; }
+.rz::after { content: ''; position: absolute; right: 5px; bottom: 5px; width: 10px; height: 10px; border-right: 2.5px solid var(--accent); border-bottom: 2.5px solid var(--accent); border-radius: 0 0 3px 0; }
+.gridlines { position: absolute; inset: 0; display: none; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; pointer-events: none; }
+.board.edit > .gridlines { display: grid; }
+.gridlines i { border-radius: 6px; background: repeating-linear-gradient(to bottom, var(--accent-soft) 0 52px, transparent 52px 64px); }
+.editbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; padding: 10px 14px; border: 1px dashed var(--accent); border-radius: 12px; background: var(--accent-soft); font-size: 13.5px; }
+.editbar .hint { flex: 1 1 280px; min-width: 0; }
+.chipbtn { border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 980px; padding: 2px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+/* one card over the whole page */
+.focusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.board.focus { grid-auto-rows: auto; }
+.board.focus > .card { grid-column: 1 / -1; height: max(420px, calc(100vh - 260px)); }
+.empty { margin-top: 14px; }
+/* the numbers at the top of a page */
+.kv1 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 7px; }
+.val { border: 0; background: none; padding: 0; color: inherit; font-size: 30px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+button.val { cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 5px; }
+button.val:hover { text-decoration-color: currentColor; }
+.val.lead { color: var(--danger); }
+.kv1 small { font-size: 14px; font-weight: 600; color: var(--text-2); }
+.card.kpi .split { margin-top: 8px; }
+.card.kpi .legend { margin-top: 6px; gap: 0 14px; line-height: 1.35; }
+.knote { margin-top: 4px; font-size: 12.5px; color: var(--text-2); line-height: 1.4; }
+/* the side panel: a report, a finding, the glossary */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: min(600px, 100%); display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow); }
+.drawer[data-mode=item] { width: min(780px, 100%); } .drawer[data-mode=glossary] { width: min(520px, 100%); }
+.dh { display: flex; align-items: flex-start; gap: 6px; padding: 14px 14px 12px 18px; border-bottom: 1px solid var(--border); }
+.dh h2 { font-size: 16px; overflow-wrap: anywhere; }
+.drawer[data-mode=item] .dh h2 { font: 650 14.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.dh .sub { margin-top: 2px; }
+.dbody { flex: 1; overflow: auto; padding: 6px 18px 28px; }
+.dbody > h3 { margin: 18px 0 4px; font-size: 12.5px; font-weight: 650; color: var(--text-2); }
+.dbody > .sub { margin-bottom: 6px; }
+.dbody .body { grid-template-columns: minmax(0, 1fr); }
+.dbody .kpis2.wide { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.dact { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.gl dt { margin-top: 14px; } .gl dt b { display: block; font-weight: 650; } .gl dd { margin: 2px 0 0; color: var(--text-2); font-size: 13.5px; }
 .hashcell { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; max-width: 420px; }
 .linkish { cursor: pointer; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
 .linkish:hover { text-decoration-color: var(--accent); color: var(--accent); }
-#layoutMenu .pop { left: auto; right: 0; width: 340px; max-height: 70vh; }
 .safeTable td { vertical-align: top; }
 .safeTable .who { color: var(--text-2); font-size: 13px; white-space: nowrap; }
 .btn.sm { padding: 3px 9px; font-size: 12.5px; white-space: nowrap; }
 .labelForm { display: inline-flex; gap: 6px; align-items: center; }
 .labelForm input { width: 180px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; }
 .peak.err { color: var(--danger); }
-.btn { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 6px 12px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 6px 12px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 .btn:hover { border-color: var(--accent); }
+.btn.primary, .btn[aria-pressed=true]#editBtn { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 
 /* filters: one bar above everything they change; stays in view */
-.filters { position: sticky; top: 0; z-index: 5; margin: 14px -24px 16px; padding: 12px 24px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); }
+.filters { position: sticky; top: 0; z-index: 5; margin: 0 -24px; padding: 10px 24px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); }
 .frow { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
 .frow + .frow { margin-top: 8px; }
 /* the three switches: one group of chips that stays together, at the end of its row */
-.toggles { display: inline-flex; gap: 6px; margin-left: auto; flex: none; }
+.toggles { display: flex; flex-wrap: wrap; gap: 6px; }
 .tg { position: relative; display: inline-flex; cursor: pointer; }
 .tg input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
 .tg span { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border: 1px solid var(--border); border-radius: 980px; font-size: 13.5px; font-weight: 600; color: var(--text-2); background: var(--surface); white-space: nowrap; }
@@ -116,18 +175,19 @@ button, select, input { font: inherit; color: inherit; }
 .pop label span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pop label em { font-style: normal; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .pop .none { padding: 6px; color: var(--text-2); font-size: 13px; }
+/* the filters that are set less often, in one menu */
+#fMore .pop { left: auto; right: 0; width: 400px; max-height: none; padding: 4px 12px 12px; }
+.morepop .ph { margin: 10px 0 5px; font-size: 12px; font-weight: 650; color: var(--text-2); }
+.morepop .seg { flex-wrap: wrap; }
+.morepop label.tg { display: inline-flex; padding: 0; } .morepop label.tg:hover { background: none; }
+.morepop label.tg span { flex: none; overflow: visible; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border-radius: 980px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .chip button { border: 0; background: none; cursor: pointer; color: inherit; font-size: 15px; line-height: 1; padding: 0 5px; }
 .linkbtn { border: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; padding: 2px 4px; font-size: 13px; }
 
 .grid { display: grid; gap: 12px; }
-.kpis { grid-template-columns: 1.4fr repeat(5, minmax(0, 1fr)); }
 
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; min-width: 0; }
-.card > .sub { margin-top: 2px; }
-.chead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
-.chead .grow { flex: 1; }
 .kpi .label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
 .kpi .value { margin-top: 2px; font-size: 30px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .kpi .value small { font-size: 15px; font-weight: 600; color: var(--text-2); letter-spacing: 0; }
@@ -141,18 +201,19 @@ button, select, input { font: inherit; color: inherit; }
 .legend b { font-variant-numeric: tabular-nums; }
 
 /* when it started: stacked columns on a time axis that never has more than ~72 columns */
-.plot { margin-top: 14px; display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: 8px; }
-.yaxis { position: relative; height: 180px; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+/* the chart takes the height its card has */
+.cb > .plot { flex: 1; min-height: 120px; margin-top: 8px; display: grid; grid-template-columns: 34px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 34px; column-gap: 8px; }
+.yaxis { position: relative; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .yaxis span { position: absolute; right: 0; translate: 0 -50%; }
-.cols { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 180px; border-bottom: 1px solid var(--grid); background: linear-gradient(var(--grid), var(--grid)) 0 0 / 100% 1px no-repeat, linear-gradient(var(--grid), var(--grid)) 0 50% / 100% 1px no-repeat; }
-.col { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; cursor: pointer; }
+.cols { position: relative; display: flex; align-items: stretch; gap: 2px; border-bottom: 1px solid var(--grid); background: linear-gradient(var(--grid), var(--grid)) 0 0 / 100% 1px no-repeat, linear-gradient(var(--grid), var(--grid)) 0 50% / 100% 1px no-repeat; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; cursor: pointer; }
 .col.edge { flex: 0 0 26px; margin-inline: 8px; }
 .col i { display: block; width: 100%; max-width: 22px; min-height: 2px; }
 .col i.a { background: var(--s2); } .col i.b { background: var(--s1); } .col i.c { background: var(--s3); }
 .col i:last-child { border-radius: 3px 3px 0 0; }
 .col:hover i, .col:focus-visible i, .col.sel i { filter: brightness(1.2); }
 .col.sel { background: var(--accent-soft); border-radius: 4px 4px 0 0; }
-.xaxis { grid-column: 2; position: relative; height: 34px; margin-top: 5px; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.xaxis { grid-column: 2; position: relative; margin-top: 5px; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .xaxis span { position: absolute; top: 0; translate: -50% 0; white-space: nowrap; text-align: center; line-height: 1.3; }
 .xaxis span b { display: block; color: var(--text); font-weight: 600; }
 .xaxis span.l { translate: 0 0; text-align: left; } .xaxis span.r { translate: -100% 0; text-align: right; }
@@ -177,17 +238,24 @@ pre { margin: 6px 0 0; padding: 9px 11px; border-radius: 9px; background: var(--
 .stack > * + * { margin-top: 10px; }
 .stack h3 { margin: 0; font-size: 12px; font-weight: 650; color: var(--text-2); }
 .scroll { overflow-x: auto; }
+/* tables in a card: the heading row stays at the top while the rows scroll, every other
+   row is shaded, and the row under the pointer is marked */
+.cb thead th, .cb table > tr:first-child > th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--border); }
+:where(.cb table:not(.mx) > tbody > tr:nth-child(even), .cb table:not(.mx) > tr:nth-child(odd):not(:first-child)) > td { background: color-mix(in srgb, var(--surface-2) 75%, transparent); }
+:where(.cb table:not(.mx) tr:hover) > td { background: var(--surface-2); }
+.leftcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 4px 20px; align-items: start; }
+.leftcols h3 { margin: 6px 0 0; font-size: 12px; font-weight: 650; color: var(--text-2); }
 
 /* the reports: a real table, sortable, paged */
-.reports { margin-top: 14px; padding: 0; overflow: hidden; }
-.reports .chead { padding: 14px 18px 10px; }
-.reports th { background: var(--surface-2); cursor: pointer; user-select: none; }
+/* the reports: a real table, sortable, paged; it runs to the edges of its card */
+.reports .cb { margin: 4px -14px 0; }
+.reports th[data-k] { cursor: pointer; user-select: none; }
 .reports th[aria-sort]::after { content: ' ▾'; } .reports th[aria-sort=ascending]::after { content: ' ▴'; }
-.reports td:first-child, .reports th:first-child { padding-left: 18px; }
+.reports td:first-child, .reports th:first-child { padding-left: 14px; }
 .reports tr.row { cursor: pointer; }
-.reports tr.row:hover td { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
-.reports tr.row td:last-child { color: var(--text-2); font-size: 16px; text-align: right; padding-right: 18px; }
-.reports tr.open td:last-child { rotate: 90deg; }
+.reports tr.row td:last-child { color: var(--text-2); font-size: 16px; text-align: right; padding-right: 14px; }
+.reports tr.row.sel > td { background: var(--accent-soft); box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+@container (max-width: 820px) { .hide-s { display: none; } }
 .dev b { font-weight: 650; white-space: nowrap; } td.tnum { white-space: nowrap; } .dev small, .fw small { display: block; font-size: 12px; color: var(--text-2); }
 .fw { max-width: 210px; }
 .tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
@@ -195,7 +263,6 @@ pre { margin: 6px 0 0; padding: 9px 11px; border-radius: 9px; background: var(--
 .tag.warn { background: var(--warn-bg); color: var(--warn); }
 .tag.ok { background: var(--accent-soft); color: var(--accent); }
 .tag i { width: 8px; height: 8px; border-radius: 2px; }
-.detail td { background: color-mix(in srgb, var(--surface-2) 45%, transparent); padding: 4px 18px 16px; }
 .body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 28px; }
 .body h3 { margin: 12px 0 0; font-size: 12px; font-weight: 650; color: var(--text-2); }
 .body .full { grid-column: 1 / -1; overflow-x: auto; }
@@ -213,25 +280,21 @@ tr.row.fresh td { background: var(--accent-soft); }
 .live.err i { background: var(--danger); }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
 @media (prefers-reduced-motion: reduce) { .live.on i { animation: none; } }
-.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 18px; border-top: 1px solid var(--border); font-size: 13.5px; }
+.pager { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 -14px -12px; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 13px; }
 .pager .grow { flex: 1; }
 .pager select { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 3px 6px; }
 .pager button:disabled { opacity: .4; cursor: default; }
-.glossary { margin-top: 12px; }
-.glossary dl { margin: 12px 0 0; display: grid; grid-template-columns: minmax(0, 250px) minmax(0, 1fr); gap: 10px 24px; font-size: 13.5px; }
-.glossary dt b { display: block; font-weight: 650; } .glossary dd { margin: 0; color: var(--text-2); }
-.kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
-.kpis2 .kpi { padding: 12px 14px; background: var(--surface-2); border: 0; }
-.kpis2 .kpi .value { font-size: 24px; }
-.kpis2.wide { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 4px; }
+.kpis2 .kpi { display: block; padding: 10px 12px; background: var(--surface-2); border: 0; border-radius: 11px; container-type: normal; }
+.kpis2 .kpi .value { font-size: 22px; }
+.kpis2 .kpi .note { font-size: 12px; line-height: 1.4; }
+.kpis2.wide { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .rank.plain li { cursor: default; } .rank.plain li:hover .name { color: inherit; }
 .rank .num small { margin-left: 6px; font-weight: 400; color: var(--text-2); }
 .rank li.few > * { opacity: .55; }
-.cols3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 28px; margin-top: 6px; }
-.cols3 h3 { margin: 10px 0 0; font-size: 12.5px; color: var(--text-2); }
 tr.few td { color: var(--text-2); } tr.few td b { font-weight: 600; }
 /* the attack course: events along a horizontal rail, with room for each */
-.courseBox { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px 28px; align-items: center; margin-top: 6px; }
+.courseBox { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px 24px; align-items: center; }
 .course { margin: 26px 0 6px; padding: 0; list-style: none; display: flex; align-items: flex-start; }
 .course li { position: relative; }
 .course li::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: var(--grid); }
@@ -244,12 +307,12 @@ tr.few td { color: var(--text-2); } tr.few td b { font-weight: 600; }
 .course .conn { flex: 0 1 96px; min-width: 56px; height: 14px; }
 .course .conn span { position: absolute; left: 50%; top: -20px; translate: -50% 0; padding: 1px 8px; border-radius: 980px; background: var(--surface-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
 .courseBox .kpis2 { grid-template-columns: 1fr; margin-top: 0; }
-@media (max-width: 1000px) {
+@container (max-width: 760px) {
   .courseBox { grid-template-columns: 1fr; }
   .courseBox .kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-/* on a narrow screen the rail runs down instead */
-@media (max-width: 700px) {
+/* in a narrow card the rail runs down instead */
+@container (max-width: 540px) {
   .course { flex-direction: column; align-items: stretch; margin-top: 12px; }
   .course li::before { left: 6px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
   .course .step { padding: 4px 0 4px 30px; text-align: left; }
@@ -258,14 +321,17 @@ tr.few td { color: var(--text-2); } tr.few td b { font-weight: 600; }
   .course .conn { flex: none; height: auto; padding: 4px 0 4px 30px; }
   .course .conn span { position: static; translate: none; }
 }
-.strip { position: relative; height: 44px; margin-top: 16px; border-bottom: 1px solid var(--grid); }
+.strip { position: relative; height: 40px; margin-top: 10px; border-bottom: 1px solid var(--grid); }
 .strip i { position: absolute; bottom: 0; width: 3px; height: 30px; margin-left: -1.5px; border-radius: 2px 2px 0 0; background: var(--s1); cursor: default; }
 .strip i:hover, .strip i:focus-visible { height: 40px; filter: brightness(1.2); }
 .stripaxis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.mx { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 12px; font-size: 13.5px; }
+.mx { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 8px; font-size: 13.5px; }
 .mx caption { text-align: left; font-size: 12px; font-weight: 650; color: var(--text-2); padding: 0 0 6px; }
 .mx thead th { padding: 6px 6px; text-align: center; font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); white-space: nowrap; }
 .mx th.q { color: var(--text-2); font-weight: 600; cursor: help; }
+/* the models stay at the left and the versions at the top while the grid scrolls */
+.cb .mx thead th { box-shadow: none; }
+.mx thead th:first-child { left: 0; z-index: 3; }
 .mx tbody th { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; font-weight: 650; padding: 5px 12px 5px 0; white-space: nowrap; }
 .mx td { padding: 3px; border: 0; text-align: center; }
 .mx td button { width: 100%; min-width: 52px; border: 0; border-radius: 7px; padding: 5px 4px; font: 600 12.5px -apple-system, 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; cursor: pointer; color: var(--text-2); background: var(--surface-2); }
@@ -279,33 +345,22 @@ tr.few td { color: var(--text-2); } tr.few td b { font-weight: 600; }
 .mx td.share .track { display: block; height: 4px; margin-top: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
 .mx td.share .track i { display: block; height: 100%; border-radius: 2px; background: var(--danger); }
 .tag.odd { background: var(--warn-bg); color: var(--warn); }
-/* blocks can be folded; the heading is the switch */
-.fold { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; font: inherit; letter-spacing: inherit; }
-/* the fold mark: a chevron in a small box, large and dark enough to be seen as a control */
-.fold::before { content: ''; flex: none; width: 24px; height: 24px; border-radius: 7px; background-color: var(--surface-2);
-  background-image: linear-gradient(to bottom right, transparent 50%, var(--text) 50%); background-size: 0 0; }
-.fold::after { content: ''; position: absolute; left: 8px; top: 50%; width: 7px; height: 7px; border-right: 2.5px solid var(--text); border-bottom: 2.5px solid var(--text); translate: 0 -70%; rotate: 45deg; transition: rotate .15s, translate .15s; }
-.fold { position: relative; }
-.fold:hover::before { background-color: var(--accent-soft); }
-.fold:hover::after { border-color: var(--accent); }
-.card.closed .fold::after { rotate: -45deg; translate: -1px -50%; }
-.fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
-.card.closed { align-self: start; }
-.card.closed > :not(h2):not(.chead), .card.closed > .chead > :not(h2) { display: none; }
-.card.closed.reports .chead { padding-bottom: 14px; }
-@media (prefers-reduced-motion: reduce) { .fold::after { transition: none; } }
 .foot { margin-top: 16px; font-size: 12.5px; color: var(--text-2); }
-#tip { position: fixed; z-index: 10; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 550; line-height: 1.45; white-space: pre-line; width: max-content; max-width: 400px; opacity: 0; translate: -50% calc(-100% - 12px); }
+#tip { position: fixed; z-index: 50; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 550; line-height: 1.45; white-space: pre-line; width: max-content; max-width: 400px; opacity: 0; translate: -50% calc(-100% - 12px); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 @media (max-width: 1000px) {
-  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .toggles { margin-left: 0; flex-wrap: wrap; }
-  .body { grid-template-columns: 1fr; }
-  .glossary dl { grid-template-columns: 1fr; gap: 2px 0; } .glossary dd { margin-bottom: 10px; }
-  .hide-s { display: none; }
   .filters { position: static; }
-  .pop { width: min(320px, 86vw); }
+  .pop, #fMore .pop { width: min(360px, 86vw); }
+}
+/* on a phone: one column, every card as high as it needs, no layout editing */
+@media (max-width: 760px) {
+  .board { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
+  .board > .card { grid-column: 1 / -1; grid-row: auto; }
+  .cb { max-height: 75vh; }
+  .cb > .plot { flex: none; height: 240px; }
+  #editBtn, .eo { display: none !important; }
+  #fMore .pop { left: 0; right: auto; }
 }
 </style>
 </head>
@@ -313,150 +368,200 @@ tr.few td { color: var(--text-2); } tr.few td b { font-weight: 600; }
 <script>try { const t = localStorage.getItem('csa-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch { /* no storage: the system decides */ }</script>
 <main>
   <div class="top">
-    <h1>CSA-2026-01 reports</h1>
-    <p class="sub tnum" id="status"></p>
+    <div class="title"><h1>CSA-2026-01 reports</h1><p class="sub tnum" id="status"></p></div>
     <span class="grow"></span>
     <span class="sub tnum live" id="live" hidden><i></i><span id="liveText"></span></span>
     <button class="btn" type="button" id="liveBtn" aria-pressed="true" hidden>Live: on</button>
     <button class="btn" type="button" id="sinceBtn" hidden></button>
+    <button class="btn" type="button" id="glossBtn"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.8h6.5a2 2 0 0 1 2 2v8.4H5a2 2 0 0 1-2-2z"/><path d="M3 11.2a2 2 0 0 1 2-2h6.5"/></svg>Glossary</button>
     <button class="btn" type="button" id="csv">Export CSV</button>
-    <details class="ms" id="layoutMenu"><summary>Layout</summary><div class="pop" id="layoutPop"></div></details>
+    <button class="btn" type="button" id="editBtn" aria-pressed="false"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="11" height="4.5" rx="1"/></svg><span>Edit layout</span></button>
     <button class="btn" type="button" id="themeBtn" title="Light or dark. “Auto” follows your system."></button>
   </div>
-  <div class="frow" style="margin-top:12px">
-    <div class="seg" id="viewSeg" role="group" aria-label="Page"><button type="button" data-v="main">Dashboard</button><button type="button" data-v="safe">Probably safe</button></div>
-  </div>
-
-  <section id="itemView" hidden>
-    <div class="card" style="margin-top:12px">
-      <div class="chead"><button class="btn" type="button" id="itemBack">← Back</button><h2 id="itemTitle" style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:16px;overflow-wrap:anywhere"></h2><span class="grow"></span><span id="itemAct"></span></div>
-      <p class="sub" id="itemSub"></p>
-      <div class="grid kpis2" id="itemStats" style="margin-top:12px"></div>
-    </div>
-    <div class="card" style="margin-top:12px"><h2>Fingerprints</h2><p class="sub">One line per different file behind this path. The same fingerprint on many devices means the same file. A mark as probably safe covers the fingerprints known when it was set.</p><div class="scroll" id="itemHashes"></div></div>
-    <div class="card" style="margin-top:12px"><h2>Models and firmware</h2><p class="sub">Which devices sent this finding, and how many of them show traces.</p><div class="scroll" id="itemModels"></div></div>
-    <div class="card" style="margin-top:12px"><div class="chead"><h2>Devices that sent it</h2><p class="sub tnum" id="itemCount"></p></div><p class="sub">The latest report of each device. Click a line to see that device’s reports on the dashboard.</p><div class="scroll" id="itemDevices"></div></div>
-  </section>
-
-  <section class="card" id="safeView" style="margin-top:12px" hidden>
-    <div class="chead"><h2>Marked as probably safe</h2><p class="sub tnum" id="safeCount"></p></div>
-    <p class="sub">Every finding someone on the team has marked, with who did it, when and why. These are hidden on the dashboard unless asked for. Click a finding to see which devices sent it.</p>
-    <div class="scroll" id="safeList" style="margin-top:8px"></div>
-    <h3 style="margin:18px 0 0;font-size:14px">Known release files</h3>
-    <p class="sub" id="knownSub"></p>
-    <div class="scroll" id="knownList" style="margin-top:8px"></div>
-  </section>
+  <nav class="tabs" id="tabs" aria-label="Pages"></nav>
 
   <section class="filters" aria-label="Filters">
     <div class="frow">
       <input type="search" id="q" placeholder="Search: model, firmware, path, hash, port, text in a command …" aria-label="Search reports">
       <div class="seg" id="fResult" role="group" aria-label="Result"><button type="button" data-v="hit">With traces</button><button type="button" data-v="bd" title="An older backdoor (urandom_seed / ulogd), not the attack of 20 November. Counted apart.">Older backdoor</button><button type="button" data-v="clean">Clean</button><button type="button" data-v="all">All</button></div>
       <div class="seg" id="fType" role="group" aria-label="Device type"><button type="button" data-v="all">All types</button><button type="button" data-v="router">Routers</button><button type="button" data-v="kvm">KVM</button></div>
-      <div class="seg" id="fRecv" role="group" aria-label="Received"><button type="button" data-v="all">Any time</button><button type="button" data-v="24h">Last 24 h</button><button type="button" data-v="7d">Last 7 days</button></div>
-    </div>
-    <div class="frow">
       <details class="ms" id="fModel"><summary>Device <b></b></summary><div class="pop"></div></details>
       <details class="ms" id="fFirmware"><summary>Firmware <b></b></summary><div class="pop"></div></details>
       <details class="ms" id="fKind"><summary>Evidence <b></b></summary><div class="pop"></div></details>
-      <div class="seg" id="fRestart" role="group" aria-label="Restarted since the attack"><button type="button" data-v="any" title="Whether the device was restarted since the attack began on 20 November">Restarted or not</button><button type="button" data-v="yes" title="Restarted since the attack began on 20 November">Restarted</button><button type="button" data-v="no" title="Not restarted since the attack began on 20 November">Not restarted</button></div>
-      <div class="toggles" role="group" aria-label="View">
-        <label class="tg"><input type="checkbox" id="onlyUnusual"><span>Unusual only</span></label>
-        <label class="tg"><input type="checkbox" id="perDevice" checked><span>One row per device</span></label>
-        <label class="tg"><input type="checkbox" id="hideTests" checked><span>Hide our tests</span></label>
-      </div>
+      <details class="ms" id="fMore"><summary>More filters <b></b></summary><div class="pop morepop">
+        <p class="ph">Received</p>
+        <div class="seg" id="fRecv" role="group" aria-label="Received"><button type="button" data-v="all">Any time</button><button type="button" data-v="24h">Last 24 h</button><button type="button" data-v="7d">Last 7 days</button></div>
+        <p class="ph">Restarted since the attack began on 20 November</p>
+        <div class="seg" id="fRestart" role="group" aria-label="Restarted since the attack"><button type="button" data-v="any">Restarted or not</button><button type="button" data-v="yes">Restarted</button><button type="button" data-v="no">Not restarted</button></div>
+        <p class="ph">View</p>
+        <div class="toggles" role="group" aria-label="View">
+          <label class="tg"><input type="checkbox" id="onlyUnusual"><span>Unusual only</span></label>
+          <label class="tg"><input type="checkbox" id="perDevice" checked><span>One row per device</span></label>
+          <label class="tg"><input type="checkbox" id="hideTests" checked><span>Hide our tests</span></label>
+        </div>
+      </div></details>
     </div>
     <div class="frow chips" id="chips" hidden></div>
   </section>
 
-  <section class="grid kpis" id="kpis"></section>
+  <div class="editbar" id="editBar" hidden>
+    <b>Editing the layout</b>
+    <div class="seg" id="tplSeg" role="group" aria-label="Template"></div>
+    <span class="dim" id="tplNote"></span>
+    <span class="dim hint">Drag the dots to move a card and its corner to resize it. A double click on the corner gives it the template’s size.</span>
+    <span class="chips" id="hiddenChips"></span>
+    <button class="btn sm" type="button" id="layoutReset">Back to the template</button>
+    <button class="btn sm primary" type="button" id="editDone">Done</button>
+  </div>
+  <div class="focusbar" id="focusBar" hidden><button class="btn" type="button" id="focusBack"></button><span class="sub">One card over the whole page. Esc goes back.</span></div>
 
-  <section class="card" style="margin-top:12px">
-    <div class="chead">
-      <h2>When it started</h2>
-      <ul class="legend" style="margin:0"><li><i style="background:var(--s1)"></i>Remote shell</li><li><i style="background:var(--s2)"></i>gl-helper malware</li><li><i style="background:var(--s3)"></i>Command only</li></ul>
-      <span class="grow"></span>
-      <div class="seg" id="zoom" role="group" aria-label="Time range of the chart"><button type="button" data-v="attack">Attack window</button><button type="button" data-v="all">All data</button></div>
-    </div>
-    <p class="sub" id="chartSub"></p>
-    <div class="plot"><div class="yaxis" id="yaxis"></div><div class="cols" id="cols"></div><div class="xaxis" id="xaxis"></div></div>
-    <p class="peak" id="peak"></p>
-  </section>
+  <div class="board" id="board">
+    <div class="gridlines" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
 
-  <section class="card" style="margin-top:12px">
-    <h2>Is it still going on</h2>
-    <p class="sub">The newest signs of the attack in this selection. New attacks would move the first two; the last two show whether the shells of 20 November are still being fed. Times are UTC.</p>
-    <div class="grid kpis2 wide" id="ongoing"></div>
-    <p class="peak" id="ongoingNote"></p>
-  </section>
+    <!-- Overview -->
+    <section class="card kpi" data-card="hit"><div class="ch"><h2>Devices with traces</h2></div><div class="about" hidden><p>Devices with known traces of the attack of 20 November, by what was found. “Command only”: a command from the cloud ran, nothing else was found. The older backdoor is counted apart, on its own page.</p><p>Click the number to see these reports.</p></div><div class="cb"></div></section>
+    <section class="card kpi" data-card="shell"><div class="ch"><h2>Remote shell still running</h2></div><div class="about" hidden><p>A remote shell that was running during the check: the attacker was connected at that moment.</p></div><div class="cb"></div></section>
+    <section class="card kpi" data-card="back"><div class="ch"><h2>Comes back after a restart</h2></div><div class="about" hidden><p>An autostart entry (rc.local, crontab, an init script) or the list of files a firmware update keeps points to the malware.</p></div><div class="cb"></div></section>
+    <section class="card kpi" data-card="restart"><div class="ch"><h2>Restarted since 20 Nov</h2></div><div class="about" hidden><p>A restart wipes the memory, and with it a running shell and its pipe. A device that looks clean after a restart proves little.</p></div><div class="cb"></div></section>
+    <section class="card kpi" data-card="gc"><div class="ch"><h2>Hit with GoodCloud on</h2></div><div class="about" hidden><p>Share of devices with traces among those with GoodCloud on, and off. The setting at the check, not during the attack: many switched it off afterwards.</p></div><div class="cb"></div></section>
+    <section class="card" data-card="when">
+      <div class="ch"><h2>When it started</h2><span class="grow"></span><div class="seg" id="zoom" role="group" aria-label="Time range of the chart"><button type="button" data-v="attack">Attack window</button><button type="button" data-v="all">All data</button></div></div>
+      <div class="about" hidden><p id="chartSub"></p></div>
+      <div class="cb">
+        <ul class="legend" style="margin:0"><li><i style="background:var(--s1)"></i>Remote shell</li><li><i style="background:var(--s2)"></i>gl-helper malware</li><li><i style="background:var(--s3)"></i>Command only</li></ul>
+        <div class="plot"><div class="yaxis" id="yaxis"></div><div class="cols" id="cols"></div><div class="xaxis" id="xaxis"></div></div>
+        <p class="peak" id="peak"></p>
+      </div>
+    </section>
+    <section class="card" data-card="going">
+      <div class="ch"><h2>Is it still going on</h2></div>
+      <div class="about" hidden><p>The newest signs of the attack in this selection. New attacks would move the first two; the last two show whether the shells of 20 November are still being fed. Times are UTC.</p></div>
+      <div class="cb"><div class="grid kpis2 wide" id="ongoing"></div><p class="peak" id="ongoingNote"></p></div>
+    </section>
+    <section class="card" data-card="course">
+      <div class="ch"><h2>How an attack ran</h2></div>
+      <div class="about" hidden><p id="courseSub"></p></div>
+      <div class="cb"><div class="courseBox"><ol class="course" id="course"></ol><div class="grid kpis2" id="courseStats"></div></div></div>
+    </section>
 
-  <section class="card" style="margin-top:12px">
-    <h2>How an attack ran</h2>
-    <p class="sub" id="courseSub"></p>
-    <div class="courseBox">
-      <ol class="course" id="course"></ol>
-      <div class="grid kpis2" id="courseStats"></div>
-    </div>
-  </section>
+    <!-- Devices & firmware -->
+    <section class="card" data-card="matrix">
+      <div class="ch"><h2>Models and firmware</h2><span class="grow"></span><button class="btn sm" type="button" id="gridAll" hidden>Show every version</button><button class="btn sm" type="button" id="yamlBtn">Copy as advisory YAML</button></div>
+      <div class="about" hidden><p>Devices with traces out of all reports for that model and firmware version. The darker a cell, the larger the share that was hit; the last column gives it per model. Test builds count with their version. Versions and models without any trace are folded into one column and one row.</p><p>Click a cell to filter. An empty cell means no report, not “not affected”.</p></div>
+      <div class="cb" id="matrix"></div>
+    </section>
+    <section class="card" data-card="series">
+      <div class="ch"><h2>Share hit by firmware series</h2></div>
+      <div class="about" hidden><p>Routers with traces out of all routers that reported, per release series. Test builds count with their series.</p></div>
+      <div class="cb"><ul class="rank plain" id="series"></ul><p class="peak dim" id="seriesNote"></p></div>
+    </section>
+    <section class="card" data-card="devices">
+      <div class="ch"><h2>Devices</h2></div>
+      <div class="about" hidden><p>Devices with traces per model. Click a bar to filter.</p></div>
+      <div class="cb"><ul class="rank" id="devices"></ul><p class="more" id="devicesMore"></p></div>
+    </section>
+    <section class="card" data-card="firmware">
+      <div class="ch"><h2>Firmware</h2></div>
+      <div class="about" hidden><p>The version, with beta or rc where the device reports one. Build number and date are in each report. Click a bar to filter.</p></div>
+      <div class="cb"><ul class="rank" id="firmwares"></ul><p class="more" id="firmwaresMore"></p></div>
+    </section>
+    <section class="card" data-card="cloud">
+      <div class="ch"><h2>Traces by cloud setting</h2></div>
+      <div class="about" hidden><p>Share of devices with traces, by what was switched on. The setting at the time of the check, which many changed after the attack. “Bound” means linked to a GoodCloud account.</p><p>Remote SSH and web access count as on only while GoodCloud is on: the stored setting is “on” by default on many firmware versions.</p></div>
+      <div class="cb" id="cloudSet"></div>
+    </section>
 
-  <section class="grid" style="margin-top:12px">
-    <div class="card">
-      <h2>Ports of the remote shells</h2>
-      <p class="sub">Every shell used its own port on the attacker’s server. One tick per shell.</p>
-      <div class="strip" id="strip"></div><div class="stripaxis" id="stripAxis"></div>
-      <p class="peak" id="portNote"></p>
-    </div>
-  </section>
+    <!-- Attack -->
+    <section class="card" data-card="evidence">
+      <div class="ch"><h2>Evidence</h2><span class="grow"></span><button class="linkbtn vo" type="button" data-gloss>What each kind means</button></div>
+      <div class="about" hidden><p>Devices per kind of trace. One device can have several. Click a bar to filter.</p></div>
+      <div class="cb"><ul class="rank" id="kinds"></ul></div>
+    </section>
+    <section class="card" data-card="files">
+      <div class="ch"><h2>Malware files</h2></div>
+      <div class="about" hidden><p>Same fingerprint means the same file on every device. The file time is the time it was written; it can come with the file, so the last column counts where it did.</p><p>Click a fingerprint or a path to search for it.</p></div>
+      <div class="cb" id="hashes"></div>
+    </section>
+    <section class="card" data-card="ports">
+      <div class="ch"><h2>Ports of the remote shells</h2></div>
+      <div class="about" hidden><p>Every shell used its own port on the attacker’s server. One tick per shell.</p></div>
+      <div class="cb"><div class="strip" id="strip"></div><div class="stripaxis" id="stripAxis"></div><p class="peak" id="portNote"></p></div>
+    </section>
+    <section class="card" data-card="left">
+      <div class="ch"><h2>What the attacker ran and left</h2></div>
+      <div class="about" hidden><p>Identical lines are grouped. Port numbers are replaced by “PORT” for grouping.</p></div>
+      <div class="cb"><div class="leftcols" id="left"></div></div>
+    </section>
 
-  <section class="card" style="margin-top:12px">
-    <div class="chead"><h2>Models and firmware</h2><span class="grow"></span><button class="btn" type="button" id="gridAll" hidden>Show every version</button><button class="btn" type="button" id="yamlBtn">Copy as advisory YAML</button></div>
-    <p class="sub">Devices with traces out of all reports for that model and firmware version. The darker a cell, the larger the share that was hit; the last column gives it per model. Test builds count with their version. Versions and models without any trace are folded into one column and one row. Click a cell to filter. An empty cell means no report, not “not affected”.</p>
-    <div id="matrix"></div>
-  </section>
+    <!-- Older backdoor -->
+    <section class="card kpi" data-card="bdn"><div class="ch"><h2>Devices with the older backdoor</h2></div><div class="about" hidden><p>urandom_seed / ulogd: an older backdoor that users of GL.iNet’s forum found, on some devices since 2025. Not the attack of 20 November, and counted apart from it.</p><p>Click a number to see these reports.</p></div><div class="cb"></div></section>
+    <section class="card kpi" data-card="bdrun"><div class="ch"><h2>Backdoor running</h2></div><div class="cb"></div></section>
+    <section class="card kpi" data-card="bdkeep"><div class="ch"><h2>Survives a firmware update</h2></div><div class="cb"></div></section>
+    <section class="card kpi" data-card="bdboth"><div class="ch"><h2>Also hit on 20 November</h2></div><div class="cb"></div></section>
+    <section class="card" data-card="bdkinds">
+      <div class="ch"><h2>Backdoor evidence</h2></div>
+      <div class="about" hidden><p>Devices per kind of trace of the older backdoor. Click a bar to filter.</p></div>
+      <div class="cb"><ul class="rank" id="bdKinds"></ul></div>
+    </section>
+    <section class="card" data-card="bdmodel"><div class="ch"><h2>Backdoor by model</h2></div><div class="cb"><ul class="rank" id="bdModel"></ul><p class="more" id="bdModelMore"></p></div></section>
+    <section class="card" data-card="bdfw"><div class="ch"><h2>Backdoor by firmware</h2></div><div class="cb"><ul class="rank" id="bdFw"></ul><p class="more" id="bdFwMore"></p></div></section>
+    <section class="card" data-card="bdwhen">
+      <div class="ch"><h2>Loader written in</h2></div>
+      <div class="about" hidden><p>The month /bin/ulogd was written, by its time on the device; where the change time is much later, that one.</p></div>
+      <div class="cb"><ul class="rank plain" id="bdWhen"></ul></div>
+    </section>
+    <section class="card" data-card="bdfiles">
+      <div class="ch"><h2>Loader files</h2></div>
+      <div class="about" hidden><p>/bin/ulogd, the backdoor’s loader: compiled Lua that reports the device to a server imitating AdGuard or OpenWrt. Its fingerprint differs from device to device, so it is grouped by size here.</p></div>
+      <div class="cb" id="bdFiles"></div>
+    </section>
 
-  <section class="grid three">
-    <div class="card"><h2>Devices</h2><p class="sub">Click a bar to filter.</p><ul class="rank" id="devices"></ul><p class="more" id="devicesMore"></p></div>
-    <div class="card"><h2>Firmware</h2><p class="sub">The version, with beta or rc where the device reports one. Build number and date are in each report.</p><ul class="rank" id="firmwares"></ul><p class="more" id="firmwaresMore"></p></div>
-    <div class="card"><h2>Evidence</h2><p class="sub">Devices per kind of trace. One device can have several.</p><ul class="rank" id="kinds"></ul></div>
-    <div class="card" data-w="half"><h2>Share hit by firmware series</h2><p class="sub">Routers with traces out of all routers that reported, per release series. Test builds count with their series.</p><ul class="rank plain" id="series"></ul><p class="peak dim" id="seriesNote"></p></div>
-    <div class="card" data-w="half"><h2>Traces by cloud setting</h2><p class="sub">Share of devices with traces, by what was switched on. The setting at the time of the check, which many changed after the attack. “Bound” means linked to a GoodCloud account. Remote SSH and web access count as on only while GoodCloud is on: the stored setting is “on” by default on many firmware versions.</p><div class="scroll" id="cloudSet"></div></div>
-  </section>
+    <!-- Review -->
+    <section class="card" data-card="unusual">
+      <div class="ch"><h2>Unusual changes seen on several devices</h2></div>
+      <div class="about" hidden><p id="reviewSub">What the script listed for review, not known traces. Most of it is harmless and the owner’s own. Look for a change that many devices with traces share and clean ones do not.</p><p>Click a row to see which devices sent it and which files stand behind it. Mark what you have looked at as probably safe, here or in a single report, and it is hidden for everyone; a new file at the same path brings it back. The marks build up a list of what is known to be harmless.</p></div>
+      <div class="cb" id="reviews"></div>
+    </section>
+    <section class="card" data-card="safe">
+      <div class="ch"><h2>Marked as probably safe</h2><span class="sub tnum" id="safeCount"></span></div>
+      <div class="about" hidden><p>Every finding someone on the team has marked, with who did it, when and why. These are hidden elsewhere unless asked for. Click a finding to see which devices sent it.</p></div>
+      <div class="cb" id="safeList"></div>
+    </section>
+    <section class="card" data-card="known">
+      <div class="ch"><h2>Known release files</h2></div>
+      <div class="about" hidden><p id="knownSub"></p></div>
+      <div class="cb" id="knownList"></div>
+    </section>
 
-  <section class="grid two">
-    <div class="card"><h2>Malware files</h2><p class="sub">Same fingerprint means the same file on every device. The file time is the time it was written; it can come with the file, so the last column counts where it did.</p><div class="scroll" id="hashes"></div></div>
-    <div class="card"><h2>What the attacker ran and left</h2><p class="sub">Identical lines are grouped. Port numbers are replaced by “PORT” for grouping.</p><div class="stack" id="left" style="margin-top:10px"></div></div>
-  </section>
-
-  <section class="card" style="margin-top:12px">
-    <h2>Unusual changes seen on several devices</h2>
-    <p class="sub" id="reviewSub">What the script listed for review, not known traces. Most of it is harmless and the owner’s own. Look for a change that many devices with traces share and clean ones do not. Click a row to see which devices sent it and which files stand behind it. Mark what you have looked at as probably safe, here or in a single report, and it is hidden for everyone; a new file at the same path brings it back. The marks build up a list of what is known to be harmless.</p>
-    <div class="scroll" id="reviews"></div>
-  </section>
-
-  <section class="card" style="margin-top:12px">
-    <h2>Older backdoor</h2>
-    <p class="sub">urandom_seed / ulogd: not the attack of 20 November, and counted apart from it. Which devices carry it and when its loader was written.</p>
-    <p class="peak" id="bdFacts"></p>
-    <div class="cols3" id="bdBox"></div>
-  </section>
-
-  <section class="card glossary" data-shut="1"><h2>What each kind of evidence means</h2><dl id="glossaryList"></dl></section>
-
-  <section class="card reports">
-    <div class="chead"><h2>Reports</h2><p class="sub tnum" id="shown"></p></div>
-    <div class="scroll"><table>
-      <thead><tr>
-        <th data-k="received" aria-sort="descending">Received (UTC)</th><th data-k="model">Device</th><th data-k="firmware">Firmware</th><th data-k="story">Result</th>
-        <th data-k="first" class="hide-s">First trace (UTC)</th><th data-k="upSince" class="hide-s">Up since (UTC)</th><th></th>
-      </tr></thead>
-      <tbody id="rows"></tbody>
-    </table></div>
-    <div class="pager"><span class="tnum" id="range"></span><span class="grow"></span>
-      <label>Rows <select id="size"><option>25</option><option selected>50</option><option>100</option><option>250</option></select></label>
-      <button class="btn" type="button" id="prev">‹ Previous</button><button class="btn" type="button" id="next">Next ›</button></div>
-  </section>
+    <!-- Reports -->
+    <section class="card reports" data-card="reports">
+      <div class="ch"><h2>Reports</h2><span class="sub tnum" id="shown"></span></div>
+      <div class="about" hidden><p>One row per report, or per device with “One row per device”. Click a row to open the report beside the table; the arrows in it step through the rows. Click a heading to sort.</p></div>
+      <div class="cb"><table>
+        <thead><tr>
+          <th data-k="received" aria-sort="descending">Received (UTC)</th><th data-k="model">Device</th><th data-k="firmware">Firmware</th><th data-k="story">Result</th>
+          <th data-k="first" class="hide-s">First trace (UTC)</th><th data-k="upSince" class="hide-s">Up since (UTC)</th><th></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+      <div class="pager"><span class="tnum" id="range"></span><span class="grow"></span>
+        <label>Rows <select id="size"><option>25</option><option selected>50</option><option>100</option><option>250</option></select></label>
+        <button class="btn sm" type="button" id="prev">‹ Previous</button><button class="btn sm" type="button" id="next">Next ›</button></div>
+    </section>
+  </div>
+  <p class="sub empty" id="emptyPage" hidden>Every card of this page is hidden. “Edit layout” shows them again.</p>
 
   <p class="foot">Reports are anonymous and not verified: anyone can send one. Look for patterns, not single reports. All times are UTC.</p>
 </main>
+<aside class="drawer" id="drawer" hidden aria-labelledby="dTitle">
+  <div class="dh">
+    <div class="grow"><h2 id="dTitle"></h2><p class="sub" id="dSub"></p></div>
+    <button class="ib" type="button" id="dPrev" aria-label="Previous report" title="Previous report"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button>
+    <button class="ib" type="button" id="dNext" aria-label="Next report" title="Next report"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"/></svg></button>
+    <button class="ib" type="button" id="dClose" aria-label="Close" title="Close (Esc)"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8"/><path d="M12 4l-8 8"/></svg></button>
+  </div>
+  <div class="dbody" id="dBody"></div>
+</aside>
 <div id="tip" role="status"></div>
 
 <script>
@@ -602,6 +707,81 @@ function story(r) {
 }
 const count = (rows, key) => { const m = new Map(); for (const r of rows) for (const v of [].concat(key(r))) if (v) m.set(v, (m.get(v) || 0) + 1); return [...m].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(b[0])); };
 
+/* layout:begin */
+// The pages, and the templates that give every card its page and its size:
+// [card, columns out of 12, rows of 52 px]. Nothing in here touches the page, so the
+// tests can run it on their own.
+const PAGES = [['overview', 'Overview'], ['devices', 'Devices & firmware'], ['attack', 'Attack'], ['backdoor', 'Older backdoor'], ['review', 'Review'], ['reports', 'Reports']];
+const KPIS = [['hit', 4, 3], ['shell', 2, 3], ['back', 2, 3], ['restart', 2, 3], ['gc', 2, 3]];
+const BDK = [['bdn', 3, 2], ['bdrun', 3, 2], ['bdkeep', 3, 2], ['bdboth', 3, 2]];
+const TPL = {
+  standard: {
+    overview: [...KPIS, ['when', 8, 6], ['going', 4, 6], ['course', 12, 5]],
+    devices: [['matrix', 8, 7], ['series', 4, 7], ['devices', 4, 5], ['firmware', 4, 5], ['cloud', 4, 6]],
+    attack: [['evidence', 5, 5], ['files', 7, 5], ['ports', 12, 3], ['left', 12, 5]],
+    backdoor: [...BDK, ['bdkinds', 6, 5], ['bdmodel', 3, 5], ['bdfw', 3, 5], ['bdwhen', 6, 5], ['bdfiles', 6, 5]],
+    review: [['unusual', 12, 6], ['safe', 12, 5], ['known', 12, 4]],
+    reports: [['reports', 12, 11]],
+  },
+  compact: {
+    overview: [...KPIS, ['when', 7, 5], ['going', 5, 5], ['course', 12, 5]],
+    devices: [['matrix', 8, 7], ['series', 4, 7], ['devices', 4, 4], ['firmware', 4, 4], ['cloud', 4, 5]],
+    attack: [['evidence', 4, 6], ['files', 8, 3], ['ports', 8, 3], ['left', 12, 4]],
+    backdoor: [...BDK, ['bdkinds', 4, 5], ['bdmodel', 4, 5], ['bdfw', 4, 5], ['bdwhen', 6, 4], ['bdfiles', 6, 4]],
+    review: [['unusual', 12, 5], ['safe', 12, 4], ['known', 12, 3]],
+    reports: [['reports', 12, 9]],
+  },
+  large: {
+    overview: [...KPIS, ['when', 12, 8], ['going', 12, 3], ['course', 12, 5]],
+    devices: [['matrix', 12, 8], ['series', 6, 6], ['cloud', 6, 6], ['devices', 6, 5], ['firmware', 6, 5]],
+    attack: [['evidence', 6, 7], ['ports', 6, 7], ['files', 12, 4], ['left', 12, 5]],
+    backdoor: [...BDK, ['bdkinds', 12, 5], ['bdwhen', 12, 4], ['bdmodel', 6, 5], ['bdfw', 6, 5], ['bdfiles', 12, 4]],
+    review: [['unusual', 12, 7], ['safe', 12, 6], ['known', 12, 5]],
+    reports: [['reports', 12, 12]],
+  },
+};
+const TPL_NAMES = [['standard', 'Standard', 'The main chart large, the rest beside and below it'], ['compact', 'Compact', 'Shorter cards: more of each page on one screen'], ['large', 'Large', 'Charts and tables over the whole width']];
+// the layout before the pages named its cards by their headings and knew only widths
+const OLD = {
+  'When it started': 'when', 'Is it still going on': 'going', 'How an attack ran': 'course', 'Ports of the remote shells': 'ports', 'Models and firmware': 'matrix',
+  'Devices': 'devices', 'Firmware': 'firmware', 'Evidence': 'evidence', 'Share hit by firmware series': 'series', 'Traces by cloud setting': 'cloud',
+  'Malware files': 'files', 'What the attacker ran and left': 'left', 'Unusual changes seen on several devices': 'unusual', 'Reports': 'reports',
+};
+const OLD_W = { third: 4, half: 6, twothirds: 8, full: 12 };
+const clamp = (v, lo, hi, d) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : d);
+const pageAt = (p) => PAGES.findIndex((x) => x[0] === p);
+// sort is stable: inside a page the order stays as it is
+const sortByPage = (items) => items.sort((a, b) => pageAt(a.p) - pageAt(b.p));
+function tplItems(name) { const t = TPL[name] || TPL.standard; return PAGES.flatMap(([p]) => (t[p] || []).map(([k, w, h]) => ({ k, p, w, h }))); }
+// A saved layout made whole: cards that no longer exist go, cards that are new since it
+// was saved come in at the end of their page, sizes stay inside the grid.
+function normalize(saved) {
+  const s = saved && typeof saved === 'object' ? saved : {}, tpl = TPL[s.tpl] ? s.tpl : 'standard', base = tplItems(tpl), dflt = new Map(base.map((i) => [i.k, i])), seen = new Set(), items = [];
+  for (const i of Array.isArray(s.items) ? s.items : []) {
+    const d = i && dflt.get(i.k); if (!d || seen.has(i.k)) continue; seen.add(i.k);
+    items.push({ k: i.k, p: pageAt(i.p) < 0 ? d.p : i.p, w: clamp(i.w, 2, 12, d.w), h: clamp(i.h, 2, 16, d.h) });
+  }
+  for (const d of base) if (!seen.has(d.k)) items.push({ ...d });
+  const hidden = [...new Set((Array.isArray(s.hidden) ? s.hidden : []).filter((k) => dflt.has(k)))];
+  return { v: 2, tpl, custom: !!s.custom, items: sortByPage(items), hidden };
+}
+// The layout of before: its order, its hidden cards and its widths, on the standard template.
+function migrate(old) {
+  const l = normalize(null), o = old && typeof old === 'object' ? old : {}, sizes = o.sizes && typeof o.sizes === 'object' ? o.sizes : {};
+  const order = (Array.isArray(o.order) ? o.order : []).map((t) => OLD[t]).filter(Boolean);
+  // on each page the cards the old layout knew keep its order, in the places the template gives them
+  for (const [p] of PAGES) {
+    const slots = l.items.map((it, i) => (it.p === p && order.includes(it.k) ? i : -1)).filter((i) => i >= 0);
+    const moved = slots.map((i) => l.items[i]).sort((a, b) => order.indexOf(a.k) - order.indexOf(b.k));
+    slots.forEach((i, n) => (l.items[i] = moved[n]));
+  }
+  for (const [t, v] of Object.entries(sizes)) { const it = l.items.find((i) => i.k === OLD[t]); if (it && OLD_W[v]) it.w = OLD_W[v]; }
+  l.hidden = [...new Set((Array.isArray(o.hidden) ? o.hidden : []).map((t) => OLD[t]).filter(Boolean))];
+  l.custom = order.length > 0 || l.hidden.length > 0 || Object.keys(sizes).length > 0;
+  return l;
+}
+/* layout:end */
+const pageName = (p) => (PAGES[pageAt(p)] || PAGES[0])[1];
 /* ---------- filters ---------- */
 let all = [], pool = [], NOW = Date.now();
 let zoom = 'attack', page = 0, sortKey = 'received', asc = false;
@@ -609,14 +789,15 @@ const F = { q: '', result: 'hit', type: 'all', model: new Set(), firmware: new S
 const FACET = { model: (r) => r.model, firmware: (r) => r.fw, kind: (r) => r.kinds };
 const LABEL = { model: 'Device', firmware: 'Firmware', kind: 'Evidence' };
 function pass(r, skip) {
+  const sk = [].concat(skip || []);
   if (F.hideTests && r.isTest) return false;
   if (F.q && !r.hay.includes(F.q)) return false;
-  if (skip !== 'result' && F.result !== 'all' && (F.result === 'bd' ? !r.bd : F.result === 'hit' ? r.ioc === 0 : r.ioc > 0 || r.bd)) return false;
+  if (!sk.includes('result') && F.result !== 'all' && (F.result === 'bd' ? !r.bd : F.result === 'hit' ? r.ioc === 0 : r.ioc > 0 || r.bd)) return false;
   if (F.type !== 'all' && (F.type === 'kvm') !== r.kvm) return false;
   if (F.recv !== 'all' && r.recv < NOW - (F.recv === '24h' ? DAY : 7 * DAY)) return false;
   if (F.restart !== 'any' && (F.restart === 'yes') !== r.restarted) return false;
-  for (const k of ['model', 'firmware', 'kind']) if (skip !== k && F[k].size && ![].concat(FACET[k](r)).some((v) => F[k].has(v))) return false;
-  if (skip !== 'bin' && F.bin && !(r.first >= F.bin[0] && r.first < F.bin[1])) return false;
+  for (const k of ['model', 'firmware', 'kind']) if (!sk.includes(k) && F[k].size && ![].concat(FACET[k](r)).some((v) => F[k].has(v))) return false;
+  if (!sk.includes('bin') && F.bin && !(r.first >= F.bin[0] && r.first < F.bin[1])) return false;
   if (F.unusual && !r.odd.length) return false;
   if (F.since && !(r.recvIso > F.since)) return false;
   return true;
@@ -629,9 +810,10 @@ function seg(id, key) {
 }
 /* ---------- the filters in the address, so a view can be shared ---------- */
 const SIMPLE = { result: 'hit', type: 'all', recv: 'all', restart: 'any' };
-let view = 'main', itemKey = '', itemFrom = 'main';
-// open the page of one finding (a kind and a path): who sent it, which files stand behind it
-function openItem(key) { itemFrom = view === 'item' ? itemFrom : view; itemKey = key; view = 'item'; render(); scrollTo(0, 0); }
+// the page in view, what the side panel shows, and the card shown over the whole page
+let curPage = 'overview', D = null, focusKey = '';
+// one finding (a kind and a path) in the side panel: who sent it, which files stand behind it
+function openItem(key) { openDrawer({ mode: 'item', key }); }
 function toHash() {
   const q = new URLSearchParams();
   if (F.q) q.set('q', F.q);
@@ -641,8 +823,10 @@ function toHash() {
   if (!$('perDevice').checked) q.set('all_reports', '1');
   if (!F.hideTests) q.set('tests', '1');
   if (zoom !== 'attack') q.set('chart', zoom);
-  if (view !== 'main') q.set('view', view);
-  if (view === 'item' && itemKey) q.set('item', itemKey);
+  if (curPage !== 'overview') q.set('page', curPage);
+  if (focusKey) q.set('focus', focusKey);
+  if (D && D.mode === 'item') q.set('item', D.key);
+  if (D && D.mode === 'report') q.set('report', D.id);
   if (sortKey !== 'received' || asc) q.set('sort', (asc ? '' : '-') + sortKey);
   const h = q.toString(); if (h !== location.hash.slice(1)) history.replaceState(null, '', h ? '#' + h : location.pathname + location.search);
 }
@@ -654,7 +838,11 @@ function fromHash() {
   F.unusual = q.has('unusual'); $('onlyUnusual').checked = F.unusual;
   $('perDevice').checked = !q.has('all_reports'); F.hideTests = !q.has('tests'); $('hideTests').checked = F.hideTests;
   if (['attack', 'all'].includes(q.get('chart'))) zoom = q.get('chart');
-  view = ['safe', 'item'].includes(q.get('view')) ? q.get('view') : 'main'; itemKey = q.get('item') || ''; if (view === 'item' && !itemKey) view = 'main';
+  // links from before the pages: view=safe and view=item are on the review page now
+  const pg = q.get('page'), old = q.get('view');
+  curPage = pageAt(pg) >= 0 ? pg : old === 'safe' || old === 'item' ? 'review' : 'overview';
+  D = q.get('item') ? { mode: 'item', key: q.get('item') } : q.get('report') ? { mode: 'report', id: q.get('report') } : null;
+  focusKey = q.get('focus') || '';
   const so = q.get('sort'); if (so) { asc = !so.startsWith('-'); sortKey = so.replace(/^-/, ''); }
 }
 
@@ -684,8 +872,21 @@ function facet(id, key) {
 }
 const facets = [facet('fModel', 'model'), facet('fFirmware', 'firmware'), facet('fKind', 'kind')];
 // the path of the click, not "contains": a menu that redraws itself has already removed the button that was clicked
-document.addEventListener('click', (e) => { const path = e.composedPath(); for (const o of document.querySelectorAll('.ms[open]')) if (!path.includes(o)) o.open = false; });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const o of document.querySelectorAll('.ms[open]')) o.open = false; });
+document.addEventListener('click', (e) => {
+  const path = e.composedPath(); for (const o of document.querySelectorAll('.ms[open]')) if (!path.includes(o)) o.open = false;
+  const a = board.querySelector('.about:not([hidden])'); if (a && !path.includes(a) && !path.includes(a.parentElement.querySelector('.ib[aria-expanded]'))) about(null, false);
+});
+// Escape closes what is open, the innermost first
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const ms = document.querySelectorAll('.ms[open]');
+  if (ms.length) for (const o of ms) o.open = false;
+  else if (board.querySelector('.about:not([hidden])')) about(null, false);
+  else if (D) closeDrawer();
+  else if (focusKey) { focusKey = ''; render(); }
+  else if (editing) setEditing(false);
+});
+$('fMore').addEventListener('toggle', () => { if ($('fMore').open) for (const o of document.querySelectorAll('.ms[open]')) if (o.id !== 'fMore') o.open = false; });
 function chips() {
   const box = $('chips'); box.replaceChildren();
   const add = (text, off) => { const c = el('span', text, 'chip'), x = el('button', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove filter ' + text); x.addEventListener('click', () => { off(); page = 0; render(); }); c.append(x); box.append(c); };
@@ -693,6 +894,13 @@ function chips() {
   if (F.bin) add('First trace: ' + fmt(F.bin[0]) + ' – ' + fmt(F.bin[1]), () => (F.bin = null));
   if (F.q) add('Search: ' + F.q, () => { F.q = ''; $('q').value = ''; });
   if (F.since) add('New since your last visit', () => (F.since = null));
+  // the filters in "More filters" show here too, so a set one is not missed
+  if (F.recv !== 'all') add('Received: ' + (F.recv === '24h' ? 'last 24 h' : 'last 7 days'), () => (F.recv = 'all'));
+  if (F.restart !== 'any') add(F.restart === 'yes' ? 'Restarted since the attack' : 'Not restarted since the attack', () => (F.restart = 'any'));
+  if (F.unusual) add('Unusual only', () => { F.unusual = false; $('onlyUnusual').checked = false; });
+  const more = [F.recv !== 'all', F.restart !== 'any', F.unusual, !$('perDevice').checked, !F.hideTests].filter(Boolean).length;
+  $('fMore').querySelector('summary b').textContent = more || ''; $('fMore').classList.toggle('on', more > 0);
+  syncs.forEach((s) => s());
   box.hidden = !box.children.length;
   if (!box.hidden) { const r = el('button', 'Reset all filters', 'linkbtn'); r.type = 'button'; r.addEventListener('click', () => { Object.assign(F, { q: '', result: 'hit', type: 'all', recv: 'all', restart: 'any', bin: null, unusual: false, since: null }); $('onlyUnusual').checked = false; for (const k of ['model', 'firmware', 'kind']) F[k].clear(); $('q').value = ''; syncs.forEach((s) => s()); page = 0; render(); }); box.append(r); }
 }
@@ -808,7 +1016,6 @@ function markTag(g) {
 function reviews(base) {
   const box = $('reviews'); box.replaceChildren();
   const have = base.filter((r) => r.schema >= 6), m = revGroups(have);
-  REVALL = revGroups(all.filter((r) => r.schema >= 6));
   const hits = have.filter((r) => r.ioc > 0 || r.bd).length, onceN = [...m.values()].filter((g) => g.n < 2).length, shared = [...m.values()].filter((g) => showOnce || g.n >= 2).sort((a, b) => b.hit - a.hit || b.n - a.n);
   const full = (g) => REVALL.get(g.kind + ' ' + g.path) || g, safeN = shared.filter((g) => hiddenState(labelState(full(g)))).length, rows = shared.filter((g) => showSafe || !hiddenState(labelState(full(g)))).slice(0, 40);
   if (labelErr) box.append(el('p', labelErr, 'peak err'));
@@ -862,10 +1069,10 @@ function chart(hit) {
   if (edges) col(eb, [-Infinity, from], 'Before ' + fmt(from), 'edge');
   for (const b of bins) col(b, [b.t, b.t + step], fmt(b.t) + ' – ' + fmt(b.t + step));
   if (edges) col(ea, [to, Infinity], 'From ' + fmt(to), 'edge');
-  // at most about eight labels, placed on the axis by position, never one per column
+  // at most about eight labels, fewer in a narrow card, placed on the axis by position
   requestAnimationFrame(() => {
     const first = cols.children[edges ? 1 : 0].getBoundingClientRect(), last = cols.children[cols.children.length - (edges ? 2 : 1)].getBoundingClientRect(), box = cols.getBoundingClientRect();
-    const x0 = first.left - box.left, w = last.right - first.left, every = Math.max(1, Math.ceil(n / 8)), dayStep = step >= DAY;
+    const x0 = first.left - box.left, w = last.right - first.left, every = Math.max(1, Math.ceil(n / Math.max(2, Math.min(8, Math.floor(box.width / 110))))), dayStep = step >= DAY;
     for (let i = 0; i <= n; i += every) {
       const t = from + i * step, d = new Date(t).toISOString(), s = el('span');
       if (dayStep) s.append(el('b', d.slice(0, 10))); else { s.append(el('b', d.slice(11, 16)), d.slice(0, 10)); }
@@ -974,16 +1181,33 @@ function series(base) {
 // The older backdoor: where it sits and when its loader was written (the time on
 // /bin/ulogd; where the change time is much later, that one).
 function backdoor(base) {
-  const rows = base.filter((r) => r.bd), box = $('bdBox'); box.replaceChildren();
-  if (!rows.length) { $('bdFacts').textContent = 'No report with the older backdoor in this selection.'; return; }
-  const loaders = rows.flatMap((r) => r.files.filter((f) => f.path === '/bin/ulogd')), sizes = count(loaders.filter((f) => f.size), (f) => f.size), hashes = new Set(loaders.map((f) => f.sha256)).size;
-  const run = rows.filter((r) => r.kinds.includes('backdoor-proc')).length, also = rows.filter((r) => r.ioc > 0).length, keep = rows.filter((r) => r.kinds.includes('backdoor-keep')).length;
-  $('bdFacts').textContent = `${rows.length} devices. Running on ${run}, kept across firmware updates on ${keep}, ${also} also show the attack of 20 November.` + (loaders.length ? ` ${hashes} different loaders on ${loaders.length} devices` + (sizes.length ? `, in ${sizes.length} size${sizes.length === 1 ? '' : 's'} (${sizes.map((x) => Number(x[0]).toLocaleString('en') + ' bytes: ' + x[1]).join(', ')}).` : '.') : '');
-  const col = (title, pairs) => { const d = el('div'), ul = el('ul', null, 'rank plain'), mx = Math.max(1, ...pairs.map((x) => x[1])); bars(ul, pairs.map(([k, n]) => [k, n / mx, n])); d.append(el('h3', title), ul); box.append(d); };
-  col('By model', count(rows, (r) => r.model).slice(0, 8));
-  col('By firmware', count(rows, (r) => r.fw).slice(0, 8));
-  const when = (f) => (f.ctime && lag(f) > LAG ? ts(f.ctime) : ts(f.mtime));
-  col('Loader written in', count(loaders.filter((f) => isFinite(when(f))), (f) => new Date(when(f)).toISOString().slice(0, 7)).sort((a, b) => a[0].localeCompare(b[0])));
+  const rows = base.filter((r) => r.bd), n = rows.length, none = 'No report with the older backdoor in this selection.';
+  const loaders = rows.flatMap((r) => r.files.filter((f) => f.path === '/bin/ulogd'));
+  const run = rows.filter((r) => r.kinds.includes('backdoor-proc')).length, keep = rows.filter((r) => r.kinds.includes('backdoor-keep')).length, also = rows.filter((r) => r.ioc > 0).length;
+  const go = (kind) => () => goReports(() => { F.result = 'bd'; if (kind) F.kind = new Set([kind]); });
+  fillKpi('bdn', n.toLocaleString('en'), 'of ' + base.length.toLocaleString('en') + ' reports', n ? 'Counted apart from the attack of 20 November.' : none, { go: n ? go() : null });
+  fillKpi('bdrun', run, 'of ' + n, 'monitord or ujaild was running during the check.', { go: run ? go('backdoor-proc') : null });
+  fillKpi('bdkeep', keep, 'of ' + n, 'Kept by a firmware update with “keep settings”.', { go: keep ? go('backdoor-keep') : null });
+  fillKpi('bdboth', also, 'of ' + n, 'Also show traces of the attack of 20 November.');
+  // the bars count the devices with the backdoor, whatever the result filter says
+  const bdPool = (skip) => pool.filter((r) => r.bd && pass(r, ['result', skip]));
+  rank($('bdKinds'), null, count(bdPool('kind'), (r) => r.kinds.filter((k) => k.startsWith('backdoor-'))), 0, 'kind', (k) => KIND[k] || k);
+  rank($('bdModel'), $('bdModelMore'), count(bdPool('model'), FACET.model), 0, 'model');
+  rank($('bdFw'), $('bdFwMore'), count(bdPool('firmware'), FACET.firmware), 0, 'firmware');
+  const when = (f) => (f.ctime && lag(f) > LAG ? ts(f.ctime) : ts(f.mtime)), day = (t) => fmt(t).slice(0, 10);
+  const months = count(loaders.filter((f) => isFinite(when(f))), (f) => new Date(when(f)).toISOString().slice(0, 7)).sort((a, b) => a[0].localeCompare(b[0])), mx = Math.max(1, ...months.map((x) => x[1]));
+  bars($('bdWhen'), months.map(([k, c]) => [k, c / mx, c]), n ? 'No loader with a usable time.' : none);
+  // the loader by size: its fingerprint differs from device to device
+  const box = $('bdFiles'); box.replaceChildren();
+  if (!loaders.length) { box.append(el('p', n ? 'No report sent the loader’s file.' : none, 'peak dim')); return; }
+  const bySize = new Map(); for (const f of loaders) { const k = f.size || 0; (bySize.get(k) || bySize.set(k, []).get(k)).push(f); }
+  const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Size', 'n'], ['Devices', 'n'], ['Different files', 'n'], ['Written (UTC)', 'n']]) hd.append(el('th', t, c)); tb.append(hd);
+  for (const [s, fs] of [...bySize].sort((a, b) => b[1].length - a[1].length)) {
+    const t = fs.map(when).filter(isFinite).sort((a, b) => a - b), tr = el('tr');
+    tr.append(el('td', s ? s.toLocaleString('en') + ' B' : 'not sent', 'n'), el('td', fs.length, 'n'), el('td', new Set(fs.map((f) => f.sha256)).size, 'n'), el('td', t.length ? (day(t[0]) === day(t[t.length - 1]) ? day(t[0]) : day(t[0]) + ' – ' + day(t[t.length - 1])) : '–', 'n'));
+    tb.append(tr);
+  }
+  box.append(tb, el('p', `${new Set(loaders.map((f) => f.sha256)).size} different loaders on ${loaders.length} devices.`, 'peak'));
 }
 // One tick per shell port. If later shells got higher ports, the server handed them out in
 // order and the span is a floor for how many connections it took; otherwise it says nothing.
@@ -1051,7 +1275,7 @@ function matrix() {
       tb.append(tr);
     }
     for (const m of allModels) { const vers = allVers.filter((v) => v !== 'unknown' && hitOf(part.filter((r) => r.model === m && fwBase(r.fw) === v))); if (hitOf(part.filter((r) => r.model === m))) grid.push({ m, kvm, vers }); }
-    t.append(tb); const wrap = el('div', null, 'scroll'); wrap.append(t); box.append(wrap);
+    t.append(tb); box.append(t);
   }
   if (!box.children.length) box.append(el('p', 'No report with a known model in this selection.', 'peak dim'));
   const g = $('gridAll'); g.hidden = !folded && !gridAll; g.textContent = gridAll ? 'Summarise' : 'Show every version';
@@ -1067,32 +1291,80 @@ $('yamlBtn').addEventListener('click', async () => {
 });
 
 /* ---------- render ---------- */
+// Only the cards of the page in view are drawn; the rest is drawn when its page is opened.
+let revN = -1, current = [];
 function render() {
-  repool(); markUnusual(); applyView();
+  repool(); markUnusual();
+  if (revN !== all.length) { REVALL = revGroups(all.filter((r) => r.schema >= 6)); revN = all.length; }
   const rows = pool.filter((r) => pass(r)), base = pool.filter((r) => pass(r, 'result')), isHit = (r) => (F.result === 'bd' ? r.bd : r.ioc > 0), hit = base.filter(isHit);
   facets.forEach((f) => f()); chips();
-
+  // the table's order, also while the table is not in view: the CSV export takes it
+  const val = (r) => (sortKey === 'received' ? r.recv : r[sortKey]);
+  // reports without a value for the sorted column go to the end, whichever way it is sorted
+  const none = (v) => v == null || (typeof v === 'number' && isNaN(v));
+  rows.sort((a, b) => { const x = val(a), y = val(b); if (none(x) || none(y)) return none(x) - none(y) || b.recv - a.recv; return ((x > y) - (x < y)) * (asc ? 1 : -1) || b.recv - a.recv; });
+  current = rows;
+  tabCount('reports', rows.length.toLocaleString('en')); tabCount('backdoor', base.filter((r) => r.bd).length || '');
+  showPage();
+  const done = new Set(), ctx = { rows, base, hit, isHit };
+  for (const c of board.querySelectorAll(':scope > .card:not([hidden])')) { const f = DRAW[c.dataset.card]; if (f && !done.has(f)) { done.add(f); f(ctx); } }
+  const last = Math.max(...all.map((r) => r.recv)), total = all.filter((r) => !r.isTest).length;
+  $('status').textContent = all.length ? `${total.toLocaleString('en')} report${total === 1 ? '' : 's'} · last received ${fmt(last)} UTC` : 'No reports yet.';
+  drawer(); toHash();
+}
+const DRAW = {};
+{
+  const kp = ({ base, hit }) => kpis(base, hit), bd = ({ base }) => backdoor(base);
+  for (const k of ['hit', 'shell', 'back', 'restart', 'gc']) DRAW[k] = kp;
+  for (const k of ['bdn', 'bdrun', 'bdkeep', 'bdboth', 'bdkinds', 'bdmodel', 'bdfw', 'bdwhen', 'bdfiles']) DRAW[k] = bd;
+  Object.assign(DRAW, {
+    when: ({ isHit }) => chart(pool.filter((r) => pass(r, 'bin') && isHit(r))),
+    going: ({ base, hit }) => ongoing(base, hit),
+    course: ({ hit }) => course(hit),
+    matrix: () => matrix(),
+    series: ({ base }) => series(base),
+    devices: ({ isHit }) => rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && isHit(r)), FACET.model), 0, 'model'),
+    firmware: ({ isHit }) => rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && isHit(r)), FACET.firmware), 0, 'firmware'),
+    cloud: ({ base }) => cloudSettings(base),
+    evidence: ({ isHit }) => rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && isHit(r)), FACET.kind), 0, 'kind', (k) => KIND[k] || k),
+    files: ({ hit }) => files(hit),
+    ports: ({ hit }) => ports(hit),
+    left: ({ hit }) => left(hit),
+    unusual: ({ base }) => reviews(base),
+    safe: () => safeList(),
+    known: () => knownList(),
+    reports: ({ rows }) => reportsTable(rows),
+  });
+}
+// a number that leads to the reports behind it: set the filters, then show the table
+function goReports(set) {
+  set(); syncs.forEach((s) => s()); $('onlyUnusual').checked = F.unusual;
+  page = 0; focusKey = ''; D = null; curPage = 'reports'; render(); scrollTo(0, 0);
+}
+const cardBody = (k) => CARD[k] && CARD[k].querySelector('.cb');
+function fillKpi(k, value, small, note, o = {}) {
+  const box = cardBody(k); if (!box) return; box.replaceChildren();
+  const row = el('div', null, 'kv1'), v = el(o.go ? 'button' : 'span', String(value), 'val' + (o.lead ? ' lead' : ''));
+  if (o.go) { v.type = 'button'; v.title = 'Show these reports'; v.addEventListener('click', o.go); }
+  row.append(v); if (small) row.append(el('small', small));
+  box.append(row, ...(o.extra || [])); if (note) box.append(el('p', note, 'knote'));
+}
+function kpis(base, hit) {
   const shells = hit.filter((r) => r.shell), imps = hit.filter((r) => r.implant), cmds = hit.filter((r) => r.cmd), both = hit.filter((r) => r.shell && r.implant).length, restarted = base.filter((r) => r.restarted);
-  const k1 = kpi('Devices with traces', hit.length.toLocaleString('en'), 'of ' + base.length.toLocaleString('en') + ' reports', null, true), split = el('div', null, 'split'), lg = el('ul', null, 'legend');
+  const split = el('div', null, 'split'), lg = el('ul', null, 'legend');
   for (const [name, n, c] of [['Remote shell', shells.length, 'var(--s1)'], ['gl-helper malware', imps.length, 'var(--s2)'], ['Command only', cmds.length, 'var(--s3)']]) {
     const s = el('i'); s.style.cssText = `flex:${Math.max(n, .001)};background:${c}`; hover(s, `${name}\n${n} devices`); split.append(s);
     const li = el('li'), sw = el('i'); sw.style.background = c; li.append(sw, name, el('b', n)); lg.append(li);
   }
-  k1.append(split, lg); k1.append(el('div', (both ? both + ' have a shell and malware. ' : '') + '“Command only”: a command from the cloud ran, nothing else was found.', 'note'));
-  $('kpis').replaceChildren(k1,
-    kpi('Remote shell still running', shells.filter((r) => r.kinds.includes('process remote-shell')).length, 'of ' + shells.length, 'Checked while the attacker was connected.'),
-    kpi('Comes back after a restart', hit.filter((r) => r.kinds.includes('persist-ref') || r.kinds.includes('keep-ref')).length, 'of ' + hit.length, 'An autostart entry starts the malware again.'),
-    kpi('Restarted since 20 Nov', restarted.length, 'of ' + base.length, restarted.filter((r) => r.ioc === 0).length + ' of them look clean. That proves little: memory was wiped.'),
-    (() => { const k = base.filter((r) => r.goodcloud === 'on' || r.goodcloud === 'off'), on = k.filter((r) => r.goodcloud === 'on'), off = k.filter((r) => r.goodcloud === 'off'), h = (x) => x.filter((r) => r.ioc > 0).length, pc = (x) => (x.length ? Math.round(h(x) / x.length * 100) + '%' : '–');
-      const c = kpi('Hit with GoodCloud on', pc(on), k.length ? 'off: ' + pc(off) : '', k.length ? `${h(on)} of ${on.length} with GoodCloud on, ${h(off)} of ${off.length} with it off. The setting at the check, not during the attack: many switched it off afterwards.` : 'No report says yet whether GoodCloud is on. That comes with script 2.23 and later.'); return c; })(),
-    kpi('Older backdoor', base.filter((r) => r.bd).length, 'of ' + base.length, 'urandom_seed / ulogd, not the attack of 20 Nov. Counted apart from the traces above.'));
-
-  chart(pool.filter((r) => pass(r, 'bin') && isHit(r)));
-  rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && isHit(r)), FACET.model), 0, 'model');
-  rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && isHit(r)), FACET.firmware), 0, 'firmware');
-  course(hit); ports(hit); matrix(); reviews(base); cloudSettings(base); ongoing(base, hit); series(base); backdoor(base);
-  rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && isHit(r)), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
-
+  fillKpi('hit', hit.length.toLocaleString('en'), 'of ' + base.length.toLocaleString('en') + ' reports', both ? both + ' have a shell and malware.' : '', { lead: true, extra: [split, lg], go: hit.length ? () => goReports(() => {}) : null });
+  const running = shells.filter((r) => r.kinds.includes('process remote-shell')).length, back = hit.filter((r) => r.kinds.includes('persist-ref') || r.kinds.includes('keep-ref')).length;
+  fillKpi('shell', running, 'of ' + shells.length, 'Checked while the attacker was connected.', { go: running ? () => goReports(() => { F.kind = new Set(['process remote-shell']); }) : null });
+  fillKpi('back', back, 'of ' + hit.length, 'An autostart entry starts the malware again.', { go: back ? () => goReports(() => { F.kind = new Set(['persist-ref', 'keep-ref']); }) : null });
+  fillKpi('restart', restarted.length, 'of ' + base.length, restarted.filter((r) => r.ioc === 0).length + ' of them look clean.', { go: restarted.length ? () => goReports(() => { F.restart = 'yes'; }) : null });
+  const k = base.filter((r) => r.goodcloud === 'on' || r.goodcloud === 'off'), on = k.filter((r) => r.goodcloud === 'on'), off = k.filter((r) => r.goodcloud === 'off'), h = (x) => x.filter((r) => r.ioc > 0).length, pc = (x) => (x.length ? Math.round(h(x) / x.length * 100) + '%' : '–');
+  fillKpi('gc', pc(on), k.length ? 'off: ' + pc(off) : '', k.length ? `${h(on)} of ${on.length} with it on, ${h(off)} of ${off.length} with it off.` : 'No report says yet. That comes with script 2.23 and later.');
+}
+function files(hit) {
   const fm = new Map();
   for (const r of hit) for (const f of r.files) { const k = f.sha256 + ' ' + f.path, g = fm.get(k) || { ...f, n: 0, times: [] }; g.n++; g.times.push(ts(f.mtime)); if (f.ctime) { g.known = (g.known || 0) + 1; if (lag(f) > LAG) g.old = (g.old || 0) + 1; } fm.set(k, g); }
   // the middle value: one device with its clock at 1970 must not set the date for all
@@ -1121,7 +1393,8 @@ function render() {
     const multi = count([...fm.values()], (g) => g.path).filter((p) => p[1] > 1);
     if (multi.length) hs.append(el('p', multi.map((p) => `${p[0]}: ${p[1]} different versions`).join(' · '), 'peak'));
   } else hs.append(el('p', 'No report with file fingerprints in this selection (needs script 2.2 or newer).', 'peak dim'));
-
+}
+function left(hit) {
   const norm = normPort, left = $('left'); left.replaceChildren();
   const block = (title, pairs) => { if (!pairs.length) return; const d = el('div'); d.append(el('h3', title + (pairs.length > 4 ? ` (4 of ${pairs.length})` : '')));
     for (const [line, n] of pairs.slice(0, 4)) { const p = el('pre', line); p.prepend(el('span', n + '×', 'count')); d.append(p); } left.append(d); };
@@ -1129,51 +1402,42 @@ function render() {
   block('Lines in autostart files (firmware defaults and comments left out)', count(hit, (r) => [...new Set(r.persistence.flatMap((p) => p.lines.filter((l) => !stock(l)).map((l) => p.path + ':  ' + l)))]));
   block('Firewall chain SDWAN_IP_MAPPING', count(hit, (r) => [...new Set(r.fw_rules)]));
   if (!left.children.length) left.append(el('p', 'No report with this content in this selection (needs script 2.3 or newer).', 'dim'));
-
-  // the table
-  const val = (r) => (sortKey === 'received' ? r.recv : r[sortKey]);
-  // reports without a value for the sorted column go to the end, whichever way it is sorted
-  const none = (v) => v == null || (typeof v === 'number' && isNaN(v));
-  rows.sort((a, b) => { const x = val(a), y = val(b); if (none(x) || none(y)) return none(x) - none(y) || b.recv - a.recv; return ((x > y) - (x < y)) * (asc ? 1 : -1) || b.recv - a.recv; });
+}
+// the result of a report in short tags: what was found, and what else to know
+function tagsOf(r) {
+  const tags = el('div', null, 'tags');
+  if (r.shell) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s1)'; t.append(i, 'Remote shell'); tags.append(t); }
+  if (r.implant) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s2)'; t.append(i, 'gl-helper malware'); tags.append(t); }
+  if (r.cmd) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s3)'; t.append(i, 'Command only'); hover(t, 'A command from the cloud ran on this device.\nNo remote shell and no malware were found.' + (r.derived ? '\nWorked out here from the time of the state file:\nthe script that sent this report did not know the rule yet.' : '')); tags.append(t); }
+  if (r.bd) tags.append(el('span', 'Older backdoor', 'tag warn'));
+  if (r.ioc === 0 && !r.bd) tags.append(el('span', 'Clean', 'tag ok'));
+  if (r.restarted) tags.append(el('span', 'Restarted since the attack', 'tag warn'));
+  if (r.persist) tags.append(el('span', 'rc.local or crontab changed', 'tag'));
+  if (r.reports > 1) tags.append(el('span', r.reports + ' reports from this device', 'tag'));
+  if (r.odd.length) { const t = el('span', 'Unusual', 'tag odd'); hover(t, 'Only on this device:\n' + r.odd.slice(0, 4).map((o) => o[0] + ': ' + o[1].slice(0, 90)).join('\n')); tags.append(t); }
+  return tags;
+}
+function reportsTable(rows) {
   const size = +$('size').value, pages = Math.max(1, Math.ceil(rows.length / size)); page = Math.min(page, pages - 1);
   const body = $('rows'); body.replaceChildren();
   for (const r of rows.slice(page * size, (page + 1) * size)) {
-    const tr = el('tr', null, 'row' + (r.fresh && Date.now() - r.fresh < 90_000 ? ' fresh' : '')); tr.tabIndex = 0;
+    const id = String(r.id), tr = el('tr', null, 'row' + (r.fresh && Date.now() - r.fresh < 90_000 ? ' fresh' : '') + (D && D.mode === 'report' && D.id === id ? ' sel' : '')); tr.tabIndex = 0; tr.dataset.id = id;
     const dev = el('td', null, 'dev'); dev.append(el('b', r.model), el('small', r.type));
     const fw = el('td', null, 'fw'); fw.append(r.fw, el('small', r.firmware === r.fw || r.firmware === 'unknown' ? '' : r.firmware.split(' ').slice(1).join(' ')));
-    const res = el('td'); res.append(r.story); const tags = el('div', null, 'tags');
-    if (r.shell) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s1)'; t.append(i, 'Remote shell'); tags.append(t); }
-    if (r.implant) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s2)'; t.append(i, 'gl-helper malware'); tags.append(t); }
-    if (r.cmd) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s3)'; t.append(i, 'Command only'); hover(t, 'A command from the cloud ran on this device.\nNo remote shell and no malware were found.' + (r.derived ? '\nWorked out here from the time of the state file:\nthe script that sent this report did not know the rule yet.' : '')); tags.append(t); }
-    if (r.bd) tags.append(el('span', 'Older backdoor', 'tag warn'));
-    if (r.ioc === 0 && !r.bd) tags.append(el('span', 'Clean', 'tag ok'));
-    if (r.restarted) tags.append(el('span', 'Restarted since the attack', 'tag warn'));
-    if (r.persist) tags.append(el('span', 'rc.local or crontab changed', 'tag'));
-    if (r.reports > 1) tags.append(el('span', r.reports + ' reports from this device', 'tag'));
-    if (r.odd.length) { const t = el('span', 'Unusual', 'tag odd'); hover(t, 'Only on this device:\n' + r.odd.slice(0, 4).map((o) => o[0] + ': ' + o[1].slice(0, 90)).join('\n')); tags.append(t); }
-    res.append(tags);
+    const res = el('td'); res.append(r.story, tagsOf(r));
     tr.append(el('td', fmt(r.recv), 'tnum'), dev, fw, res, el('td', fmt(r.first), 'tnum hide-s'), el('td', fmt(r.upSince), 'tnum hide-s'), el('td', '›'));
-    const toggle = () => { if (opened.delete(r.id)) { tr.nextSibling.remove(); tr.classList.remove('open'); } else { opened.add(r.id); tr.after(detail(r)); tr.classList.add('open'); } };
-    tr.addEventListener('click', toggle); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+    const open = () => openDrawer({ mode: 'report', id });
+    tr.addEventListener('click', open); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
     body.append(tr);
-    // a report that was open stays open when the live view redraws the table
-    if (opened.has(r.id)) { tr.after(detail(r)); tr.classList.add('open'); }
   }
   if (!rows.length) { const tr = el('tr'), td = el('td', 'No report matches these filters.', 'dim'); td.colSpan = 7; tr.append(td); body.append(tr); }
   const units = pool.filter((r) => !r.isTest).length, dupes = all.filter((r) => !r.isTest).length - units;
   $('shown').textContent = `${rows.length.toLocaleString('en')} of ${units.toLocaleString('en')} match the filters` + (dupes ? ` · ${dupes} repeated report${dupes === 1 ? '' : 's'} from the same devices folded in` : '');
   $('range').textContent = rows.length ? `${page * size + 1}–${Math.min(rows.length, (page + 1) * size)} of ${rows.length.toLocaleString('en')} · page ${page + 1} of ${pages}` : '';
   $('prev').disabled = page === 0; $('next').disabled = page >= pages - 1;
-  const last = Math.max(...all.map((r) => r.recv));
-  const total = all.filter((r) => !r.isTest).length;
-  $('status').textContent = all.length ? `${total.toLocaleString('en')} report${total === 1 ? '' : 's'} · last received ${fmt(last)} UTC` : 'No reports yet.';
-  current = rows;
-  safeList(); itemView(); toHash();
 }
-let current = [];
-const opened = new Set();
-function detail(r) {
-  const tr = el('tr', null, 'detail'), td = el('td'), b = el('div', null, 'body'); td.colSpan = 7; tr.append(td); td.append(b);
+function detailBody(r) {
+  const b = el('div', null, 'body');
   const sec = (title, node, full) => { const w = el('div', null, full ? 'full' : ''); w.append(el('h3', title), node); b.append(w); };
   const kv = el('dl', null, 'kv');
   for (const [k, v] of [['Received', fmt(r.recv) + ' UTC'], ['Checked', fmt(ts(r.checked_at)) + ' UTC'], ['Device', `${r.model} · ${r.platform}`], ['Firmware', r.firmware], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Device ID', r.dev || 'none (older script, or not sent)'], ['Note from the sender', r.note || (r.schema >= 9 ? 'none' : 'not reported (older script)')], ['Up since', fmt(r.upSince) + ' UTC' + (r.restarted ? ' (restarted since the attack)' : '')], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['GoodCloud at the check', r.goodcloud ? r.goodcloud + (r.cloud_client ? ' · client ' + r.cloud_client : '') : 'not reported (older script)'], ['AstroWarp', r.astrowarp || 'not reported (older script)'], ['Bound to a GoodCloud account', r.cloud_bound || 'not reported (older script)'], ['Remote SSH / remote web', r.rtty_ssh ? r.rtty_ssh + ' / ' + r.rtty_web : 'not reported (older script)'], ['State file size', r.state_file_size === null ? 'not reported (older script)' : r.state_file_size === -1 ? 'no such file' : r.state_file_size === 0 ? 'empty, as the attack leaves it' : r.state_file_size + ' B']])
@@ -1192,10 +1456,9 @@ function detail(r) {
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
   if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
   if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);
-  return tr;
+  return b;
 }
 
-for (const k of Object.keys(WHY)) { const dt = el('dt'); dt.append(el('b', KIND[k]), el('span', k === 'fw-rule' ? 'fw-rule nat:SDWAN_IP_MAPPING' : k === 'pipe' ? 'pipe /tmp/f' : k, 'mono dim')); $('glossaryList').append(dt, el('dd', WHY[k])); }
 for (const th of document.querySelectorAll('.reports th[data-k]')) { if (th.dataset.k === sortKey) th.setAttribute('aria-sort', asc ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort'); }
 for (const th of document.querySelectorAll('.reports th[data-k]')) th.addEventListener('click', () => {
   asc = sortKey === th.dataset.k ? !asc : ['model', 'firmware', 'story'].includes(th.dataset.k); sortKey = th.dataset.k;
@@ -1218,108 +1481,126 @@ $('csv').addEventListener('click', () => {
   const csv = [cols.map((c) => c[0]).join(','), ...current.map((r) => cols.map((c) => cell(c[1](r))).join(','))].join('\r\n');
   const a = el('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'csa-2026-01-reports.csv'; a.click(); URL.revokeObjectURL(a.href);
 });
-/* ---------- folding blocks ---------- */
-// Every block with a heading can be folded by clicking the heading. Which ones are folded
-// is kept in this browser's localStorage. That works like a cookie, but it is not sent to
-// the server with every request.
-let closed = new Set();
-try { closed = new Set(JSON.parse(localStorage.getItem('csa-folded') || '[]')); } catch { /* no storage: nothing is folded */ }
-for (const card of document.querySelectorAll('main .card:not(#safeView):not(#itemView .card)')) {
-  const h = card.querySelector(':scope > h2, :scope > .chead > h2'); if (!h) continue;
-  card.dataset.key = h.textContent.trim();
-  const key = h.textContent.trim(), b = el('button', key, 'fold'); b.type = 'button'; h.replaceChildren(b);
-  const set = (shut) => { card.classList.toggle('closed', shut); b.setAttribute('aria-expanded', String(!shut)); };
-  // a card that starts folded (the glossary) is remembered the other way round: as opened
-  const dflt = card.dataset.shut === '1', mark = dflt ? '!' + key : key;
-  set(dflt ? !closed.has(mark) : closed.has(mark));
-  b.addEventListener('click', () => {
-    const shut = !card.classList.contains('closed'); set(shut); shut !== dflt ? closed.add(mark) : closed.delete(mark);
-    try { localStorage.setItem('csa-folded', JSON.stringify([...closed])); } catch { /* folded for this visit only */ }
-    if (!shut) render();   // a chart that was hidden has no size to lay its axis out on
+/* ---------- the board: pages of cards on a grid ---------- */
+// Every card belongs to a page and spans a number of the 12 columns and of the rows. A
+// template gives each card its page and size; a layout changed by hand is kept in this
+// browser's localStorage, like the theme. Without storage the template is used.
+const board = $('board'), GAP = 12, ROW = 52, CARD = {};
+const ICON = {
+  grip: '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle class="f" cx="6" cy="4" r="1.2"/><circle class="f" cx="10" cy="4" r="1.2"/><circle class="f" cx="6" cy="8" r="1.2"/><circle class="f" cx="10" cy="8" r="1.2"/><circle class="f" cx="6" cy="12" r="1.2"/><circle class="f" cx="10" cy="12" r="1.2"/></svg>',
+  info: '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.3v3.9"/><circle class="f" cx="8" cy="4.9" r=".9"/></svg>',
+  hide: '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8s2.3-4.2 6-4.2S14 8 14 8s-2.3 4.2-6 4.2S2 8 2 8z"/><circle cx="8" cy="8" r="1.8"/><path d="M3 13L13 3"/></svg>',
+  focus: '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5L9 7"/><path d="M6.5 13.5h-4v-4"/><path d="M2.5 13.5L7 9"/></svg>',
+};
+let L = loadLayout(), editing = false;
+function loadLayout() {
+  try {
+    const s = localStorage.getItem('csa-layout2'); if (s) return normalize(JSON.parse(s));
+    const o = localStorage.getItem('csa-layout'); if (o) return migrate(JSON.parse(o));
+  } catch { /* no storage, or nothing readable: the standard template */ }
+  return normalize(null);
+}
+function saveLayout() { try { localStorage.setItem('csa-layout2', JSON.stringify(L)); } catch { /* for this visit only */ } }
+const changed = () => { L.custom = true; saveLayout(); };
+const itemOf = (k) => L.items.find((i) => i.k === k);
+const titleOf = (k) => CARD[k].querySelector('.ch h2').textContent;
+function sizeCard(c, it) { c.style.setProperty('--w', it.w); c.style.setProperty('--h', it.h); c.querySelector('.size').textContent = it.w + ' × ' + it.h; }
+function applyLayout() { for (const it of L.items) { board.append(CARD[it.k]); sizeCard(CARD[it.k], it); } }
+// the cards of the page in view, or the one card in focus
+function showPage() {
+  if (focusKey && !CARD[focusKey]) focusKey = '';
+  if (focusKey) curPage = itemOf(focusKey).p;
+  let n = 0;
+  for (const it of L.items) { const show = focusKey ? it.k === focusKey : it.p === curPage && !L.hidden.includes(it.k); CARD[it.k].hidden = !show; n += show; }
+  board.classList.toggle('focus', !!focusKey); board.classList.toggle('edit', editing && !focusKey);
+  $('emptyPage').hidden = n > 0;
+  for (const b of $('tabs').children) b.setAttribute('aria-current', b.dataset.p === curPage ? 'page' : 'false');
+  $('focusBar').hidden = !focusKey; $('focusBack').textContent = '‹ Back to ' + pageName(curPage);
+  $('editBtn').setAttribute('aria-pressed', String(editing)); $('editBtn').lastChild.textContent = editing ? 'Done' : 'Edit layout';
+  const bar = $('editBar'); bar.hidden = !editing || !!focusKey; if (bar.hidden) return;
+  for (const b of $('tplSeg').children) b.setAttribute('aria-pressed', String(b.dataset.v === L.tpl));
+  $('tplNote').textContent = L.custom ? 'changed by hand' : '';
+  const box = $('hiddenChips'); box.replaceChildren();
+  const hid = L.items.filter((i) => i.p === curPage && L.hidden.includes(i.k)); if (hid.length) box.append(el('span', 'Hidden:', 'dim'));
+  for (const it of hid) { const b = el('button', '+ ' + titleOf(it.k), 'chipbtn'); b.type = 'button'; b.title = 'Show this card again'; b.addEventListener('click', () => { L.hidden = L.hidden.filter((k) => k !== it.k); changed(); render(); }); box.append(b); }
+}
+const tabCount = (p, n) => { const b = [...$('tabs').children].find((x) => x.dataset.p === p); if (b) b.lastChild.textContent = n; };
+function setPage(p) { curPage = p; focusKey = ''; render(); scrollTo(0, 0); }
+for (const [p, name] of PAGES) { const b = el('button', name, 'tab'); b.type = 'button'; b.dataset.p = p; b.append(el('em')); b.addEventListener('click', () => setPage(p)); $('tabs').append(b); }
+// the note behind the i of a card; one at a time
+function about(c, open) {
+  for (const a of board.querySelectorAll('.about:not([hidden])')) { a.hidden = true; a.parentElement.classList.remove('raise'); a.parentElement.querySelector('.ib[aria-expanded]').setAttribute('aria-expanded', 'false'); }
+  if (!open) return;
+  const a = c.querySelector(':scope > .about'); a.hidden = false; c.classList.add('raise'); c.querySelector('.ib[aria-expanded]').setAttribute('aria-expanded', 'true');
+  a.classList.toggle('right', c.getBoundingClientRect().left + 380 > innerWidth);
+}
+// moving: the dots before the title. The card goes before or after the card under the
+// pointer: beside it when that card shares its row with others, else above or below.
+function orderFromBoard() {
+  const pos = new Map([...board.querySelectorAll(':scope > .card')].map((c, i) => [c.dataset.card, i]));
+  L.items.sort((a, b) => pos.get(a.k) - pos.get(b.k)); sortByPage(L.items); changed();
+}
+// The pointer is followed on the window: the handle itself moves with its card, and a
+// node that moves in the page loses the pointer.
+function follow(move, done) {
+  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); done(); };
+  addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+}
+function drag(c, e) {
+  if (e.button) return; e.preventDefault(); c.classList.add('dragging');
+  const move = (m) => {
+    if (m.clientY < 60) scrollBy(0, -16); else if (m.clientY > innerHeight - 40) scrollBy(0, 16);
+    const under = document.elementFromPoint(m.clientX, m.clientY), t = under && under.closest('.board > .card'); if (!t || t === c || t.hidden) return;
+    const r = t.getBoundingClientRect(), before = r.width < board.clientWidth - 40 ? m.clientX < r.left + r.width / 2 : m.clientY < r.top + r.height / 2;
+    const ref = before ? t : t.nextElementSibling; if (ref !== c && ref !== c.nextElementSibling) board.insertBefore(c, ref);
+  };
+  follow(move, () => { c.classList.remove('dragging'); orderFromBoard(); render(); });
+}
+// resizing: the corner, in whole columns and rows
+function resize(c, e) {
+  if (e.button) return; e.preventDefault();
+  const r = c.getBoundingClientRect(), it = itemOf(c.dataset.card), col = (board.clientWidth - 11 * GAP) / 12;
+  c.classList.add('sizing');
+  const move = (m) => { it.w = clamp(Math.round((m.clientX - r.left + GAP) / (col + GAP)), 2, 12, it.w); it.h = clamp(Math.round((m.clientY - r.top + GAP) / (ROW + GAP)), 2, 16, it.h); sizeCard(c, it); };
+  follow(move, () => { c.classList.remove('sizing'); changed(); render(); });
+}
+for (const c of board.querySelectorAll(':scope > .card')) {
+  const k = c.dataset.card, ch = c.querySelector('.ch'), h = ch.querySelector('h2'), note = c.querySelector(':scope > .about'), t = h.textContent;
+  CARD[k] = c; c.setAttribute('aria-label', t);
+  const btn = (cls, icon, label) => { const b = el('button', null, cls); b.type = 'button'; b.innerHTML = icon; b.setAttribute('aria-label', label); b.title = label; return b; };
+  const grip = btn('grip eo', ICON.grip, `Move “${t}”: drag it, or use the arrow keys`); ch.prepend(grip);
+  if (note) { const ib = btn('ib vo', ICON.info, `About “${t}”`); ib.setAttribute('aria-expanded', 'false'); note.id = 'about-' + k; ib.setAttribute('aria-controls', note.id); h.after(ib); ib.addEventListener('click', () => about(c, note.hidden)); }
+  if (!ch.querySelector('.grow')) ch.append(el('span', null, 'grow'));
+  const size = el('span', null, 'size eo'), mv = el('select', null, 'mv eo'), hide = btn('ib eo', ICON.hide, `Hide “${t}”`), rz = btn('rz eo', '', `Resize “${t}”: drag the corner, or use the arrow keys`);
+  mv.setAttribute('aria-label', `Move “${t}” to another page`); mv.append(new Option('Page …', '')); for (const [p, name] of PAGES) mv.append(new Option(name, p));
+  ch.append(size, mv, hide); c.append(rz);
+  if (!c.classList.contains('kpi')) { const f = btn('ib vo', ICON.focus, `Show “${t}” over the whole page`); ch.append(f); f.addEventListener('click', () => { focusKey = focusKey === k ? '' : k; render(); scrollTo(0, 0); }); }
+  mv.addEventListener('change', () => { const it = itemOf(k); if (!mv.value || mv.value === it.p) return (mv.value = ''); L.items = L.items.filter((i) => i !== it); it.p = mv.value; L.items.push(it); sortByPage(L.items); mv.value = ''; changed(); applyLayout(); render(); });
+  hide.addEventListener('click', () => { L.hidden.push(k); changed(); render(); });
+  grip.addEventListener('pointerdown', (e) => drag(c, e));
+  grip.addEventListener('keydown', (e) => {
+    const d = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key]; if (!d) return; e.preventDefault();
+    const vis = [...board.querySelectorAll(':scope > .card:not([hidden])')], o = vis[vis.indexOf(c) + d]; if (!o) return;
+    board.insertBefore(c, d < 0 ? o : o.nextElementSibling); orderFromBoard(); render(); grip.focus();
   });
-}
-
-/* ---------- the board: cards that can be moved and hidden ---------- */
-// Every card goes into one flexible board, in the order of the page. A card keeps a
-// width class from where it stood (a third, a half, or the full row). Order and hidden
-// cards are remembered in this browser.
-const board = el('div', null, 'board');
-{
-  const cards = [...document.querySelectorAll('main > section.card:not(#safeView), main > section.grid:not(.kpis) > .card')];
-  $('kpis').after(board);
-  for (const c of cards) { const p = c.parentElement; c.dataset.w = c.dataset.w || (p.classList.contains('three') ? 'third' : p.classList.contains('two') ? 'half' : 'full'); c.style.marginTop = ''; board.append(c); }
-  for (const g of document.querySelectorAll('main > section.grid:not(.kpis)')) if (!g.children.length) g.remove();
-}
-const DEFAULT_ORDER = [...board.children].map((c) => c.dataset.key);
-let layout = { order: [], hidden: [], sizes: {} };
-try { const l = JSON.parse(localStorage.getItem('csa-layout') || '{}'); layout = { order: Array.isArray(l.order) ? l.order : [], hidden: Array.isArray(l.hidden) ? l.hidden : [], sizes: l.sizes && typeof l.sizes === 'object' ? l.sizes : {} }; } catch { /* no storage: the default layout */ }
-const cardOf = (key) => [...board.children].find((c) => c.dataset.key === key);
-function saveLayout() {
-  layout.order = [...board.children].map((c) => c.dataset.key);
-  try { localStorage.setItem('csa-layout', JSON.stringify(layout)); } catch { /* for this visit only */ }
-}
-// widths a card can take; "auto" is the width it has by itself
-const SIZES = [['auto', 'Auto'], ['third', '1/3'], ['half', '1/2'], ['twothirds', '2/3'], ['full', 'Full']];
-function setSize(c, v) { if (SIZES.some((s) => s[0] === v) && v !== 'auto') c.dataset.size = v; else delete c.dataset.size; }
-function applyLayout() {
-  // known cards in the saved order; a card that is new since then keeps its default place
-  const rank = (k) => { const i = layout.order.indexOf(k); return i < 0 ? DEFAULT_ORDER.indexOf(k) + .5 : i; };
-  for (const c of [...board.children].sort((x, y) => rank(x.dataset.key) - rank(y.dataset.key))) board.append(c);
-  for (const c of board.children) { c.hidden = layout.hidden.includes(c.dataset.key); setSize(c, layout.sizes[c.dataset.key]); }
-  layoutMenu();
-}
-function layoutMenu() {
-  const pop = $('layoutPop'); pop.replaceChildren();
-  const cards = [...board.children];
-  cards.forEach((c, i) => {
-    const row = el('div', null, 'layoutRow'), lab = el('label'), cb = el('input'), up = el('button', '↑'), down = el('button', '↓');
-    cb.type = 'checkbox'; cb.checked = !c.hidden; up.type = down.type = 'button'; up.disabled = i === 0; down.disabled = i === cards.length - 1;
-    up.setAttribute('aria-label', 'Move “' + c.dataset.key + '” up'); down.setAttribute('aria-label', 'Move “' + c.dataset.key + '” down');
-    cb.addEventListener('change', () => { layout.hidden = cb.checked ? layout.hidden.filter((k) => k !== c.dataset.key) : [...layout.hidden, c.dataset.key]; c.hidden = !cb.checked; saveLayout(); render(); });
-    up.addEventListener('click', () => { board.insertBefore(c, cards[i - 1]); saveLayout(); layoutMenu(); render(); });
-    down.addEventListener('click', () => { board.insertBefore(cards[i + 1], c); saveLayout(); layoutMenu(); render(); });
-    const sel = el('select'); sel.setAttribute('aria-label', 'Width of “' + c.dataset.key + '”');
-    for (const [v, t] of SIZES) { const o = el('option', t); o.value = v; sel.append(o); } sel.value = layout.sizes[c.dataset.key] || 'auto';
-    sel.addEventListener('change', () => { if (sel.value === 'auto') delete layout.sizes[c.dataset.key]; else layout.sizes[c.dataset.key] = sel.value; setSize(c, sel.value); saveLayout(); render(); });
-    lab.append(cb, el('span', c.dataset.key)); row.append(lab, sel, up, down); pop.append(row);
+  rz.addEventListener('pointerdown', (e) => resize(c, e));
+  rz.addEventListener('keydown', (e) => {
+    const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (!d) return; e.preventDefault();
+    const it = itemOf(k); it.w = clamp(it.w + d[0], 2, 12, it.w); it.h = clamp(it.h + d[1], 2, 16, it.h); sizeCard(c, it); changed(); render();
   });
-  const reset = el('button', 'Reset layout', 'btn sm'); reset.type = 'button'; reset.style.margin = '8px 4px 2px';
-  reset.addEventListener('click', () => { layout = { order: [], hidden: [], sizes: {} }; try { localStorage.removeItem('csa-layout'); } catch { /* nothing stored */ } applyLayout(); render(); });
-  pop.append(reset, el('p', 'Drag a card by the dots next to its title to move it, and by its right edge to change its width. Or use the arrows and the width list here.', 'more'));
-  $('layoutMenu').classList.toggle('on', layout.hidden.length > 0 || Object.keys(layout.sizes).length > 0 || layout.order.some((k, i) => DEFAULT_ORDER.filter((d) => layout.order.includes(d))[i] !== k));
+  // a double click gives the card the size the template has for it
+  rz.addEventListener('dblclick', () => { const it = itemOf(k), d = tplItems(L.tpl).find((i) => i.k === k); it.w = d.w; it.h = d.h; sizeCard(c, it); changed(); render(); });
 }
-// dragging: the dots in a card's title are the handle
-let dragging = null;
-for (const c of board.children) {
-  const h = c.querySelector(':scope > h2, :scope > .chead > h2'), grip = el('span', '⠿', 'grip');
-  grip.draggable = true; grip.title = 'Drag to move this card'; grip.setAttribute('aria-hidden', 'true'); h.prepend(grip);
-  grip.addEventListener('dragstart', (e) => { dragging = c; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.dataset.key); try { e.dataTransfer.setDragImage(c, 24, 24); } catch { /* the browser's own image */ } setTimeout(() => c.classList.add('dragging')); });
-  grip.addEventListener('dragend', () => { c.classList.remove('dragging'); dragging = null; saveLayout(); layoutMenu(); render(); });
+for (const [v, name, tip] of TPL_NAMES) {
+  const b = el('button', name); b.type = 'button'; b.dataset.v = v; b.title = tip;
+  b.addEventListener('click', () => { L = normalize({ tpl: v }); saveLayout(); applyLayout(); render(); }); $('tplSeg').append(b);
 }
-// resizing: the right edge of a card. The width snaps to a third, a half, two thirds or the
-// full row, whichever is nearest to where the edge is dragged.
-for (const c of board.children) {
-  const z = el('span', null, 'sizer'); z.title = 'Drag to change the width of this card'; z.setAttribute('aria-hidden', 'true'); c.append(z);
-  const snap = (x) => { const f = (x - c.getBoundingClientRect().left) / board.clientWidth; return f < 0.42 ? 'third' : f < 0.585 ? 'half' : f < 0.83 ? 'twothirds' : 'full'; };
-  z.addEventListener('pointerdown', (e) => {
-    if (e.button) return; e.preventDefault(); z.setPointerCapture(e.pointerId); c.classList.add('sizing');
-    const move = (m) => setSize(c, snap(m.clientX));
-    const up = (m) => { z.removeEventListener('pointermove', move); z.removeEventListener('pointerup', up); z.removeEventListener('pointercancel', up); c.classList.remove('sizing'); layout.sizes[c.dataset.key] = c.dataset.size || snap(m.clientX); setSize(c, layout.sizes[c.dataset.key]); saveLayout(); layoutMenu(); render(); };
-    z.addEventListener('pointermove', move); z.addEventListener('pointerup', up); z.addEventListener('pointercancel', up);
-  });
-  // a double click gives the card its own width back
-  z.addEventListener('dblclick', () => { delete layout.sizes[c.dataset.key]; setSize(c); saveLayout(); layoutMenu(); render(); });
-}
-board.addEventListener('dragover', (e) => {
-  if (!dragging) return;
-  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
-  const t = e.target.closest ? e.target.closest('.board > .card') : null; if (!t || t === dragging) return;
-  const r = t.getBoundingClientRect();
-  // next to a card that shares its row: left or right half; otherwise upper or lower half
-  const before = r.width < board.clientWidth - 40 ? e.clientX < r.left + r.width / 2 : e.clientY < r.top + r.height / 2;
-  const ref = before ? t : t.nextSibling; if (ref !== dragging && ref !== dragging.nextSibling) board.insertBefore(dragging, ref);
-});
-board.addEventListener('drop', (e) => { if (dragging) e.preventDefault(); });
+$('layoutReset').addEventListener('click', () => { L = normalize({ tpl: L.tpl }); saveLayout(); applyLayout(); render(); });
+const setEditing = (on) => { editing = on; focusKey = ''; about(null, false); render(); };
+$('editBtn').addEventListener('click', () => setEditing(!editing)); $('editDone').addEventListener('click', () => setEditing(false));
+$('focusBack').addEventListener('click', () => { focusKey = ''; render(); });
+for (const b of document.querySelectorAll('[data-gloss]')) b.addEventListener('click', () => openDrawer({ mode: 'glossary' }));
+$('glossBtn').addEventListener('click', () => openDrawer({ mode: 'glossary' }));
 applyLayout();
 
 /* ---------- light and dark ---------- */
@@ -1331,61 +1612,98 @@ applyLayout();
   show();
 }
 
-/* ---------- the two pages: the dashboard, and what was marked as probably safe ---------- */
-for (const b of $('viewSeg').children) b.addEventListener('click', () => { view = b.dataset.v; render(); scrollTo(0, 0); });
-function applyView() {
-  const safe = view === 'safe', main = view === 'main';
-  for (const b of $('viewSeg').children) b.setAttribute('aria-pressed', String(b.dataset.v === (view === 'item' ? itemFrom : view)));
-  document.querySelector('.filters').hidden = !main; $('kpis').hidden = !main; board.hidden = !main; $('safeView').hidden = !safe; $('itemView').hidden = view !== 'item';
-  const n = Object.keys(LABELS).length; $('viewSeg').children[1].textContent = 'Probably safe' + (n ? ' (' + n + ')' : '');
+/* ---------- the side panel: a report, a finding, the glossary ---------- */
+// It lies over the right side of the page; the page behind it stays as it is.
+let dKey = '';
+function openDrawer(d) {
+  const was = !!D; D = d; drawer(); toHash();
+  for (const tr of $('rows').children) tr.classList.toggle('sel', D.mode === 'report' && tr.dataset.id === D.id);
+  const sel = $('rows').querySelector('tr.sel'); if (sel) sel.scrollIntoView({ block: 'nearest' });
+  if (!was) $('dClose').focus();
 }
-$('itemBack').addEventListener('click', () => { view = itemFrom; render(); });
+function closeDrawer() { D = null; drawer(); toHash(); for (const tr of $('rows').children) tr.classList.remove('sel'); }
+function drawer() {
+  const box = $('drawer'); box.hidden = !D; if (!D) { dKey = ''; return; }
+  const key = D.mode + ' ' + (D.id || D.key || ''), body = $('dBody'), keep = key === dKey ? body.scrollTop : 0; dKey = key;
+  box.dataset.mode = D.mode; $('dTitle').replaceChildren(); $('dSub').textContent = ''; body.replaceChildren();
+  $('dPrev').hidden = $('dNext').hidden = D.mode !== 'report';
+  if (D.mode === 'glossary') glossary(body); else if (D.mode === 'item') itemView(body); else reportView(body);
+  body.scrollTop = keep;
+}
+function reportView(body) {
+  const r = all.find((x) => String(x.id) === D.id), i = r ? current.indexOf(r) : -1;
+  $('dPrev').disabled = i <= 0; $('dNext').disabled = i < 0 || i >= current.length - 1;
+  if (!r) { $('dTitle').textContent = 'Report'; body.append(el('p', all.length ? 'This report is not among the loaded reports.' : 'Loading …', 'peak')); return; }
+  $('dTitle').textContent = r.model + ' · ' + r.fw;
+  $('dSub').textContent = `${r.type} · received ${fmt(r.recv)} UTC · ` + (i >= 0 ? `${i + 1} of ${current.length} in the table` : 'not in the table with these filters');
+  body.append(el('p', r.story, 'peak'), tagsOf(r), detailBody(r));
+}
+// the next or previous row of the table, also when it is on another page of it
+function step(d) {
+  const r = all.find((x) => String(x.id) === D.id), i = current.indexOf(r), n = current[i + d]; if (i < 0 || !n) return;
+  const size = +$('size').value, p = Math.floor((i + d) / size);
+  if (p !== page) { page = p; D = { mode: 'report', id: String(n.id) }; render(); openDrawer(D); } else openDrawer({ mode: 'report', id: String(n.id) });
+}
+$('dPrev').addEventListener('click', () => step(-1)); $('dNext').addEventListener('click', () => step(1)); $('dClose').addEventListener('click', closeDrawer);
+function glossary(body) {
+  $('dTitle').textContent = 'What each kind of evidence means';
+  $('dSub').textContent = 'The kinds of trace the script reports, and what each one says.';
+  const dl = el('dl', null, 'gl');
+  for (const k of Object.keys(WHY)) { const dt = el('dt'); dt.append(el('b', KIND[k]), el('span', k === 'fw-rule' ? 'fw-rule nat:SDWAN_IP_MAPPING' : k === 'pipe' ? 'pipe /tmp/f' : k, 'mono dim')); dl.append(dt, el('dd', WHY[k])); }
+  body.append(dl);
+}
 // One finding seen from the other side: every device that sent it, the files behind it,
 // the models and firmware. What one wants to know before calling it safe.
-function itemView() {
-  if (view !== 'item') return;
-  const i = itemKey.indexOf(' '), kind = itemKey.slice(0, i), path = itemKey.slice(i + 1);
+function itemView(body) {
+  const key = D.key, i = key.indexOf(' '), kind = key.slice(0, i), path = key.slice(i + 1);
   // the latest report of each device that carries review findings at all
   const latest = new Map(); for (const r of all) if (r.schema >= 6 && !r.isTest) { const k = r.dev || r.id, b = latest.get(k); if (!b || r.recv > b.recv) latest.set(k, r); }
   const devs = [...latest.values()], rows = [];
   for (const r of devs) { const it = r.review_items.find((x) => x.kind === kind && x.path === path); if (it) rows.push({ r, it }); }
   const hitOf = (r) => r.ioc > 0 || r.bd, hits = rows.filter((x) => hitOf(x.r)).length, allHits = devs.filter(hitOf).length;
-  const g = REVALL.get(itemKey) || { kind, path, sha: new Set(rows.map((x) => x.it.sha256).filter(Boolean)) }, lab = LABELS[itemKey], st = labelState(g);
-  $('itemTitle').textContent = kind + '  ' + (path || '(no path sent)'); const mt = markTag(g); if (mt) $('itemTitle').append(mt);
-  const act = $('itemAct'); act.replaceChildren(); act.append(markButton(g, act));
-  const show = el('button', 'Show these reports', 'btn'); show.type = 'button'; show.style.marginLeft = '8px'; show.addEventListener('click', () => { const q = itemKey.toLowerCase(); view = 'main'; F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); }); act.append(show);
-  $('itemSub').textContent = (lab ? `Marked as probably safe by ${lab.by} on ${lab.at.slice(0, 16).replace('T', ' ')} UTC` + (lab.note ? `: ${lab.note}` : '') + '. ' : '') + 'A finding the scripts listed for review, not a known trace.';
+  const g = REVALL.get(key) || { kind, path, sha: new Set(rows.map((x) => x.it.sha256).filter(Boolean)) }, lab = LABELS[key];
+  $('dTitle').textContent = kind + '  ' + (path || '(no path sent)'); const mt = markTag(g); if (mt) $('dTitle').append(mt);
+  $('dSub').textContent = (lab ? `Marked as probably safe by ${lab.by} on ${lab.at.slice(0, 16).replace('T', ' ')} UTC` + (lab.note ? `: ${lab.note}` : '') + '. ' : '') + 'A finding the scripts listed for review, not a known trace.';
+  const search = (q) => goReports(() => { F.q = q.toLowerCase(); $('q').value = F.q; F.result = 'all'; });
+  const act = el('div', null, 'dact'), cell = el('span'), show = el('button', 'Show these reports', 'btn sm'); show.type = 'button'; show.addEventListener('click', () => search(key));
+  cell.append(markButton(g, cell)); act.append(cell, show); body.append(act);
   const share = (n, d) => (d ? Math.round(n / d * 100) + '%' : '–'), ct = rows.map((x) => ts(x.it.ctime)).filter((n) => !isNaN(n)).sort((a, b) => a - b), shas = new Set(rows.map((x) => x.it.sha256).filter(Boolean));
-  $('itemStats').replaceChildren(
+  const stats = el('div', null, 'grid kpis2 wide');
+  stats.append(
     kpi('Devices', rows.length, 'of ' + devs.length, 'Devices whose latest report carries this finding, of those that send review findings (script 2.23 and later).'),
     kpi('With traces', share(hits, rows.length), `${hits} of ${rows.length}`, `Among all these devices ${share(allHits, devs.length)} show traces. A much higher share here would be worth a look.`),
     kpi('Different files', shas.size || '–', '', shas.size ? (shas.size === 1 ? 'The same file on every device that sent a fingerprint.' : 'Fingerprints behind this path.') : 'Nothing with a fingerprint: a link, an account or a process.'),
     kpi('Changed on the devices', ct.length ? fmt(ct[0]).slice(0, 10) : '–', ct.length > 1 && fmt(ct[0]).slice(0, 10) !== fmt(ct[ct.length - 1]).slice(0, 10) ? 'to ' + fmt(ct[ct.length - 1]).slice(0, 10) : '', 'When the kernel last changed this entry, earliest to latest (script 2.24 and later).'));
-  const table = (box, heads, lines) => { box.replaceChildren(); if (!lines.length) { box.append(el('p', 'Nothing to show.', 'peak')); return; } const tb = el('table'), hd = el('tr'); for (const [t, c] of heads) hd.append(el('th', t, c)); tb.append(hd); for (const l of lines) tb.append(l); box.append(tb); };
+  body.append(stats);
+  const sec = (title, sub, heads, lines) => {
+    body.append(el('h3', title)); if (sub) body.append(el('p', sub, 'sub'));
+    if (!lines.length) { body.append(el('p', 'Nothing to show.', 'peak')); return; }
+    const w = el('div', null, 'scroll'), tb = el('table'), hd = el('tr'); for (const [t, c] of heads) hd.append(el('th', t, c)); tb.append(hd); for (const l of lines) tb.append(l); w.append(tb); body.append(w);
+  };
+  const span = (c) => (c.length ? (fmt(c[0]).slice(0, 10) === fmt(c[c.length - 1]).slice(0, 10) ? fmt(c[0]).slice(0, 10) : fmt(c[0]).slice(0, 10) + ' – ' + fmt(c[c.length - 1]).slice(0, 10)) : '–');
   // fingerprints
   const byHash = new Map(); for (const x of rows) { const k = x.it.sha256 || ''; (byHash.get(k) || byHash.set(k, []).get(k)).push(x); }
-  table($('itemHashes'), [['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n'], ['Models', ''], ['Changed on device (UTC)', 'n'], ['Known or covered by the mark', '']], [...byHash].sort((a, b) => b[1].length - a[1].length).map(([h, xs]) => {
+  sec('Fingerprints', 'One line per different file behind this path. The same fingerprint on many devices means the same file. A mark as probably safe covers the fingerprints known when it was set.', [['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n'], ['Models', ''], ['Changed on device (UTC)', 'n'], ['Known or covered by the mark', '']], [...byHash].sort((a, b) => b[1].length - a[1].length).map(([h, xs]) => {
     const tr = el('tr'), c = xs.map((x) => ts(x.it.ctime)).filter((n) => !isNaN(n)).sort((a, b) => a - b), hc = el('td', h || '(no fingerprint)', 'hashcell');
-    if (h) { hc.classList.add('linkish'); hc.title = 'Search all reports for this fingerprint'; hc.addEventListener('click', () => { view = 'main'; F.q = h; $('q').value = h; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); }); }
+    if (h) { hc.classList.add('linkish'); hc.title = 'Search all reports for this fingerprint'; hc.addEventListener('click', () => search(h)); }
     const cov = el('td'); if (h && KNOWN[h]) cov.append(el('span', 'known: ' + KNOWN[h], 'tag ok')); else if (h) cov.append(el('span', lab && lab.hashes.includes(h) ? 'yes' : lab ? 'no: new since the mark' : 'not marked', 'tag ' + (lab && lab.hashes.includes(h) ? 'ok' : lab ? 'warn' : '')));
-    tr.append(hc, el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', count(xs.map((x) => x.r), (r) => r.model).slice(0, 4).map(([m, n]) => m + ' ×' + n).join(', ')), el('td', c.length ? (fmt(c[0]).slice(0, 10) === fmt(c[c.length - 1]).slice(0, 10) ? fmt(c[0]).slice(0, 10) : fmt(c[0]).slice(0, 10) + ' – ' + fmt(c[c.length - 1]).slice(0, 10)) : '–', 'n'), cov);
+    tr.append(hc, el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', count(xs.map((x) => x.r), (r) => r.model).slice(0, 4).map(([m, n]) => m + ' ×' + n).join(', ')), el('td', span(c), 'n'), cov);
     return tr;
   }));
   // models and firmware
   const mf = new Map(); for (const x of rows) { const k = x.r.model + '\t' + x.r.fw; (mf.get(k) || mf.set(k, []).get(k)).push(x); }
-  table($('itemModels'), [['Model', ''], ['Firmware', ''], ['Devices', 'n'], ['With traces', 'n'], ['Different files', 'n']], [...mf].sort((a, b) => b[1].length - a[1].length).map(([k, xs]) => {
+  sec('Models and firmware', 'Which devices sent this finding, and how many of them show traces.', [['Model', ''], ['Firmware', ''], ['Devices', 'n'], ['With traces', 'n'], ['Different files', 'n']], [...mf].sort((a, b) => b[1].length - a[1].length).map(([k, xs]) => {
     const [m, f] = k.split('\t'), tr = el('tr'); tr.append(el('td', m), el('td', f), el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', new Set(xs.map((x) => x.it.sha256).filter(Boolean)).size || '–', 'n')); return tr;
   }));
   // devices
-  $('itemCount').textContent = rows.length + (rows.length === 1 ? ' device' : ' devices');
-  table($('itemDevices'), [['Received (UTC)', ''], ['Model', ''], ['Firmware', ''], ['Result', ''], ['SHA-256', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['Device ID', '']], rows.sort((a, b) => b.r.recv - a.r.recv).slice(0, 300).map(({ r, it }) => {
+  sec(`Devices that sent it (${rows.length})`, 'The latest report of each device. Click a line to see that device’s reports.', [['Received (UTC)', ''], ['Model', ''], ['Firmware', ''], ['Result', ''], ['SHA-256', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['Device ID', '']], rows.sort((a, b) => b.r.recv - a.r.recv).slice(0, 300).map(({ r, it }) => {
     const tr = el('tr'), res = el('td'), cc = el('td', it.ctime ? fmt(ts(it.ctime)) : '', 'n'); tr.style.cursor = 'pointer';
     res.append(el('span', r.cls === 'clean' ? 'Clean' : r.cls === 'command' ? 'Command only' : r.cls === 'shell' ? 'Remote shell' : r.cls === 'malware' ? 'gl-helper malware' : r.cls === 'backdoor' ? 'Older backdoor' : 'Traces', 'tag ' + (r.cls === 'clean' ? 'ok' : 'warn')));
     if (r.bd && r.cls !== 'backdoor') res.append(' ', el('span', 'Older backdoor', 'tag warn'));
     if (it.mtime && it.ctime && lag(it) > LAG) { const t = el('span', 'time not from this device', 'tag warn'); t.title = 'The written time is ' + dur(lag(it)) + ' older than the change on the device.'; cc.append(' ', t); }
     const fp = el('td', it.sha256 ? it.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = it.sha256;
     tr.append(el('td', fmt(r.recv), 'tnum'), el('td', r.model), el('td', r.fw), res, fp, el('td', it.mtime ? fmt(ts(it.mtime)) : '', 'n'), cc, el('td', r.dev || '–', 'mono dim'));
-    tr.addEventListener('click', () => { const q = (r.dev || r.model).toLowerCase(); view = 'main'; F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
+    tr.addEventListener('click', () => search(r.dev || r.model));
     return tr;
   }));
 }
@@ -1394,17 +1712,16 @@ function knownList() {
   const box = $('knownList'); box.replaceChildren();
   const m = new Map(); for (const r of pool) { const seen = new Set(); for (const i of [...r.review_items, ...r.files]) if (KNOWN[i.sha256] && !seen.has(i.sha256)) { seen.add(i.sha256); const g = m.get(i.sha256) || m.set(i.sha256, { n: 0, hit: 0, paths: new Set() }).get(i.sha256); g.n++; if (r.ioc > 0 || r.bd) g.hit++; g.paths.add(i.path.split(' ')[0]); } }
   $('knownSub').textContent = `Hidden without a mark: files whose fingerprint is in the release checksums of the community’s Tailscale and AdGuard Home builds. The list holds ${Object.keys(KNOWN).length} fingerprints; ${m.size} of them are in the loaded reports. Another file at the same path is still listed for review.`;
-  if (!m.size) return;
+  if (!m.size) { box.append(el('p', 'No loaded report holds one of these files.', 'peak dim')); return; }
   const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Release file', ''], ['Path on the device', ''], ['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n']]) hd.append(el('th', t, c));
   tb.append(hd);
   for (const [h, g] of [...m].sort((a, b) => b[1].n - a[1].n || KNOWN[a[0]].localeCompare(KNOWN[b[0]]))) {
-    const tr = el('tr'), hc = el('td', h.slice(0, 16) + '…', 'mono dim linkish'); hc.title = h; hc.addEventListener('click', () => { view = 'main'; F.q = h; $('q').value = h; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
+    const tr = el('tr'), hc = el('td', h.slice(0, 16) + '…', 'mono dim linkish'); hc.title = h; hc.addEventListener('click', () => goReports(() => { F.q = h; $('q').value = h; F.result = 'all'; }));
     tr.append(el('td', KNOWN[h]), el('td', [...g.paths].join(', '), 'mono'), hc, el('td', g.n, 'n'), el('td', g.hit + ' of ' + g.n, 'n')); tb.append(tr);
   }
   box.append(tb);
 }
 function safeList() {
-  knownList();
   const box = $('safeList'); box.replaceChildren();
   const rows = Object.entries(LABELS).sort((a, b) => (a[1].at < b[1].at ? 1 : -1));
   $('safeCount').textContent = rows.length + (rows.length === 1 ? ' finding' : ' findings');
@@ -1470,7 +1787,7 @@ function sinceLastVisit() {
   let last = '';
   try { last = localStorage.getItem('csa-last-seen') || ''; } catch { return; }
   const n = last ? all.filter((r) => !r.isTest && r.recvIso > last).length : 0, b = $('sinceBtn');
-  if (n) { b.hidden = false; b.textContent = `+${n} since your last visit`; b.addEventListener('click', () => { F.since = F.since ? null : last; F.result = 'all'; syncs.forEach((x) => x()); page = 0; render(); }); }
+  if (n) { b.hidden = false; b.textContent = `+${n} since your last visit`; b.addEventListener('click', () => { if (F.since) { F.since = null; page = 0; render(); } else goReports(() => { F.since = last; F.result = 'all'; }); }); }
   const remember = () => { try { if (newest) localStorage.setItem('csa-last-seen', newest); } catch { /* no storage */ } };
   addEventListener('pagehide', remember); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') remember(); });
 }

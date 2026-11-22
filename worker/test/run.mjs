@@ -174,6 +174,21 @@ if (process.argv[2] === 'serve') {
   expect('refuses a ctime that is not a time', validate({ ...good5, files: [{ ...file, ctime: '<b>' }] }) !== null);
   // the dashboard's own script must at least parse: a syntax error leaves an empty page
   { const { DASHBOARD } = await import('../src/dashboard.js'); let ok = true; try { for (const m of DASHBOARD.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]); } catch { ok = false; } expect('the dashboard script parses', ok); }
+  // the layout of the dashboard: templates, a saved layout made whole, the layout of before taken over
+  { const { DASHBOARD } = await import('../src/dashboard.js'); const m = /\/\* layout:begin \*\/([\s\S]*?)\/\* layout:end \*\//.exec(DASHBOARD);
+    const { PAGES, TPL, tplItems, normalize, migrate } = new Function(m[1] + '\nreturn { PAGES, TPL, tplItems, normalize, migrate };')();
+    const keys = (t) => tplItems(t).map((i) => i.k).sort().join();
+    expect('every template has the same cards, each once, inside the grid', Object.keys(TPL).every((t) => keys(t) === keys('standard') && new Set(tplItems(t).map((i) => i.k)).size === tplItems(t).length && tplItems(t).every((i) => i.w >= 2 && i.w <= 12 && i.h >= 2 && i.h <= 16 && PAGES.some((p) => p[0] === i.p))));
+    const fresh = normalize(null), n = fresh.items.length;
+    expect('without a saved layout: the standard template', fresh.tpl === 'standard' && !fresh.custom && JSON.stringify(fresh.items) === JSON.stringify(tplItems('standard')) && fresh.hidden.length === 0);
+    const kept = normalize({ tpl: 'compact', custom: true, items: [{ k: 'reports', p: 'overview', w: 30, h: 1 }, { k: 'gone', p: 'overview', w: 4, h: 4 }, { k: 'when', p: 'nowhere', w: 5.4, h: 'x' }], hidden: ['ports', 'gone'] });
+    const at = (l, k) => l.items.find((i) => i.k === k);
+    expect('a saved layout: unknown cards out, new cards in, sizes inside the grid', kept.tpl === 'compact' && kept.custom && kept.items.length === n && !at(kept, 'gone') && at(kept, 'reports').p === 'overview' && at(kept, 'reports').w === 12 && at(kept, 'reports').h === 2 && at(kept, 'when').p === 'overview' && at(kept, 'when').w === 5 && at(kept, 'when').h === 5 && JSON.stringify(kept.hidden) === '["ports"]');
+    expect('cards stay grouped by page in page order', kept.items.map((i) => PAGES.findIndex((p) => p[0] === i.p)).every((x, i, a) => !i || a[i - 1] <= x) && kept.items.filter((i) => i.p === 'overview').at(-1).k === 'course' && kept.items[0].k === 'reports');
+    const old = migrate({ order: ['Reports', 'Is it still going on', 'Ports of the remote shells', 'Malware files', 'When it started', 'What each kind of evidence means'], hidden: ['Ports of the remote shells', 'What each kind of evidence means'], sizes: { 'When it started': 'half', 'Models and firmware': 'full', 'Devices': 'odd' } });
+    const ov = old.items.filter((i) => i.p === 'overview').map((i) => i.k).join(' '), atk = old.items.filter((i) => i.p === 'attack').map((i) => i.k).join(' ');
+    expect('the layout of before: its order on each page, its hidden cards and widths', ov === 'hit shell back restart gc going when course' && atk === 'evidence ports files left' && JSON.stringify(old.hidden) === '["ports"]' && at(old, 'when').w === 6 && at(old, 'matrix').w === 12 && at(old, 'devices').w === 4 && old.custom && old.items.length === n);
+    expect('nothing to take over: the standard template', JSON.stringify(migrate(null).items) === JSON.stringify(fresh.items) && !migrate('x').custom); }
   // the list of known release files is built into the page, and every entry is a SHA-256 with a name
   { const { DASHBOARD } = await import('../src/dashboard.js'); const m = /const KNOWN = (\{.*?\});/.exec(DASHBOARD); let known = {}; try { known = JSON.parse(m[1]); } catch { /* stays empty */ }
     expect('the known release files are in the built page', !DASHBOARD.includes('/*KNOWN_HASHES*/') && Object.keys(known).length > 100 && Object.entries(known).every(([h, n]) => /^[0-9a-f]{64}$/.test(h) && /^[\w .,-]{5,80}$/.test(n))); }
