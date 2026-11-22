@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.29
+VERSION=2.30
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1794,13 +1794,16 @@ cloud_advice() {
 	else say "   Whether GoodCloud is on could not be read here. The attack came in through it, and by reports of"; fi
 	say "   22 November devices are still being hit. Until fixed firmware is installed:"
 	case $PLATFORM in
-	glkvm-*) say "     switch the cloud service off in the KVM's web interface." ;;
+	glkvm-*) say "     switch the cloud service off in the KVM's web interface (a user reports it under More Settings)." ;;
 	*)
-		say "     ${B}uci set 'gl-cloud.@cloud[0].enable=0'; uci commit gl-cloud; /etc/init.d/gl-cloud stop${N}"
-		say "     or switch it off in the admin panel under Applications, GoodCloud." ;;
+		# the four commands RemoteToHome ran on a GL-AXT1800; afterwards the client was
+		# neither running nor set to start
+		say "     ${B}/etc/init.d/gl-cloud stop; uci set 'gl-cloud.@cloud[0].enable=0'; uci commit gl-cloud; /etc/init.d/gl-cloud disable${N}"
+		say "     or use the GoodCloud switch in the admin panel." ;;
 	esac
 	say "   ${D}The device then disappears from GoodCloud and AstroWarp stops working: make sure you can${N}"
 	say "   ${D}reach a remote device another way first. This does not clean a device that was already hit.${N}"
+	say "   ${D}\"I never used AstroWarp\" and \"remote access was off\" do not help: the code runs regardless.${N}"
 }
 
 finish() { cloud_advice; offer_report; exit "$1"; }
