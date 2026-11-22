@@ -21,7 +21,13 @@ jobs:
       matrix:
         tools: [system, busybox]
     steps:
-      - uses: actions/checkout@v7
+      - name: Fetch the repository
+        # with git itself: this repository does not allow actions from outside, and a run
+        # that uses one does not start at all
+        run: |
+          git init -q .
+          git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_REF"
+          git checkout -q FETCH_HEAD
 
       - name: Syntax
         run: sh -n gl-helper-triage.sh
@@ -47,7 +53,13 @@ jobs:
     name: Worker and dashboard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - name: Fetch the repository
+        # with git itself: this repository does not allow actions from outside, and a run
+        # that uses one does not start at all
+        run: |
+          git init -q .
+          git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_REF"
+          git checkout -q FETCH_HEAD
       # the runner's own Node.js; the tests need 22.13 or later for its built-in SQLite
       - run: node --version
       - name: The built dashboard matches its source
