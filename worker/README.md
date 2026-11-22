@@ -319,7 +319,7 @@ validation (Security, API Shield, Schema validation: upload the file). Cloudflar
 checks a report before the worker runs: only the known fields, each of its type, length and
 characters.
 
-- The file is the union of schema versions 1 to 9: the fields of version 1 are required,
+- The file is the union of schema versions 1 to 10: the fields of version 1 are required,
   the later ones allowed. The worker stays the stricter check and requires every field of
   the version a report names.
 - Start with the action "Log", look at what it would have stopped, then switch to "Block".

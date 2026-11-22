@@ -71,6 +71,8 @@ if (process.argv[2] === 'serve') {
   };
   globalThis.fitsOpenApi = (v) => fits(top, v);
   expect('the schema for Cloudflare knows every field of a report and every schema version', Object.keys(top.properties).sort().join() === [...REPORT_FIELDS].sort().join() && top.properties.schema.enum.every((n) => validate({ ...good, schema: n }) !== 'bad or missing field schema') && validate({ ...good, schema: top.properties.schema.enum.length + 1 }) === 'bad or missing field schema');
+  const v10 = { ...good3, schema: 10, device_id: '', goodcloud: 'on', cloud_client: '', astrowarp: 'off', state_file_size: -1, review_items: [], cloud_bound: 'unknown', rtty_ssh: 'off', rtty_web: 'off', note: '', state_file_first: '', vendor_cleanup: 'on', files: [{ ...file, ctime: file.mtime }] };
+  expect('schema 10 says whether the firmware cleans up by itself; the worker and the schema for Cloudflare both take it', validate(v10) === null && fits(top, v10) && validate({ ...v10, vendor_cleanup: 'yes' }) !== null && !fits(top, { ...v10, vendor_cleanup: 'yes' }) && validate((({ vendor_cleanup, ...r }) => r)(v10)) !== null);
   expect('it lets the reports of schema 1, 2 and 3 through', fits(top, good) && fits(top, good2) && fits(top, good3));
   expect('it stops an unknown field, a missing one, markup and a wrong type', !fits(top, { ...good, hostname: 'x' }) && !fits(top, { ...good, tool: undefined }) && !fits(top, (({ ioc, ...r }) => r)(good)) && !fits(top, { ...good, model: '<script>' }) && !fits(top, { ...good, ioc: '3' }) && !fits(top, { ...good2, files: [{ ...file, extra: 1 }] }));
   expect('a complete report is valid', validate(good) === null);
@@ -240,9 +242,9 @@ if (process.argv[2] === 'serve') {
     expect('a single wrong character is caught in at least 98 of 100 cases', caught / tried >= 0.98);
     let swaps = 0, swapped = 0; for (let i = 0; i < 8; i++) { if (code[i] === code[i + 1]) continue; swaps++; if (decode(code.slice(0, i) + code[i + 1] + code[i] + code.slice(i + 2)) === null) swapped++; }
     expect('two neighbouring characters typed the wrong way round are caught', swaps > 0 && swapped === swaps);
-    expect('every kind of finding has its place in the code, each once', ORDER.length === 22 && new Set(ORDER).size === 22 && ORDER.every((k) => NAMES[k]));
+    expect('every kind of finding has its place in the code, each once', ORDER.length <= 24 && new Set(ORDER).size === ORDER.length && ORDER.every((k) => NAMES[k]));
     const all = decode(encode({ minor: 127, p: 'k', k: ORDER, g: '0', n: '1', f: '3', rv: 1 }));
-    expect('the largest code holds everything', all.v === '2.127' && all.p === 'k' && all.k.length === 22 && all.g === '0' && all.n === '1' && all.f === '3');
+    expect('the largest code holds everything', all.v === '2.127' && all.p === 'k' && all.k.length === ORDER.length && all.g === '0' && all.n === '1' && all.f === '3');
     expect('the page reads a code after "#", a code typed as the path, and the long form of 2.39', parse('#' + code, '/').k.length === 2 && parse('', '/' + code.toLowerCase()).v === '2.41' && parse('#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0', '/2026-01/').k.join('.') === 'cc.fw');
     expect('nothing in the address is the list to tick, a wrong code says so', parse('', '/').v === '' && !parse('', '/').bad && !parse('', '/2026-01/').bad && parse('#' + code.slice(0, 8) + (code[8] === 'A' ? 'B' : 'A'), '/').bad === true && parse('#%3Cscript%3Ealert(1)', '/').v === '');
     // the second part of the code: model and firmware version
@@ -258,7 +260,7 @@ if (process.argv[2] === 'serve') {
     const shModels = (/^RESULT_MODELS='([^']+)'$/m.exec(readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8')) || [])[1];
     if (shModels) expect('the script numbers the models in the same order as the page', shModels === MODELS.join(' ') && MODELS.length <= 127 && new Set(MODELS).size === MODELS.length);
     const shKinds = (/^RESULT_KINDS='([^']+)'$/m.exec(readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8')) || [])[1];
-    if (shKinds) expect('the script puts the kinds of findings into the code in the same order as the page', shKinds === ORDER.join(' '));
+    if (shKinds) expect('the script puts the kinds of findings into the code in the order of the page; the page may know more, at the end', (ORDER.join(' ') + ' ').startsWith(shKinds + ' '));
     const front = await worker.fetch(new Request('https://csa.example.org/'), env, { waitUntil() {} }), typed = await worker.fetch(new Request('https://csa.example.org/' + code), env, { waitUntil() {} });
     expect('on the csa host the page is the front door, also for a code typed without "#"', front.status === 200 && (await front.text()).includes('const B32') && typed.status === 200 && (await call('GET', undefined, {}, '/' + code)).headers.get('content-type').startsWith('text/plain'));
     console.log('sample code: ' + code + '-' + ext);

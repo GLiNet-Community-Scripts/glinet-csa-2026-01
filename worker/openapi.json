@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "CSA-2026-01 anonymous reports",
-    "version": "9",
-    "description": "The one address the community script gl-helper-triage.sh posts to. For Cloudflare API Shield schema validation. The worker checks every report again, and more strictly: per schema version every field is required there. This file is the union of schema versions 1 to 9, so it lets every report through that the worker accepts. A new schema version must be added here, and uploaded, before a script sends it."
+    "version": "10",
+    "description": "The one address the community script gl-helper-triage.sh posts to. For Cloudflare API Shield schema validation. The worker checks every report again, and more strictly: per schema version every field is required there. This file is the union of schema versions 1 to 10, so it lets every report through that the worker accepts. A new schema version must be added here, and uploaded, before a script sends it."
   },
   "servers": [
     {
@@ -73,7 +73,8 @@
               6,
               7,
               8,
-              9
+              9,
+              10
             ]
           },
           "tool": {
@@ -217,6 +218,9 @@
           },
           "state_file_first": {
             "$ref": "#/components/schemas/Time"
+          },
+          "vendor_cleanup": {
+            "$ref": "#/components/schemas/OnOff"
           }
         }
       },

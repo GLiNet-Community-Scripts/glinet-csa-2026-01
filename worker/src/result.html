@@ -198,7 +198,7 @@ const NAMES = {
   pq: 'IOC  process  (crond -i /tmp/.log)', pi: 'IOC  process', ps: 'IOC  process  (remote shell)', pp: 'IOC  pipe  /tmp/f', cs: 'IOC  connection', cm: 'IOC  connection',
   fw: 'IOC  fw-rule', cc: 'IOC  cloud-command  /etc/mp_ip_mapping_info', it: 'IOC  installer-trace',
   bi: 'IOC  backdoor-init', bf: 'IOC  backdoor-file', bk: 'IOC  backdoor-keep', bh: 'IOC  backdoor-host', bp: 'IOC  backdoor-proc',
-  pe: 'PERSIST  persistence', none: 'Summary: IOC=0', rs: 'Running since …', rv: 'REVIEW  …',
+  pe: 'PERSIST  persistence', vc: 'INFO  vendor-cleanup', none: 'Summary: IOC=0', rs: 'Running since …', rv: 'REVIEW  …',
 };
 const MALWARE = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'cm'], SHELL = ['ps', 'pp', 'cs'];
 // which steps go with which result; "gc" stands for the GoodCloud step that fits the setting
@@ -284,6 +284,7 @@ const T = {
       bh: ['A server of the backdoor is named in the configuration', 'A configuration file names one of the servers the backdoor reports to.'],
       bp: ['The backdoor is running', 'Its programs are active on the device right now.'],
       pe: ['Your autostart files differ from the firmware’s', 'The files that run at every start are no longer the firmware’s. That is common and usually your own doing. It is no trace by itself.'],
+      vc: ['This firmware cleaned up at its first start', 'GL.iNet’s fixed firmware deletes known traces of the malware when it starts for the first time. So this result does not show what was on the device before the update.'],
       none: ['No known trace', 'The script looked at files, autostart entries, running programs, the firewall and open connections. It compared them with everything known about this attack and the older backdoor.'],
       rs: ['The device was restarted since 19 November', 'A remote access and what it leaves in memory are gone after a restart. The script can only see what is still there.'],
       rv: ['{n} other changes to look at', 'The script lists everything that differs from the firmware and that it cannot place. Almost always these are your own settings and installed programs. They are not traces of the attack.'],
@@ -381,6 +382,7 @@ const T = {
       bh: ['Ein Server der Hintertür steht in der Konfiguration', 'Eine Konfigurationsdatei nennt einen der Server, bei denen sich die Hintertür meldet.'],
       bp: ['Die Hintertür läuft', 'Ihre Programme sind gerade auf dem Gerät aktiv.'],
       pe: ['Deine Autostart-Dateien weichen von der Firmware ab', 'Die Dateien, die bei jedem Start laufen, sind nicht mehr die der Firmware. Das kommt oft vor und ist meist deine eigene Änderung. Allein ist es keine Spur.'],
+      vc: ['Diese Firmware hat beim ersten Start aufgeräumt', 'GL.iNets korrigierte Firmware löscht bekannte Spuren der Malware, wenn sie zum ersten Mal startet. Das Ergebnis zeigt deshalb nicht, was vor dem Update auf dem Gerät war.'],
       none: ['Keine bekannte Spur', 'Das Skript hat Dateien, Autostart-Einträge, laufende Programme, die Firewall und offene Verbindungen geprüft. Es hat sie mit allem verglichen, was über diesen Angriff und die ältere Hintertür bekannt ist.'],
       rs: ['Das Gerät wurde seit dem 19. November neu gestartet', 'Ein Fernzugang und was er im Arbeitsspeicher hinterlässt, sind nach einem Neustart verschwunden. Das Skript sieht nur, was noch da ist.'],
       rv: ['{n} weitere Änderungen zum Ansehen', 'Das Skript listet alles auf, was von der Firmware abweicht und was es nicht einordnen kann. Fast immer sind das deine eigenen Einstellungen und installierten Programme. Es sind keine Spuren des Angriffs.'],
@@ -477,6 +479,7 @@ const T = {
       bh: ['配置里出现了后门的服务器', '有一个配置文件里写着后门报到用的服务器之一。'],
       bp: ['后门正在运行', '它的程序此刻正在设备上活动。'],
       pe: ['你的开机自启动文件与固件自带的不同', '每次开机执行的文件不是固件原本自带的版本。这种情况很常见，通常是你自己改的；单凭这一点不算痕迹。'],
+      vc: ['此固件在首次启动时已自动清理', 'GL.iNet 的修复版固件在首次启动时会删除已知的恶意软件痕迹。因此本结果无法说明更新之前设备上有什么。'],
       none: ['没有已知痕迹', '脚本把文件、开机自启动项、正在运行的程序、防火墙和网络连接，逐一与这次攻击以及更早的那个后门的全部已知特征做了比对。'],
       rs: ['设备在 11 月 19 日之后重启过', '远程访问通道以及它留在内存里的东西，重启后都会消失。脚本只能看到现在还在的东西。'],
       rv: ['另外还列出了 {n} 处改动，供你自己查看', '脚本会把所有与固件不同、又无法归类的地方都列出来。这些几乎总是你自己的设置和安装的程序，并不是这次攻击的痕迹。'],
@@ -527,7 +530,7 @@ if (!T[lang]) { const want = (navigator.languages || [navigator.language || 'en'
 // The alphabet leaves out I, L, O and U; a typed I or L counts as 1, an O as 0.
 // The script holds the same order (RESULT_KINDS); the tests compare the two.
 const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-const ORDER = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'ps', 'pp', 'cs', 'cm', 'fw', 'cc', 'it', 'bi', 'bf', 'bk', 'bh', 'bp', 'pe'];
+const ORDER = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'ps', 'pp', 'cs', 'cm', 'fw', 'cc', 'it', 'bi', 'bf', 'bk', 'bh', 'bp', 'pe', 'vc'];
 // Five more characters may follow: model and firmware version, so that the page can say
 // whether newer firmware exists. Four hold 20 bits (7 the model as its place in MODELS,
 // 2 the first number of the version minus one, 5 the second, 5 the third, 1 a test
@@ -572,7 +575,7 @@ function decode(text) {
 }
 // The same the other way round, for what someone ticks by hand.
 function encode(c) {
-  let bits = Number(c.minor).toString(2).padStart(7, '0') + ({ r: '01', k: '10' }[c.p] || '00') + ORDER.map((x) => (c.k.includes(x) ? '1' : '0')).join('') + '00'
+  let bits = Number(c.minor).toString(2).padStart(7, '0') + ({ r: '01', k: '10' }[c.p] || '00') + ORDER.map((x) => (c.k.includes(x) ? '1' : '0')).join('').padEnd(24, '0')
     + ({ 1: '01', 0: '10' }[c.g] || '00') + (c.n === '1' ? '1' : '0') + ({ 2: '01', 3: '10' }[c.f] || '00') + (c.rv ? '01' : '00');
   let out = '', sum = 0;
   for (let i = 0; i < 8; i++) { const x = parseInt(bits.slice(i * 5, i * 5 + 5), 2); sum += (i + 1) * x; out += B32[x]; }
@@ -629,7 +632,7 @@ function render() {
   const hero = el('header', null, 'hero'); hero.dataset.tone = TONE[cls.main];
   hero.append(el('p', fill(c.v === 'hand' ? t.eyebrowHand : t.eyebrow, o), 'eyebrow'), el('h1', fill(res[1], o)), el('p', fill(res[2], o), 'lead'), el('span', res[0], 'verdict'));
   const chips = el('div', null, 'chips'), gc = el('span', t.gcLabel + ': ', 'chip'); gc.append(el('b', t.gc[c.g])); chips.append(gc);
-  { const n = c.k.filter((k) => k !== 'pe').length; if (n) { const x = el('span', 'IOC: ', 'chip ioc'); x.append(el('b', String(n))); chips.prepend(x); } }
+  { const n = c.k.filter((k) => k !== 'pe' && k !== 'vc').length; if (n) { const x = el('span', 'IOC: ', 'chip ioc'); x.append(el('b', String(n))); chips.prepend(x); } }
   if (c.v !== 'hand') chips.append(el('span', t.rs[c.n], 'chip'));
   hero.append(chips); page.append(hero);
 
@@ -657,7 +660,7 @@ function render() {
   // what those words mean.
   const list = c.k.length ? [...c.k] : ['none'];
   if (c.n === '1' && c.v !== 'hand') list.push('rs'); if (c.rv) list.push('rv');
-  const typeOf = (k) => (k === 'none' ? 'ok' : k === 'rs' ? 'note' : k === 'rv' ? 'review' : k === 'pe' ? 'persist' : 'ioc'), types = [...new Set(list.map(typeOf))];
+  const typeOf = (k) => (k === 'none' ? 'ok' : k === 'rs' || k === 'vc' ? 'note' : k === 'rv' ? 'review' : k === 'pe' ? 'persist' : 'ioc'), types = [...new Set(list.map(typeOf))];
   page.append(el('h2', t.hFound));
   const lg = el('p', null, 'legend');
   for (const ty of ['ioc', 'persist', 'review']) if (types.includes(ty)) { const x = el('span'); x.append(el('b', t.types[ty][0], 'tag ' + ty), ' ' + t.legend[ty]); lg.append(x); }
