@@ -336,11 +336,14 @@ printf 'root:$1$SECRETHASH:19000:0:99999:7:::\n' >"$U/etc/shadow"
 echo SECRETSSHKEY >"$U/root/.ssh/id_rsa"; echo 'ssh-ed25519 AAAAATTACKER evil' >"$U/root/.ssh/authorized_keys"
 echo SECRETHOSTKEY >"$U/etc/dropbear/dropbear_rsa_host_key"; echo SECRETOVPN >"$U/etc/openvpn/client.ovpn"
 printf "config peers\n\toption private_key 'SECRETWGKEY'\n\toption public_key 'PEERPUBLIC'\n\toption end_point '1.2.3.4:51820'\n" >"$U/etc/config/wireguard"
-printf "config wifi-iface\n\toption ssid 'home'\n\toption key 'SECRETWIFI'\n" >"$U/etc/config/wireless"
+printf "config wifi-iface\n\toption ssid 'home'\n\toption key 'SECRETWIFI'\n\toption wpa_passphrase 'SECRETWPA'\n\toption api_key 'SECRETAPI'\n" >"$U/etc/config/wireless"
+mkdir -p "$U/etc/ppp" "$U/etc/AdGuardHome"; echo 'user * SECRETPPP' >"$U/etc/ppp/chap-secrets"; echo 'password: OTHERFORMAT' >"$U/etc/AdGuardHome/config.yaml"
 mnt "$D" "$OWL"
 run "$D" "$OWL" --archive >/dev/null; A=$(ls "$D"/out/*.tar.gz); mkdir "$D/x"; tar -xzf "$A" -C "$D/x"
 expect "no password hash, private key, host key or VPN profile in the archive" '! grep -rq "SECRETHASH\|SECRETSSHKEY\|SECRETHOSTKEY\|SECRETOVPN" "$D/x"'
 expect "key values replaced, the peer stays visible" '! grep -rq "SECRETWGKEY\|SECRETWIFI" "$D/x" && grep -rq "PEERPUBLIC" "$D/x/evidence/files" && grep -rq "1.2.3.4:51820" "$D/x/evidence/files" && grep -rq "option private_key .REDACTED." "$D/x/evidence/files"'
+expect "option names that end in a secret word are replaced, PPP secrets removed" '! grep -rq "SECRETWPA\|SECRETAPI\|SECRETPPP" "$D/x"'
+expect "the archive says plainly that it can still hold passwords" 'grep -q "CAN STILL HOLD PASSWORDS" "$D/x/evidence/REDACTED.txt"'
 expect "authorized_keys is kept: an added key is evidence" 'grep -rq "AAAAATTACKER" "$D/x/evidence/files"'
 expect "REDACTED.txt lists what was left out, and is in the manifest" 'grep -q "/etc/shadow" "$D/x/evidence/REDACTED.txt" && grep -q "/root/.ssh/id_rsa" "$D/x/evidence/REDACTED.txt" && grep -q "REDACTED.txt" "$D/x/evidence/MANIFEST.sha256"'
 expect "shadow summary is written when the base image has no shadow file" 'grep -q "^root.*hash set" "$D/x/evidence/etc/shadow-summary.txt"'

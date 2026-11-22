@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.20
+VERSION=2.21
 
 # watch.sh: reported for KVMs, run every three minutes by a second cron daemon
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/glinet/.cache/watch.sh etc/config/.gl/gl-helper etc/config/.gl/gb"
@@ -145,8 +145,8 @@ gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" impla
   --no-report          never offer to send a report
   --show-report        print the complete report and send nothing
   --no-device-id       leave the device ID out of the report
-  --with-secrets       keep private keys and passwords in the archive (default: left out;
-                       password hashes are never included)
+  --with-secrets       keep the private keys and passwords the script would otherwise take
+                       out of the archive (/etc/shadow is never included)
   --root/--upper/--lower DIR   override merged root, overlay upper and base image
   -V, --version        print version
 
@@ -1052,11 +1052,14 @@ report_body() {
 # ---------------------------------------------------------------- archive
 # People hand these archives to others, so secrets are taken out of the copies made for
 # the archive. Only files below $1 (the archive's work directory) are touched, never the
-# device, and links are not followed. Password hashes always go. Private keys go unless
+# device, and links are not followed. /etc/shadow always goes. Private keys go unless
 # --with-secrets is given. In configuration files only the values of options that hold a
 # key or password are replaced, so an added peer or account stays visible. What was left
-# out is listed in REDACTED.txt; hashes of the originals stay in overlay/upper-sha256.txt.
-SECRET_OPT='private_key|preshared_key|presharedkey|password|passwd|secret|token|psk|key|sae_password|auth_secret'
+# out is listed in REDACTED.txt. This is a best effort and the archive says so: files in
+# other formats can still hold passwords and hashes. What was left out is listed there; hashes of the originals stay in overlay/upper-sha256.txt.
+# option names that END in one of these hold a secret (wpa_passphrase, api_key, ...); a
+# public key is none and stays, an added peer is evidence
+SECRET_END='key|password|passwd|passphrase|secret|token|psk'
 scrub() {
 	local E=$1 f rel
 	: >"$TMP/redacted"
@@ -1073,22 +1076,39 @@ scrub() {
 		*.pub | */authorized_keys | */known_hosts) continue ;;
 		root/.ssh/* | etc/dropbear/dropbear_*_host_key | etc/ssh/ssh_host_*_key | \
 			etc/openvpn/* | etc/tailscale/* | var/lib/tailscale/* | */identity.secret | \
-			etc/wireguard/* | *.pem | *.key | *.p12 | *.pfx)
+			etc/wireguard/* | *.pem | *.key | *.p12 | *.pfx | etc/ppp/*-secrets | \
+			etc/kvmd/user/*passwd* | etc/kvmd/user/*totp* | etc/kvmd/user/*.secret)
 			rm -f "$f" && printf 'removed\t/%s\tprivate key or VPN profile\n' "$rel" >>"$TMP/redacted"
 			continue ;;
 		esac
 		case $rel in
 		etc/config/* | etc/kvmd/user/*)
-			grep -qE "^[[:space:]]*(option|list)[[:space:]]+['\"]?($SECRET_OPT)['\"]?[[:space:]]" "$f" 2>/dev/null || continue
-			sed -E "s/^([[:space:]]*(option|list)[[:space:]]+['\"]?($SECRET_OPT)['\"]?[[:space:]]+).*/\\1'REDACTED'/" "$f" >"$TMP/scrub" &&
+			awk -v e="($SECRET_END)\$" '
+				match($0, /^[ \t]*(option|list)[ \t]+/) {
+					name = substr($0, RLENGTH + 1); sub(/[ \t].*/, "", name); gsub(/[\047"]/, "", name)
+					l = tolower(name)
+					if (l ~ e && l !~ /(public_?key|pubkey)$/) { print substr($0, 1, RLENGTH) name " \047REDACTED\047"; ch = 1; next }
+				}
+				{ print }
+				END { exit !ch }' "$f" >"$TMP/scrub" 2>/dev/null &&
 				cat "$TMP/scrub" >"$f" && printf 'values replaced\t/%s\tkeys and passwords\n' "$rel" >>"$TMP/redacted" ;;
 		esac
 	done
 	{
-		echo "Left out of this archive, so that it can be handed to someone else."
-		if [ "$SECRETS" = 1 ]; then echo "Run with --with-secrets: private keys and passwords are INCLUDED. Password hashes never are."
-		else echo "Private keys, VPN profiles and the values of keys and passwords in the configuration."
-			echo "Run with --with-secrets to keep them. Password hashes are never included."; fi
+		echo "THIS ARCHIVE CAN STILL HOLD PASSWORDS, TOKENS AND PASSWORD HASHES."
+		echo "It is a copy of the device's configuration. Treat it as secret: hand it only to"
+		echo "someone you would give the device's passwords to, and never post it publicly."
+		echo
+		if [ "$SECRETS" = 1 ]; then
+			echo "Run with --with-secrets: nothing was taken out except /etc/shadow."
+		else
+			echo "What the script knows about was taken out or replaced, see the list below: /etc/shadow,"
+			echo "private keys, VPN profiles, and in /etc/config the values of options whose name ends"
+			echo "in key, password, passphrase, secret, token or psk. That is a best effort, not a"
+			echo "guarantee. Files in other formats are copied as they are, for example the settings"
+			echo "of AdGuard Home, files below /etc/glinet and /etc/kvmd/user, and the shell history."
+			echo "--with-secrets keeps everything except /etc/shadow."
+		fi
 		echo
 		sort -u "$TMP/redacted"
 	} >"$E/REDACTED.txt"
@@ -1201,6 +1221,8 @@ collect() {
 	section "Evidence archive"
 	kv File "${B}$ARCHIVE${N}"
 	kv sha256 "$(cut -d ' ' -f1 "$ARCHIVE.sha256")"
+	say "   ${YEL}The archive can still hold passwords and tokens (see REDACTED.txt in it). Treat it as${N}"
+	say "   ${YEL}secret and never post it publicly.${N}"
 	case $OUTDIR in /tmp | /tmp/* | /var/run* | /run* | /var/tmp*)
 		say "   ${YEL}/tmp is RAM: copy it off the device before rebooting.${N}" ;;
 	esac

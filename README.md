@@ -276,7 +276,7 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 | `--fix [-o DIR]` | Archive first (aborts if that fails), then remediate and re-check |
 | `--report`, `--no-report`, `--show-report` | Send the anonymous report without asking, never offer it, or print it without sending. See below. |
 | `--no-device-id` | Leave the device ID out of the report. |
-| `--with-secrets` | Keep private keys and passwords in the evidence archive. By default they are left out. |
+| `--with-secrets` | Keep the private keys and passwords that the script would otherwise take out of the evidence archive. |
 | `--color`, `--no-color` | Force or disable coloured output. By default colours are used only on a terminal; `NO_COLOR=1` also turns them off. |
 
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
@@ -388,25 +388,32 @@ SHA-256 hashes of the whole overlay upper layer, a full copy of the upper layer 
 connections, the firewall rules and configuration, `/proc/<pid>/` data and the binary of implant processes, kernel and system
 logs, and a `MANIFEST.sha256`.
 
-Secrets are taken out of the copies before the archive is written, so that it can be
-handed to someone else:
+> ⚠️ **The archive can hold passwords, tokens and password hashes.** It is a copy of the
+> device's configuration. Hand it only to someone you would give the device's passwords
+> to, and never post it publicly or attach it to an issue.
 
-- `/etc/shadow` is never included. `etc/shadow-summary.txt` only records whether a hash
-  is set and whether it differs from the base image.
+The script takes out what it knows about, as a best effort and not as a guarantee:
+
+- `/etc/shadow` is not included. `etc/shadow-summary.txt` only records whether a hash is
+  set and whether it differs from the base image.
 - Private keys and VPN profiles are left out: root's SSH client keys, the dropbear host
-  keys, OpenVPN profiles, the Tailscale state, the ZeroTier identity. `authorized_keys`
-  and public keys stay, because a key someone added is evidence.
-- In the configuration (`/etc/config`) the values of options that hold a key or password
-  are replaced by `REDACTED`. The rest stays, so an added VPN peer is still visible.
-- `REDACTED.txt` in the archive lists what was left out. Hashes of the original files
+  keys, OpenVPN profiles, the Tailscale state, the ZeroTier identity, `*.pem` and `*.key`
+  files, PPP secrets. `authorized_keys` and public keys stay, because a key someone added
+  is evidence.
+- In `/etc/config` the value of every option whose name ends in `key`, `password`,
+  `passphrase`, `secret`, `token` or `psk` is replaced by `REDACTED`. The rest stays, so
+  an added VPN peer is still visible.
+- `REDACTED.txt` in the archive lists what was taken out. Hashes of the original files
   are in `overlay/upper-sha256.txt`.
 
-`--with-secrets` keeps keys and passwords, for an archive that stays with you. The device
-itself is never changed by this.
+What it does not catch: files in other formats are copied as they are. That includes the
+settings of AdGuard Home with its password hash, files below `/etc/glinet` and
+`/etc/kvmd/user` (on a KVM the web password file and the two-factor secret live there),
+and the shell history, which is kept on purpose because it can show what an attacker
+typed.
 
-> ⚠️ **Still treat the archive as sensitive and do not post it publicly.** The list of
-> option names is not complete, and logs or the files of other programs can hold secrets
-> the script does not know about.
+`--with-secrets` keeps everything except `/etc/shadow`, for an archive that stays with
+you. The device itself is never changed by this.
 
 On the device `/tmp` is RAM. Copy the archive off the device before rebooting.
 
