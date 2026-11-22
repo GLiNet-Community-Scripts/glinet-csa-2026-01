@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.43
+VERSION=2.44
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 16:41 UTC'
+RELEASED='2026-11-22 16:51 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -191,8 +191,11 @@ palette() {
 		ESC=$(printf '\033')
 		N="$ESC[0m" B="$ESC[1m" D="$ESC[2m"
 		RED="$ESC[1;31m" YEL="$ESC[33m" CYA="$ESC[36m" GRN="$ESC[32m"
-		# the one line every reader should see: white on green, and its address underlined
-		HL="$ESC[1;97;42m" LINK="$ESC[1;4;36m"
+		# The one line every reader should see: a green bar, and its address underlined.
+		# The bar is green in reverse video, not white on green: the text then takes the
+		# terminal's own background colour, which stands out against green in a dark theme
+		# and in a light one. White on a theme's pale green could not be read.
+		HL="$ESC[1;7;32m" LINK="$ESC[1;4;36m"
 	else
 		N='' B='' D='' RED='' YEL='' CYA='' GRN='' HL='' LINK=''
 	fi

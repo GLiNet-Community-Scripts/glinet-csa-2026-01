@@ -346,8 +346,9 @@ prints an address directly under the verdict:
    >>> https://csa.gl-i.net/#AA006011D
 ```
 
-On a terminal the first of these lines is white on green and the address is underlined, so
-that it is the thing a reader sees.
+On a terminal the first of these lines is a green bar and the address is underlined, so
+that it is the thing a reader sees. The bar uses reverse video, so its text has the
+terminal's own background colour and stays readable in dark and light themes.
 
 The page behind it explains what was found, what that means and what to do, in English,
 German and Chinese. Over ssh the address often cannot be clicked, so it is short enough to
