@@ -603,7 +603,9 @@ This is community work, and not one person's.
 - [joska252](https://github.com/joska252) – Found that the archive contained password hashes and private keys, and that
   changed files of the base image's own packages were skipped, and that a named pipe could hang the script
   ([#3](https://github.com/admonstrator/glinet-csa-2026-01/issues/3), [#4](https://github.com/admonstrator/glinet-csa-2026-01/issues/4), [#9](https://github.com/admonstrator/glinet-csa-2026-01/issues/9)),
-  and read the script against the published sources ([#10](https://github.com/admonstrator/glinet-csa-2026-01/issues/10))
+  read the script against the published sources ([#10](https://github.com/admonstrator/glinet-csa-2026-01/issues/10)),
+  and found that blocking the older backdoor's servers read as infected, that a clean result said nothing about a
+  restart, and that `--fix` reset autostart files it had no reason to touch ([#5](https://github.com/admonstrator/glinet-csa-2026-01/issues/5))
 - Everyone who sent an anonymous report or posted their output in the forum
 
 ---
