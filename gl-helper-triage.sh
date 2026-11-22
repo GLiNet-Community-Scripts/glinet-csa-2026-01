@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.26
+VERSION=2.27
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1561,15 +1561,23 @@ build_report() {
 	# forum user found one (glcloud, uid 2, empty password) that nobody can explain yet.
 	: >"$TMP/revlines"
 	revs=$(awk -F '\t' '$1=="REVIEW" {
-			p = $3; pid = ""
+			p = $3; pid = ""; x = ""
 			if ($2 == "process") p = ""
 			else if ($2 == "connection") { sub(/^[0-9]*\//, "", p) }
-			else if ($2 == "new-account" || $2 == "uid0-account") { a = $4; sub(/^[^:]*: /, "", a); p = "/etc/passwd " a }
+			else if ($2 == "new-account" || $2 == "uid0-account") { x = $4; sub(/^[^:]*: /, "", x) }
 			else if ($2 == "deleted-exe") { pid = $3; p = ""; if (match($4, /exe=.*/)) p = substr($4, RSTART + 4) }
-			print $2 "\t" p "\t" pid
+			else if ($2 == "new-link" || $2 == "symlink") {
+				# where the link points, and for a changed link where it pointed in the firmware
+				t = $4; sub(/^-> /, "", t); b = ""
+				if (match(t, / \(base: [^)]*\)/)) { b = substr(t, RSTART + 8, RLENGTH - 9); t = substr(t, 1, RSTART - 1) }
+				sub(/,.*/, "", t); x = "to=" t (b == "" ? "" : " base=" b)
+			}
+			# "-" stands for an empty field: the shell would swallow two tabs in a row
+			print $2 "\t" (p == "" ? "-" : p) "\t" (pid == "" ? "-" : pid) "\t" (x == "" ? "-" : x)
 		}' "$FIND" | sort -u | head -n 40 |
-		while IFS="$TAB" read -r kind f pid; do
+		while IFS="$TAB" read -r kind f pid x; do
 			sha='' mt='' ct=''
+			[ "$f" = - ] && f=''; [ "$pid" = - ] && pid=''; [ "$x" = - ] && x=''
 			case $f in /*)
 				n=$(r "${f#/}")
 				if [ -n "$pid" ]; then
@@ -1586,6 +1594,7 @@ build_report() {
 					fi
 				fi ;;
 			esac
+			f="$f${x:+ $x}"
 			printf '%s  %s\n' "$kind" "$f" >>"$TMP/revlines"
 			printf '{"kind": %s, "path": %s, "sha256": %s, "mtime": %s, "ctime": %s},' "$(jstr "$kind" 24)" "$(jstr "$f" 160)" "$(jstr "$sha")" "$(jstr "$mt")" "$(jstr "$ct")"
 		done | sed 's/,$//')
