@@ -51,6 +51,16 @@ button, select, input { font: inherit; color: inherit; }
 .board > .card { flex: 1 1 100%; margin-top: 0 !important; }
 .board > .card[data-w=third] { flex: 1 1 300px; } .board > .card[data-w=half] { flex: 1 1 440px; }
 .board > .card.closed { flex: 1 1 100%; }
+/* a width someone set by hand: a fixed share of the row, also when the card is folded */
+.board > .card { position: relative; }
+.board > .card[data-size=third] { flex: 0 1 calc(33.333% - 8px); } .board > .card[data-size=half] { flex: 0 1 calc(50% - 6px); }
+.board > .card[data-size=twothirds] { flex: 0 1 calc(66.667% - 4px); } .board > .card[data-size=full] { flex: 0 1 100%; }
+@media (max-width: 760px) { .board > .card[data-size] { flex: 1 1 100%; } .sizer { display: none; } }
+.sizer { position: absolute; top: 10px; bottom: 10px; right: -7px; width: 14px; cursor: ew-resize; touch-action: none; z-index: 2; }
+.sizer::after { content: ''; position: absolute; top: 50%; left: 5px; width: 4px; height: 36px; margin-top: -18px; border-radius: 4px; background: var(--text-2); opacity: 0; transition: opacity .12s; }
+.board > .card:hover > .sizer::after, .sizer:focus-visible::after { opacity: .35; } .sizer:hover::after, .board > .card.sizing > .sizer::after { opacity: .9; background: var(--accent); }
+.board > .card.sizing { outline: 2px dashed var(--accent); outline-offset: -2px; user-select: none; }
+.layoutRow select { font: inherit; font-size: 12px; padding: 1px 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: inherit; }
 .board > .card.dragging { opacity: .45; outline: 2px dashed var(--accent); outline-offset: -2px; }
 .grip { flex: none; width: 18px; height: 24px; margin-right: 2px; border-radius: 5px; cursor: grab; color: var(--text-2); opacity: .45; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; user-select: none; }
 .grip:hover { opacity: 1; background: var(--surface-2); } .grip:active { cursor: grabbing; }
@@ -1240,18 +1250,21 @@ const board = el('div', null, 'board');
   for (const g of document.querySelectorAll('main > section.grid:not(.kpis)')) if (!g.children.length) g.remove();
 }
 const DEFAULT_ORDER = [...board.children].map((c) => c.dataset.key);
-let layout = { order: [], hidden: [] };
-try { const l = JSON.parse(localStorage.getItem('csa-layout') || '{}'); layout = { order: Array.isArray(l.order) ? l.order : [], hidden: Array.isArray(l.hidden) ? l.hidden : [] }; } catch { /* no storage: the default layout */ }
+let layout = { order: [], hidden: [], sizes: {} };
+try { const l = JSON.parse(localStorage.getItem('csa-layout') || '{}'); layout = { order: Array.isArray(l.order) ? l.order : [], hidden: Array.isArray(l.hidden) ? l.hidden : [], sizes: l.sizes && typeof l.sizes === 'object' ? l.sizes : {} }; } catch { /* no storage: the default layout */ }
 const cardOf = (key) => [...board.children].find((c) => c.dataset.key === key);
 function saveLayout() {
   layout.order = [...board.children].map((c) => c.dataset.key);
   try { localStorage.setItem('csa-layout', JSON.stringify(layout)); } catch { /* for this visit only */ }
 }
+// widths a card can take; "auto" is the width it has by itself
+const SIZES = [['auto', 'Auto'], ['third', '1/3'], ['half', '1/2'], ['twothirds', '2/3'], ['full', 'Full']];
+function setSize(c, v) { if (SIZES.some((s) => s[0] === v) && v !== 'auto') c.dataset.size = v; else delete c.dataset.size; }
 function applyLayout() {
   // known cards in the saved order; a card that is new since then keeps its default place
   const rank = (k) => { const i = layout.order.indexOf(k); return i < 0 ? DEFAULT_ORDER.indexOf(k) + .5 : i; };
   for (const c of [...board.children].sort((x, y) => rank(x.dataset.key) - rank(y.dataset.key))) board.append(c);
-  for (const c of board.children) c.hidden = layout.hidden.includes(c.dataset.key);
+  for (const c of board.children) { c.hidden = layout.hidden.includes(c.dataset.key); setSize(c, layout.sizes[c.dataset.key]); }
   layoutMenu();
 }
 function layoutMenu() {
@@ -1264,12 +1277,15 @@ function layoutMenu() {
     cb.addEventListener('change', () => { layout.hidden = cb.checked ? layout.hidden.filter((k) => k !== c.dataset.key) : [...layout.hidden, c.dataset.key]; c.hidden = !cb.checked; saveLayout(); render(); });
     up.addEventListener('click', () => { board.insertBefore(c, cards[i - 1]); saveLayout(); layoutMenu(); render(); });
     down.addEventListener('click', () => { board.insertBefore(cards[i + 1], c); saveLayout(); layoutMenu(); render(); });
-    lab.append(cb, el('span', c.dataset.key)); row.append(lab, up, down); pop.append(row);
+    const sel = el('select'); sel.setAttribute('aria-label', 'Width of “' + c.dataset.key + '”');
+    for (const [v, t] of SIZES) { const o = el('option', t); o.value = v; sel.append(o); } sel.value = layout.sizes[c.dataset.key] || 'auto';
+    sel.addEventListener('change', () => { if (sel.value === 'auto') delete layout.sizes[c.dataset.key]; else layout.sizes[c.dataset.key] = sel.value; setSize(c, sel.value); saveLayout(); render(); });
+    lab.append(cb, el('span', c.dataset.key)); row.append(lab, sel, up, down); pop.append(row);
   });
   const reset = el('button', 'Reset layout', 'btn sm'); reset.type = 'button'; reset.style.margin = '8px 4px 2px';
-  reset.addEventListener('click', () => { layout = { order: [], hidden: [] }; try { localStorage.removeItem('csa-layout'); } catch { /* nothing stored */ } applyLayout(); render(); });
-  pop.append(reset, el('p', 'Drag a card by the dots next to its title, or use the arrows here.', 'more'));
-  $('layoutMenu').classList.toggle('on', layout.hidden.length > 0 || layout.order.some((k, i) => DEFAULT_ORDER.filter((d) => layout.order.includes(d))[i] !== k));
+  reset.addEventListener('click', () => { layout = { order: [], hidden: [], sizes: {} }; try { localStorage.removeItem('csa-layout'); } catch { /* nothing stored */ } applyLayout(); render(); });
+  pop.append(reset, el('p', 'Drag a card by the dots next to its title to move it, and by its right edge to change its width. Or use the arrows and the width list here.', 'more'));
+  $('layoutMenu').classList.toggle('on', layout.hidden.length > 0 || Object.keys(layout.sizes).length > 0 || layout.order.some((k, i) => DEFAULT_ORDER.filter((d) => layout.order.includes(d))[i] !== k));
 }
 // dragging: the dots in a card's title are the handle
 let dragging = null;
@@ -1278,6 +1294,20 @@ for (const c of board.children) {
   grip.draggable = true; grip.title = 'Drag to move this card'; grip.setAttribute('aria-hidden', 'true'); h.prepend(grip);
   grip.addEventListener('dragstart', (e) => { dragging = c; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.dataset.key); try { e.dataTransfer.setDragImage(c, 24, 24); } catch { /* the browser's own image */ } setTimeout(() => c.classList.add('dragging')); });
   grip.addEventListener('dragend', () => { c.classList.remove('dragging'); dragging = null; saveLayout(); layoutMenu(); render(); });
+}
+// resizing: the right edge of a card. The width snaps to a third, a half, two thirds or the
+// full row, whichever is nearest to where the edge is dragged.
+for (const c of board.children) {
+  const z = el('span', null, 'sizer'); z.title = 'Drag to change the width of this card'; z.setAttribute('aria-hidden', 'true'); c.append(z);
+  const snap = (x) => { const f = (x - c.getBoundingClientRect().left) / board.clientWidth; return f < 0.42 ? 'third' : f < 0.585 ? 'half' : f < 0.83 ? 'twothirds' : 'full'; };
+  z.addEventListener('pointerdown', (e) => {
+    if (e.button) return; e.preventDefault(); z.setPointerCapture(e.pointerId); c.classList.add('sizing');
+    const move = (m) => setSize(c, snap(m.clientX));
+    const up = (m) => { z.removeEventListener('pointermove', move); z.removeEventListener('pointerup', up); z.removeEventListener('pointercancel', up); c.classList.remove('sizing'); layout.sizes[c.dataset.key] = c.dataset.size || snap(m.clientX); setSize(c, layout.sizes[c.dataset.key]); saveLayout(); layoutMenu(); render(); };
+    z.addEventListener('pointermove', move); z.addEventListener('pointerup', up); z.addEventListener('pointercancel', up);
+  });
+  // a double click gives the card its own width back
+  z.addEventListener('dblclick', () => { delete layout.sizes[c.dataset.key]; setSize(c); saveLayout(); layoutMenu(); render(); });
 }
 board.addEventListener('dragover', (e) => {
   if (!dragging) return;
