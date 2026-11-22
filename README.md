@@ -152,8 +152,8 @@ only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
 - `/bin/ulogd` that no package installed, and `/usr/bin/monitord` when it is a copy of
   `/usr/bin/lua` (`backdoor-file`),
 - a changed list of files that a firmware update keeps, when it names those files
-  (`backdoor-keep`). What the backdoor writes there was not posted, so this pattern is our
-  best guess,
+  (`backdoor-keep`): the backdoor appends `/bin/ulogd` and `/etc/init.d/urandom_seed` to
+  `/lib/upgrade/keep.d/netifd`,
 - one of the known server names in the configuration (`backdoor-host`): `adguardns.com`,
   `adguardns.org`, `lede-openproject.org`, `adxinsight.com`, `openwrt-project.org`,
 - a running `monitord` or `ujaild` (`backdoor-proc`).

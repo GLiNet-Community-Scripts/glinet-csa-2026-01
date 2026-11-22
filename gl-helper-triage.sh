@@ -81,8 +81,8 @@ SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 #   /bin/ulogd                compiled Lua, reports the device to a server whose name
 #                             imitates AdGuard and fetches a second program
 #   ujaild                    that second program, run from a deleted file in /tmp
-#   lib/upgrade/keep.d        changed so that it survives firmware updates. What exactly
-#                             is written there was not posted; BD_KEEP_RE is our guess.
+#   lib/upgrade/keep.d/netifd /bin/ulogd and /etc/init.d/urandom_seed are appended, so a
+#                             firmware update carries it over (post 78 of topic 73056)
 # Findings of this family have a kind that starts with "backdoor-". --fix leaves them
 # alone: the second stage runs in memory only and nobody has taken it apart yet, so a
 # "cleaned" would promise more than a script can keep. The answer is a reflash.
