@@ -464,6 +464,8 @@ was also run in check and archive mode on a GL.iNet router with firmware 4.11
 
 This is community work, and not one person's.
 
+- [Admon](https://github.com/Admonstrator) – The script, the report service with its dashboard, and the
+  [advisory page](https://gl-i.net/security/csa-2026-01/)
 - [RemoteToHome Consulting](https://remotetohome.io) – The [analysis of the remote shell](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/router-reverse-shell.md)
   and its cause in the GoodCloud client, the [KVM firmware findings](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/kvm-firmware.md),
   the [recovery steps](https://github.com/RemoteToHome-io/gl-security-incident-2026#if-you-find-something), the look at the attacker's address,
