@@ -211,7 +211,9 @@ only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
   `/usr/bin/lua` (`backdoor-file`),
 - a changed list of files that a firmware update keeps, when it names those files
   (`backdoor-keep`): the backdoor appends `/bin/ulogd` and `/etc/init.d/urandom_seed` to
-  `/lib/upgrade/keep.d/netifd`,
+  `/lib/upgrade/keep.d/netifd`. Not always: on 8 of 28 surveyed routers with the backdoor
+  that file was the firmware's own, with the start-up script, the loader and both processes
+  present, so a missing `backdoor-keep` says nothing about whether the backdoor is there,
 - one of the known server names in the configuration (`backdoor-host`): `adguardns.com`,
   `adguardns.org`, `lede-openproject.org`, `adxinsight.com`, `openwrt-project.org`.
   A line that blocks such a name is no indicator (`backdoor-block`, `INFO`): a hosts

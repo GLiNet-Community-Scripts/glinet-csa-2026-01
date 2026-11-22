@@ -1584,8 +1584,9 @@ recommend() {
 		say "     the device, so the steps below apply even though nothing was installed."
 	fi
 	if [ "$(count_bd)" -gt 0 ]; then
-		say "   ${B}- The older backdoor: reflash the firmware with \"keep settings\" OFF. It survives an${N}"
-		say "   ${B}  update that keeps settings. Do not restore a backup taken from this device.${N}"
+		say "   ${B}- The older backdoor: reflash the firmware with \"keep settings\" OFF. Where it added${N}"
+		say "   ${B}  itself to the keep list it survives an update that keeps settings. Do not restore a${N}"
+		say "   ${B}  backup taken from this device.${N}"
 		say "   - Its second stage runs in memory only. Until the reflash, take the device off the"
 		say "     internet. Known server names, to block in your network: adguardns.com, adguardns.org,"
 		say "     lede-openproject.org, adxinsight.com, openwrt-project.org. Other variants may use others."
