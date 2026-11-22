@@ -101,6 +101,11 @@ This script also detects:
   a command line or in an autostart file (`REVIEW`),
 - connections to the attacker's server that are attempted but not answered: the server
   was suspended on 21 November, so a shell loop that still runs never gets through,
+- Tailscale from the [community Tailscale updater](https://github.com/Admonstrator/glinet-tailscale-updater)
+  is not counted as a change (`INFO updater-file`). The script recognises it without
+  running it: the uncompressed build by its version string (`tiny.by.admon`), the
+  compressed one when the updater's own traces are on the device. Otherwise a replaced
+  `tailscaled` is `REVIEW`, and `tailscaled --version` tells you whose it is,
 - busybox/coreutils applets in the overlay that were replaced by a foreign regular file
   (for example `netstat`), unless a package (apk/opkg) installed the file,
 - running processes started from implant paths or from a replaced applet,

@@ -454,8 +454,34 @@ applet_candidates() {
 	done
 }
 
+# Is this tailscaled the build of the community Tailscale updater (version "...tiny.by.
+# admon...")? The file is only read, never run: asking a program from the overlay who it
+# is means running it as root, and a fake could answer the same. Two ways to tell
+# without that: the uncompressed build carries its version in clear text; the compressed
+# one (UPX) does not, so it counts when the updater's own traces are on the device. A
+# string in a file can be faked too, which is why a match only makes the finding INFO
+# instead of REVIEW: neither is an indicator, and the file stays in the archive.
+own_tailscale() {
+	local f
+	f=$(r usr/sbin/tailscaled)
+	[ -f "$f" ] && [ ! -L "$f" ] || return 1
+	if grep -q 'tiny\.by\.admon' "$f" 2>/dev/null; then
+		echo "the community Tailscale updater's build (its version string is in the file)"
+		return 0
+	fi
+	grep -q 'UPX!' "$f" 2>/dev/null || return 1
+	if { safe "$(r etc/sysupgrade.conf)" && grep -q '^/usr/sbin/tailscaled$' "$(r etc/sysupgrade.conf)" 2>/dev/null; } ||
+		[ -d "$(r root/tailscale_config_backup)" ] ||
+		{ safe "$(r usr/bin/gl_tailscale)" && grep -q 'stateful-filtering=false' "$(r usr/bin/gl_tailscale)" 2>/dev/null; }; then
+		echo "a compressed build, and the community Tailscale updater's traces are on this device"
+		return 0
+	fi
+	return 1
+}
+
 check_applets() {
-	local p up lp owner
+	local p up lp owner ts
+	ts=$(own_tailscale)
 	applet_candidates >"$TMP/cand"
 	while IFS= read -r p; do
 		up=$(src "$p") lp=
@@ -464,6 +490,12 @@ check_applets() {
 		grep -q "${TAB}/$p${TAB}" "$FIND" && continue
 		# without an upper layer only files that differ from an existing base file count
 		if [ -z "$UPPER" ] && ! exists "$lp"; then continue; fi
+		case $p in usr/sbin/tailscale | usr/sbin/tailscaled)
+			if [ -n "$ts" ] && { [ ! -L "$up" ] || case $(readlink "$up") in tailscaled | /usr/sbin/tailscaled) true ;; *) false ;; esac; }; then
+				add INFO updater-file "/$p" "$ts"
+				continue
+			fi ;;
+		esac
 		if [ -L "$up" ]; then
 			if [ -n "$lp" ] && exists "$lp"; then
 				add REVIEW symlink "/$p" "-> $(readlink "$up") (base: $(readlink "$lp" 2>/dev/null || echo file))"
@@ -489,7 +521,7 @@ check_applets() {
 					add IOC applet-hijack "/$p" "regular file shadows base symlink -> $(readlink "$lp")"
 				fi ;;
 			*)
-				add REVIEW replaced-link "/$p" "regular file where the base image has a link -> $(readlink "$lp"); an update of that program can do this" ;;
+				add REVIEW replaced-link "/$p" "regular file where the base image has a link -> $(readlink "$lp"); an update of that program can do this$(case $p in usr/sbin/tailscale*) echo ". If you used the community Tailscale updater, tailscaled --version names it (tiny.by.admon)" ;; esac)" ;;
 			esac
 		elif [ "${p##*/}" = netstat ]; then
 			if grep -q 'busybox netstat' "$up" 2>/dev/null; then
@@ -773,6 +805,7 @@ check_exes() {
 	cut -f1 "$TMP/exes" | sort -u | while IFS= read -r exe; do
 		pids=$(awk -F '\t' -v e="$exe" '$1==e {printf "%s%s", sep, $2; sep=","}' "$TMP/exes")
 		grep -q "^IOC${TAB}applet-hijack${TAB}${exe}${TAB}" "$FIND" && continue
+		grep -q "^INFO${TAB}updater-file${TAB}${exe}${TAB}" "$FIND" && continue
 		case $exe in
 		/tmp/* | /var/* | /run/* | /dev/shm/*)
 			add REVIEW running "$exe" "started from a RAM disk, in neither the base image nor the overlay (pid $pids)"

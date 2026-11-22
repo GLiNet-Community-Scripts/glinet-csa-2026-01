@@ -454,5 +454,25 @@ run "$D" "$OWL" --check >"$D/check.txt"
 expect "one more line of the owner's makes it PERSIST again" 'grep -q "PERSIST  *persistence  */etc/rc.local" "$D/check.txt"'
 umount "$D/m"
 
+echo "=== Tailscale from the community updater is waved through"
+OWS=$BASE/openwrt-rom-ts2
+cp -a "$OWL" "$OWS"; mkdir -p "$OWS/usr/sbin"; echo stock-d >"$OWS/usr/sbin/tailscaled"; echo stock-c >"$OWS/usr/sbin/tailscale"; printf '/etc/config/x\n' >"$OWS/etc/sysupgrade.conf"
+D=$(mkscen tsown "$OWS"); U=$D/u
+mkdir -p "$U/usr/sbin"
+mnt "$D" "$OWS"
+rm "$D/m/usr/sbin/tailscale" "$D/m/usr/sbin/tailscaled"; printf 'ELF 1.104.7-tcbc74fe48-tiny.by.admon.1463 more\n' >"$D/m/usr/sbin/tailscaled"; ln -s /usr/sbin/tailscaled "$D/m/usr/sbin/tailscale"
+run "$D" "$OWS" --check >"$D/check.txt"; rc=$?
+expect "the uncompressed build is recognised by its version string: INFO for both files" '[ $rc = 0 ] && grep -q "INFO  *updater-file  */usr/sbin/tailscaled" "$D/check.txt" && grep -q "INFO  *updater-file  */usr/sbin/tailscale$" "$D/check.txt" && ! grep -q "REVIEW.*tailscale" "$D/check.txt"'
+printf 'ELF UPX! packed\n' >"$D/m/usr/sbin/tailscaled"
+run "$D" "$OWS" --check >"$D/check.txt"
+expect "a compressed build without the updater's traces stays REVIEW" 'grep -q "REVIEW  *modified-binary  */usr/sbin/tailscaled" "$D/check.txt"'
+printf '/etc/config/x\n/usr/sbin/tailscale\n/usr/sbin/tailscaled\n' >"$D/m/etc/sysupgrade.conf"
+run "$D" "$OWS" --check >"$D/check.txt"
+expect "a compressed build with the updater's traces is INFO" 'grep -A1 "INFO  *updater-file  */usr/sbin/tailscaled" "$D/check.txt" | grep -q "compressed build"'
+printf 'ELF something else\n' >"$D/m/usr/sbin/tailscaled"
+run "$D" "$OWS" --check >"$D/check.txt"
+expect "another program at that path is not waved through" 'grep -q "REVIEW  *modified-binary  */usr/sbin/tailscaled" "$D/check.txt" && ! grep -q "updater-file" "$D/check.txt"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]
