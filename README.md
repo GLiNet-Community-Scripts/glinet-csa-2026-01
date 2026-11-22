@@ -132,22 +132,30 @@ Users of GL.iNet's forum found a second backdoor that is not part of GL.iNet's n
 that GL.iNet's quick check does not see
 ([ehidle's report](https://forum.gl-inet.com/t/found-other-malware-while-looking-for-11-20-evidence/73097),
 and posts 26, 63 and 65 of the [notice's thread](https://forum.gl-inet.com/t/2026-11-20-gl-inet-security-notice-goodcloud-kvm-routers/73056)).
-It was reported on a GL-AX1800 (4.8.3) and a GL-X2000 (4.7.13), with files dated December
-2025 and, by one user, since September 2025. How it got onto the devices is not known.
+At least five devices are described so far: two GL-AX1800 (4.8.3), a GL-X2000 (4.7.13),
+a GL-MT3000 (4.11.0) and one whose model was not given, with files dated from October 2025 to March 2026; one user says since
+September 2025. A second GL-AX1800 with the same firmware, also on GoodCloud, was clean.
+How it got onto the devices is not known.
+
+The changed `urandom_seed` is the same file on three of them (sha256 `3265f27f…fc19`).
+`/bin/ulogd` differs from device to device, four hashes on four devices, so its hash is
+no use as an indicator. The server names are not readable in it: acs
+[decoded them](https://forum.gl-inet.com/t/found-other-malware-while-looking-for-11-20-evidence/73097/2) from one variant, and nick2's
+[write-up](https://forum.gl-inet.com/t/found-other-malware-while-looking-for-11-20-evidence/73097/6) compares an infected router with a clean one of the same kind.
 
 It starts at every boot from a changed `/etc/init.d/urandom_seed`, reports the device to
-a server whose name imitates AdGuard and gets a second program back that runs in memory
+a server whose name imitates AdGuard or OpenWrt and gets a second program back that runs in memory
 only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
 
 - an init script from outside a package that names `monitord`, `/bin/ulogd` or `ujaild`
   and differs from the base image (`backdoor-init`),
 - `/bin/ulogd` that no package installed, and `/usr/bin/monitord` when it is a copy of
-  `/usr/bin/lua` (`backdoor-file`). For `/bin/ulogd` it says whether the file is the one
-  from the report (sha256 `c5e87c80…7d06`); another hash is still an indicator,
+  `/usr/bin/lua` (`backdoor-file`),
 - a changed list of files that a firmware update keeps, when it names those files
   (`backdoor-keep`). What the backdoor writes there was not posted, so this pattern is our
   best guess,
-- `adguardns.com` or `adguardns.org` in the configuration (`backdoor-host`),
+- one of the known server names in the configuration (`backdoor-host`): `adguardns.com`,
+  `adguardns.org`, `lede-openproject.org`, `adxinsight.com`, `openwrt-project.org`,
 - a running `monitord` or `ujaild` (`backdoor-proc`).
 
 A request for one of those names in AdGuard Home's query log is `REVIEW`: it shows that
@@ -446,7 +454,7 @@ This is community work, and not one person's.
   which the report uses. Their [findings list](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/findings.md) says for
   every item how it was checked.
 - kosrkosr and TakashiSasaki – The first two reports of the remote shell in GL.iNet's forum
-- ehidle, and the authors of posts 26, 63 and 65 in the notice's thread – The older backdoor
+- ehidle, acs, ikangshen, nick2 and the authors of posts 26, 63 and 65 in the notice's thread – The older backdoor
   in `urandom_seed` and `/bin/ulogd`, with its signs and the hash of the loader
 - AdamK – The connection and process checks
 - Everyone who sent an anonymous report or posted their output in the forum

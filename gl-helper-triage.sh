@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.14
+VERSION=2.15
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -74,6 +74,8 @@ SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 # A second, older backdoor that is not part of GL.iNet's notice of 2026-11-20. Users of
 # GL.iNet's forum found it on a GL-AX1800 (4.8.3) and a GL-X2000 (4.7.13), dated back to
 # 2025 (topic 73097 by ehidle; posts 26, 63 and 65 of the notice's topic 73056):
+# Since then confirmed in that topic on a GL-MT3000 (4.11.0) and a second GL-AX1800,
+# with dates from October 2025 to March 2026.
 #   /etc/init.d/urandom_seed  extra lines at the top: copy /usr/bin/lua to
 #                             /usr/bin/monitord, run /bin/ulogd with it
 #   /bin/ulogd                compiled Lua, reports the device to a server whose name
@@ -84,10 +86,13 @@ SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 # Findings of this family have a kind that starts with "backdoor-". --fix leaves them
 # alone: the second stage runs in memory only and nobody has taken it apart yet, so a
 # "cleaned" would promise more than a script can keep. The answer is a reflash.
-BD_RE='monitord|/bin/ulogd|ujaild|adguardns'
+BD_RE='monitord|/bin/ulogd|ujaild|adguardns|lede-openproject|adxinsight|openwrt-project'
 BD_KEEP_RE='ulogd|monitord|urandom_seed|ujaild'
-BD_HOST_RE='adguardns\.(com|org)'
-BD_ULOGD_SHA=c5e87c80f76415f399ce4d1644f5ddc3c8b46bbb2e698b3e05f49a1f7dcd7d06
+# Server names decoded from two variants of the loader (ehidle, acs). Other variants may
+# use other names: /bin/ulogd differs from device to device, four hashes on four devices.
+BD_HOST_RE='adguardns\.(com|org)|lede-openproject\.org|adxinsight\.com|openwrt-project\.org'
+# The changed urandom_seed, the same file on three reported devices (X2000, MT3000, AX1800)
+BD_INIT_SHA=3265f27feb954744581cdea2373b88ceae9d85b67e90487353fd48902cf4fc19
 BD_HOST_PATHS="etc/hosts etc/config etc/dnsmasq.conf etc/dnsmasq.d etc/rc.local etc/crontabs etc/init.d etc/hotplug.d"
 BD_LOG_PATHS="etc/AdGuardHome/data/querylog.json etc/AdGuardHome/data/querylog.json.1 tmp/AdGuardHome/data/querylog.json"
 FULL_UPPER_MAX_KB=65536
@@ -319,18 +324,17 @@ check_backdoor() {
 			grep -qE "$BD_RE" "$f" 2>/dev/null || continue
 			same_as_lower "$p" && continue
 			[ -n "$(pkg_owner "/$p")" ] && continue
-			add IOC backdoor-init "/$p" "older backdoor: starts $(grep -oE "$BD_RE" "$f" | sort -u | tr '\n' ' ' | sed 's/ $//') at boot"
+			sha=
+			[ "$(sha256sum "$f" 2>/dev/null | cut -c1-64)" = "$BD_INIT_SHA" ] && sha=", the same file as on other reported devices"
+			add IOC backdoor-init "/$p" "older backdoor: starts $(grep -oE "$BD_RE" "$f" | sort -u | tr '\n' ' ' | sed 's/ $//') at boot$sha"
 		done
 	fi
 	# 2. its loader. The real ulogd is a package and lives in /usr/sbin.
 	f=$(r bin/ulogd)
 	if [ -f "$f" ] && [ ! -L "$f" ] && [ -z "$(pkg_owner /bin/ulogd)" ] && { [ -z "$LOWER" ] || ! exists "$(l bin/ulogd)"; }; then
 		sha=$(sha256sum "$f" 2>/dev/null | cut -c1-64)
-		if [ "$sha" = "$BD_ULOGD_SHA" ]; then
-			add IOC backdoor-file /bin/ulogd "older backdoor: the loader, same file as reported in the forum (sha256 $sha)"
-		else
-			add IOC backdoor-file /bin/ulogd "older backdoor: a loader at this path, not from a package (sha256 ${sha:-unreadable}, differs from the reported one)"
-		fi
+		# no known hash to compare with: the file differs from device to device
+		add IOC backdoor-file /bin/ulogd "older backdoor: its loader, not from a package (sha256 ${sha:-unreadable})"
 	fi
 	# 3. the Lua interpreter under another name
 	f=$(r usr/bin/monitord)
@@ -360,7 +364,7 @@ check_backdoor() {
 	for p in $BD_LOG_PATHS; do
 		f=$(r "$p")
 		[ -f "$f" ] && grep -qE "$BD_HOST_RE" "$f" 2>/dev/null &&
-			add REVIEW backdoor-dns "/$p" "a device in this network asked for a server of the older backdoor (adguardns.com / adguardns.org)"
+			add REVIEW backdoor-dns "/$p" "a device in this network asked for a server of the older backdoor ($(grep -oE "$BD_HOST_RE" "$f" | sort -u | head -n 4 | tr '\n' ' ' | sed 's/ $//'))"
 	done
 	return 0
 }
@@ -1113,7 +1117,8 @@ recommend() {
 		say "   ${B}- The older backdoor: reflash the firmware with \"keep settings\" OFF. It survives an${N}"
 		say "   ${B}  update that keeps settings. Do not restore a backup taken from this device.${N}"
 		say "   - Its second stage runs in memory only. Until the reflash, take the device off the"
-		say "     internet, and block adguardns.com and adguardns.org in your network."
+		say "     internet. Known server names, to block in your network: adguardns.com, adguardns.org,"
+		say "     lede-openproject.org, adxinsight.com, openwrt-project.org. Other variants may use others."
 		say "   - It may have been there for months: treat every password and key on it as copied."
 	fi
 	case $PLATFORM in

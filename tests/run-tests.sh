@@ -281,7 +281,7 @@ backdoor() { # upper dir
 D=$(mkscen bd "$OWL"); U=$D/u
 backdoor "$U"
 mkdir -p "$U/etc/AdGuardHome/data"; echo '{"QH":"up.adguardns.org"}' >"$U/etc/AdGuardHome/data/querylog.json"
-echo '1.2.3.4 cdn.adguardns.com' >"$U/etc/hosts"
+echo '1.2.3.4 cdn.lede-openproject.org' >"$U/etc/hosts"
 mnt "$D" "$OWL"
 run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
 expect "backdoor only: exit 1 and its own verdict" '[ $rc = 1 ] && grep -q "Verdict: INFECTED - older backdoor" "$D/check.txt" && grep -q "no gl-helper indicators found" "$D/check.txt"'
