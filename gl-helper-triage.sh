@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.23
+VERSION=2.24
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1462,7 +1462,7 @@ jlines() { while IFS= read -r line; do printf '%s,' "$(jtxt "$line" "${1:-300}")
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
 build_report() {
-	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid n revs sha gc aw ssize
+	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid n revs sha gc aw ssize mt ct pid
 	# Device ID: the hardware address of the first network interface, hashed. The address
 	# itself never leaves the device.
 	devid=''
@@ -1553,31 +1553,41 @@ build_report() {
 	# can be seen before anyone knows it is one (the older backdoor stood there for a day).
 	# Kind and path only, never the description: that can hold addresses, command lines
 	# and account names. For a file its fingerprint, which shows whether two devices have
-	# the same file or only the same path. A process is sent as its kind alone, a
+	# the same file or only the same path, and its two times (schema 7): when it was written
+	# and when the kernel last changed its entry, which cannot be set back. A process is sent as its kind alone, a
 	# connection as the program that holds it, a deleted program as its path.
 	: >"$TMP/revlines"
 	revs=$(awk -F '\t' '$1=="REVIEW" {
-			p = $3
+			p = $3; pid = ""
 			if ($2 == "process") p = ""
 			else if ($2 == "connection") { sub(/^[0-9]*\//, "", p) }
-			else if ($2 == "deleted-exe") { p = ""; if (match($4, /exe=.*/)) p = substr($4, RSTART + 4) }
-			print $2 "\t" p
+			else if ($2 == "deleted-exe") { pid = $3; p = ""; if (match($4, /exe=.*/)) p = substr($4, RSTART + 4) }
+			print $2 "\t" p "\t" pid
 		}' "$FIND" | sort -u | head -n 40 |
-		while IFS="$TAB" read -r kind f; do
-			sha=''
+		while IFS="$TAB" read -r kind f pid; do
+			sha='' mt='' ct=''
 			case $f in /*)
-				if [ -f "$(r "${f#/}")" ] && [ ! -L "$(r "${f#/}")" ] && [ "$(cat "$(r "${f#/}")" 2>/dev/null | wc -c)" -le 5242880 ]; then
-					sha=$(sha256sum "$(r "${f#/}")" 2>/dev/null | cut -c1-64)
+				n=$(r "${f#/}")
+				if [ -n "$pid" ]; then
+					# a program that runs from a deleted file: the kernel still has it
+					[ "$(cat "/proc/$pid/exe" 2>/dev/null | wc -c)" -le 20971520 ] && sha=$(sha256sum "/proc/$pid/exe" 2>/dev/null | cut -c1-64)
+				elif [ -L "$n" ] || [ -e "$n" ]; then
+					# the time the kernel last changed the entry, also for a link or a directory
+					ct=$(file_ctime "$n")
+					if [ -f "$n" ] && [ ! -L "$n" ]; then
+						mt=$(file_time "$n")
+						[ "$(cat "$n" 2>/dev/null | wc -c)" -le 5242880 ] && sha=$(sha256sum "$n" 2>/dev/null | cut -c1-64)
+					fi
 				fi ;;
 			esac
 			printf '%s  %s\n' "$kind" "$f" >>"$TMP/revlines"
-			printf '{"kind": %s, "path": %s, "sha256": %s},' "$(jstr "$kind" 24)" "$(jstr "$f" 160)" "$(jstr "$sha")"
+			printf '{"kind": %s, "path": %s, "sha256": %s, "mtime": %s, "ctime": %s},' "$(jstr "$kind" 24)" "$(jstr "$f" 160)" "$(jstr "$sha")" "$(jstr "$mt")" "$(jstr "$ct")"
 		done | sed 's/,$//')
 	gc=$(goodcloud_state); aw=off; astrowarp_on && aw=on
 	ssize=-1; safe "$(r etc/mp_ip_mapping_info)" && ssize=$(cat "$(r etc/mp_ip_mapping_info)" 2>/dev/null | wc -c | tr -d ' ')
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 6,
+"schema": 7,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -1654,7 +1664,7 @@ offer_report() {
 		ysay "If one of them is a password or token of yours, do not send."
 	fi
 	if [ -s "$TMP/revlines" ]; then
-		ysay "And what was listed for review, as kind and path, with a fingerprint for files:"
+		ysay "And what was listed for review, as kind and path, with fingerprint and times for files:"
 		sed 's/^/        /' "$TMP/revlines" >&3
 		ysay "If a path here says more about you than you want to share, do not send."
 	fi

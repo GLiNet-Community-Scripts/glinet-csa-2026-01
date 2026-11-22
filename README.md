@@ -349,7 +349,9 @@ and size of the cloud handler's state file, and whether GoodCloud and AstroWarp 
 switched on, with the version of the cloud client.
 
 Since 2.23 it also carries what the script listed for `REVIEW`: for each finding its kind
-and path, and for a file its SHA-256, at most 40. Not the description, which can hold
+and path, at most 40, and for a file its SHA-256 and its two times (written, and
+changed on the device; since 2.24). A program that runs from a deleted file is
+fingerprinted from the copy the kernel still holds. Not the description, which can hold
 addresses, command lines and account names: a process is sent as its kind alone, a
 connection as the name of the program that holds it. These are not known traces. They
 are sent so that a pattern across devices can be seen early: the older backdoor stood in
