@@ -5,7 +5,7 @@
 
 import { DASHBOARD } from './dashboard.js';
 
-const MAX_BYTES = 24576;
+const MAX_BYTES = 49152;
 const SAFE = /^[A-Za-z0-9 ._:\/+@=,()-]*$/;
 const TIME = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)?$/;
 
@@ -16,7 +16,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5,
+  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5 || v === 6,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -62,6 +62,17 @@ const FIELDS_V4 = { ...FIELDS_V3, device_id: (v) => typeof v === 'string' && /^(
 // changed the file's entry. touch and tar can set the written time back, not this one.
 const FIELDS_V5 = { ...FIELDS_V4, files: list(12, isFileOf({ ...FILE, ctime: time })) };
 
+// Since script 2.23 (schema 6): what the script listed for review, as kind and path with
+// a fingerprint for files, so that a pattern across devices shows up; whether GoodCloud
+// and AstroWarp are switched on; and the size of the cloud handler's state file (-1: no
+// such file). An empty state file is what the attack leaves.
+const onoff = (v) => v === 'on' || v === 'off' || v === 'unknown';
+const isReview = isFileOf({ kind: str(24), path: str(160), sha256: FILE.sha256 });
+const FIELDS_V6 = {
+  ...FIELDS_V5, goodcloud: onoff, cloud_client: str(32), astrowarp: onoff,
+  state_file_size: (v) => Number.isInteger(v) && v >= -1 && v <= 1e9, review_items: list(40, isReview),
+};
+
 async function sealDeviceId(env, id) {
   if (!env.DEVICE_SALT || !id) return '';
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DEVICE_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -74,7 +85,7 @@ const text = (body, status = 200) =>
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  const fields = report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
+  const fields = report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
   for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
   for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;

@@ -61,7 +61,7 @@ if (process.argv[2] === 'serve') {
   expect('refuses a missing field', (await call('POST', JSON.stringify({ ...good, model: undefined }))).status === 400);
   expect('refuses odd characters', (await call('POST', JSON.stringify({ ...good, model: '<script>' }))).status === 400);
   expect('refuses a long list', (await call('POST', JSON.stringify({ ...good, findings: Array(41).fill('x') }))).status === 400);
-  expect('refuses a large body', (await call('POST', 'x'.repeat(25000))).status === 413);
+  expect('refuses a large body', (await call('POST', 'x'.repeat(50000))).status === 413);
   expect('a schema 3 report is valid', validate(good3) === null && validate({ ...good3, persistence: [], fw_rules: [], commands: [] }) === null);
   expect('schema 2 must not carry schema 3 fields', validate({ ...good2, commands: [] }) !== null);
   expect('refuses control characters in free text', validate({ ...good3, commands: ['a\u0007b'] }) !== null && validate({ ...good3, fw_rules: ['a\nb'] }) !== null);
@@ -172,6 +172,14 @@ if (process.argv[2] === 'serve') {
   expect('a schema 5 report is valid, with or without a ctime', validate(good5) === null && validate({ ...good5, files: [{ ...file, ctime: '' }] }) === null);
   expect('schema 5 needs the ctime, schema 4 must not carry it', validate({ ...good5, files: [file] }) !== null && validate({ ...good4, files: good5.files }) !== null);
   expect('refuses a ctime that is not a time', validate({ ...good5, files: [{ ...file, ctime: '<b>' }] }) !== null);
+  // the dashboard's own script must at least parse: a syntax error leaves an empty page
+  { const { DASHBOARD } = await import('../src/dashboard.js'); let ok = true; try { new Function(DASHBOARD.match(/<script>([\s\S]*)<\/script>/)[1]); } catch { ok = false; } expect('the dashboard script parses', ok); }
+  // review items, GoodCloud, state file size (schema 6)
+  const good6 = { ...good5, schema: 6, tool: '2.23', goodcloud: 'on', cloud_client: '1.2.3-4', astrowarp: 'off', state_file_size: 0, review_items: [{ kind: 'changed', path: '/etc/init.d/urandom_seed', sha256: 'b'.repeat(64) }, { kind: 'process', path: '', sha256: '' }] };
+  expect('a schema 6 report is valid, also without a state file or review items', validate(good6) === null && validate({ ...good6, state_file_size: -1, review_items: [], goodcloud: 'unknown', cloud_client: '' }) === null);
+  expect('schema 6 needs its fields, schema 5 must not carry them', validate({ ...good5, schema: 6 }) !== null && validate({ ...good5, review_items: [] }) !== null);
+  expect('refuses review items with a description or with markup', validate({ ...good6, review_items: [{ kind: 'changed', path: '/x', sha256: '', detail: 'x' }] }) !== null && validate({ ...good6, review_items: [{ kind: 'changed', path: '<script>', sha256: '' }] }) !== null);
+  expect('refuses more than 40 review items and an unknown GoodCloud state', validate({ ...good6, review_items: Array(41).fill(good6.review_items[0]) }) !== null && validate({ ...good6, goodcloud: 'maybe' }) !== null);
   await call('POST', JSON.stringify(good4));
   expect('without the secret the id is dropped', lastReport().device_id === '');
   env.DEVICE_SALT = 'test-salt';

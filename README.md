@@ -300,7 +300,7 @@ Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomp
 
 The head of the report appears at once. It includes whether GoodCloud is switched on
 now, with the version of its client; that is the setting at the time of the check, not
-during the attack, and it is not part of the anonymous report yet. While the checks run, a line shows which of the
+during the attack. While the checks run, a line shows which of the
 nine steps is in progress. The report groups its findings by label and ends with a summary and a verdict. The copy
 in the evidence archive is always plain text.
 
@@ -339,8 +339,19 @@ its start time, the remote port and the time of its pipe. For the implant's own 
 for replaced system tools it adds the SHA-256, size and two times of the file: when it
 was last written (mtime) and when the kernel last changed its entry (ctime). The first
 can come with the file, from an archive or a copy, or be set back with `touch`; the second
-cannot, so the two together show when the file really arrived. It also gives the time of
-the cloud handler's state file.
+cannot, so the two together show when the file really arrived. It also gives the time
+and size of the cloud handler's state file, and whether GoodCloud and AstroWarp are
+switched on, with the version of the cloud client.
+
+Since 2.23 it also carries what the script listed for `REVIEW`: for each finding its kind
+and path, and for a file its SHA-256, at most 40. Not the description, which can hold
+addresses, command lines and account names: a process is sent as its kind alone, a
+connection as the name of the program that holds it. These are not known traces. They
+are sent so that a pattern across devices can be seen early: the older backdoor stood in
+people's `REVIEW` lists for a day before anyone named it. The paths are shown before the
+question, because a path of your own can say something about you. Their combination is
+also fairly particular to a device, so two reports from it can be told to belong together
+even with `--no-device-id`.
 
 When indicators were found, it also contains what the attacker left, as text:
 
@@ -534,6 +545,8 @@ This is community work, and not one person's.
 - ehidle, acs, ikangshen, nick2 and the authors of posts 26, 63 and 65 in the notice's thread – The older backdoor
   in `urandom_seed` and `/bin/ulogd`, with its signs and the hash of the loader
 - AdamK – The connection and process checks
+- ehidle – The evidence of the attack on a GL-BE9300: that the recovered command only looked for the
+  malware, and that the cloud handler's state file is a trace that survives a restart
 - rdizzie – Read the malware's installer and posted what it does and where it puts its files
 - [joska252](https://github.com/joska252) – Found that the archive contained password hashes and private keys, and that
   changed files of the base image's own packages were skipped, and that a named pipe could hang the script

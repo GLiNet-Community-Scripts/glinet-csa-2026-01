@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.22
+VERSION=2.23
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -524,6 +524,11 @@ check_persist() {
 		fi
 		if grep -qE "$IOC_RE" "$f" 2>/dev/null; then
 			add IOC persist-ref "/$p" "references gl-helper paths"
+		elif [ "$p" = etc/rc.local ] && ! { if [ -n "$LOWER" ] && [ -f "$(l "$p")" ]; then grep -vxFf "$(l "$p")" "$f"; else cat "$f"; fi 2>/dev/null |
+			sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -vE '^(#.*)?$' | grep -qvxF -e 'exit 0' -e '. /lib/functions/gl_util.sh' -e 'remount_ubifs'; }; then
+			# GL.iNet's firmware writes these lines into rc.local itself on some models; a
+			# file that differs from the base image by nothing else is not a change of yours
+			add INFO firmware-lines "/$p" "differs from the base image only by lines the firmware writes itself (gl_util.sh, remount_ubifs)"
 		else
 			add PERSIST persistence "/$p" "present in overlay ($(grep -cvE '^[[:space:]]*(#|$)' "$f" 2>/dev/null) active lines)$(grep -qE "$KVM_RE" "$f" 2>/dev/null && echo '; names an address or name reported for the malware on a KVM')"
 		fi
@@ -983,7 +988,7 @@ report() { report_head; report_body; }
 
 # GoodCloud as it is set now, and the version of its client. GL.iNet staff says the main
 # question is whether it was connected when the commands went out; this shows only the
-# setting at the time of the check. Printed, not part of the anonymous report yet.
+# setting at the time of the check.
 goodcloud_state() {
 	local f st=unknown v
 	f=$(r etc/config/gl-cloud)
@@ -1424,7 +1429,7 @@ jlines() { while IFS= read -r line; do printf '%s,' "$(jtxt "$line" "${1:-300}")
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
 build_report() {
-	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid n
+	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid n revs sha gc aw ssize
 	# Device ID: the hardware address of the first network interface, hashed. The address
 	# itself never leaves the device.
 	devid=''
@@ -1511,9 +1516,35 @@ build_report() {
 		fi
 		cmds=$(grep "^IOC${TAB}process${TAB}" "$FIND" | sed -n 's/.* cmd=//p' | sort -u | head -n 5 | jlines 400)
 	fi
+	# Since schema 6: what the script listed for review, so that a pattern across devices
+	# can be seen before anyone knows it is one (the older backdoor stood there for a day).
+	# Kind and path only, never the description: that can hold addresses, command lines
+	# and account names. For a file its fingerprint, which shows whether two devices have
+	# the same file or only the same path. A process is sent as its kind alone, a
+	# connection as the program that holds it, a deleted program as its path.
+	: >"$TMP/revlines"
+	revs=$(awk -F '\t' '$1=="REVIEW" {
+			p = $3
+			if ($2 == "process") p = ""
+			else if ($2 == "connection") { sub(/^[0-9]*\//, "", p) }
+			else if ($2 == "deleted-exe") { p = ""; if (match($4, /exe=.*/)) p = substr($4, RSTART + 4) }
+			print $2 "\t" p
+		}' "$FIND" | sort -u | head -n 40 |
+		while IFS="$TAB" read -r kind f; do
+			sha=''
+			case $f in /*)
+				if [ -f "$(r "${f#/}")" ] && [ ! -L "$(r "${f#/}")" ] && [ "$(cat "$(r "${f#/}")" 2>/dev/null | wc -c)" -le 5242880 ]; then
+					sha=$(sha256sum "$(r "${f#/}")" 2>/dev/null | cut -c1-64)
+				fi ;;
+			esac
+			printf '%s  %s\n' "$kind" "$f" >>"$TMP/revlines"
+			printf '{"kind": %s, "path": %s, "sha256": %s},' "$(jstr "$kind" 24)" "$(jstr "$f" 160)" "$(jstr "$sha")"
+		done | sed 's/,$//')
+	gc=$(goodcloud_state); aw=off; astrowarp_on && aw=on
+	ssize=-1; safe "$(r etc/mp_ip_mapping_info)" && ssize=$(cat "$(r etc/mp_ip_mapping_info)" 2>/dev/null | wc -c | tr -d ' ')
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 5,
+"schema": 6,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -1533,6 +1564,11 @@ build_report() {
 "persistence": [$persist],
 "fw_rules": [$rules],
 "commands": [$cmds],
+"goodcloud": $(jstr "${gc%% *}" 8),
+"cloud_client": $(jstr "$(printf '%s' "$gc" | sed -n 's/.*(gl-sdk4-cloud \(.*\))$/\1/p')" 32),
+"astrowarp": $(jstr "$aw" 8),
+"state_file_size": ${ssize:--1},
+"review_items": [$revs],
 "device_id": $(jstr "$devid")
 }
 EOF
@@ -1584,7 +1620,13 @@ offer_report() {
 		sed 's/^/        /' "$TMP/rlines" >&3
 		ysay "If one of them is a password or token of yours, do not send."
 	fi
-	ysay "Not sent: host name, IP or MAC addresses, keys, any other file."
+	if [ -s "$TMP/revlines" ]; then
+		ysay "And what was listed for review, as kind and path, with a fingerprint for files:"
+		sed 's/^/        /' "$TMP/revlines" >&3
+		ysay "If a path here says more about you than you want to share, do not send."
+	fi
+	ysay "And whether GoodCloud and AstroWarp are switched on."
+	ysay "Not sent: host name, IP or MAC addresses, keys, the content of any other file."
 	if [ "$REPORT" != yes ]; then
 		if [ -t 0 ] && [ -t 3 ]; then
 			while :; do

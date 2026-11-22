@@ -442,5 +442,17 @@ expect "--fix strips only the malware's lines from crontab and authorized_keys" 
 expect "--fix leaves rtty_conf alone and says so (exit $rc)" '[ $rc = 2 ] && grep -q "65.20.71.131" "$D/m/etc/rtty_conf" && grep -q "rtty_conf still names" "$D/fix.txt"'
 umount "$D/m"
 
+echo "=== rc.local with only the firmware's own lines is not a change"
+D=$(mkscen rcl "$OWL"); U=$D/u
+mkdir -p "$U/etc"
+printf '# Put your custom commands here\n\n  . /lib/functions/gl_util.sh\n  remount_ubifs\n\nexit 0\n' >"$U/etc/rc.local"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "gl_util.sh and remount_ubifs = INFO, no PERSIST, exit 0" '[ $rc = 0 ] && grep -q "INFO  *firmware-lines  */etc/rc.local" "$D/check.txt" && grep -q "PERSIST=0" "$D/check.txt"'
+echo '/root/mine.sh &' >>"$D/m/etc/rc.local"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "one more line of the owner's makes it PERSIST again" 'grep -q "PERSIST  *persistence  */etc/rc.local" "$D/check.txt"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]
