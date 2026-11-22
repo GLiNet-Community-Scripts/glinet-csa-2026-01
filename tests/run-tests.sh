@@ -546,5 +546,33 @@ run "$D" "$OWL" --check >"$D/check.txt"
 expect "WireGuard server config written seconds after the loader is noted" 'grep -A1 "REVIEW  *backdoor-wg  */etc/config/wireguard_server" "$D/check.txt" | grep -q "written 11 s after"'
 umount "$D/m"
 
+echo "=== the report's note (--note)"
+# The report is only built on a live device (--root /), so the script runs as / of a
+# chroot that holds nothing but a static busybox: its ash, as on a router. Nothing is
+# sent: stdin is not a terminal, and the address points nowhere.
+BB=$(command -v busybox)
+if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
+	L=$BASE/live; mkdir -p "$L/bin" "$L/tmp" "$L/dev"; cp "$BB" "$L/bin/busybox"; cp "$T" "$L/t.sh"; : >"$L/dev/null"
+	mount --bind /dev/null "$L/dev/null"; chroot "$L" /bin/busybox --install -s /bin
+	live() { GL_TRIAGE_REPORT_URL=http://127.0.0.1:9/ chroot "$L" /bin/sh /t.sh --no-device-id "$@" </dev/null 2>&1; }
+	live --show-report --note 'fleet-a 2026-11-22 after clean-up (repeat)' >"$L/show.txt"
+	expect "the note and schema 9 are in the report" 'grep -q "^   \"schema\": 9,$" "$L/show.txt" && grep -q "^   \"note\": \"fleet-a 2026-11-22 after clean-up (repeat)\",$" "$L/show.txt"'
+	live --show-report --note "$(printf 'a;b"c\\d$e<\303\251>f\tg')" >"$L/show.txt"
+	expect "characters jstr does not allow are dropped from the note" 'grep -q "\"note\": \"abcdefg\",$" "$L/show.txt"'
+	X=$(head -c 130 /dev/zero | tr '\0' x); live --show-report --note "$X" >"$L/show.txt"
+	expect "the note is cut at 120 characters" 'grep -q "\"note\": \"${X%??????????}\",$" "$L/show.txt"'
+	live --show-report >"$L/show.txt"
+	expect "without --note the note is empty" 'grep -q "\"note\": \"\",$" "$L/show.txt"'
+	live --note 'fleet-a, repeat' >"$L/ask.txt"
+	expect "the summary before sending prints the note word for word" 'grep -A1 "And your note, as it will be sent:" "$L/ask.txt" | grep -qx "        fleet-a, repeat" && grep -q "Not sent" "$L/ask.txt"'
+	live >"$L/ask.txt"
+	expect "without a note the summary does not mention one" '! grep -q "your note" "$L/ask.txt" && grep -q "Not sent" "$L/ask.txt"'
+	live --note >"$L/err.txt"; rc=$?
+	expect "--note without a text is an error, exit 4" '[ $rc = 4 ] && grep -q "ERROR: --note needs a text" "$L/err.txt"'
+	umount "$L/dev/null"
+else
+	echo "  SKIP: needs a statically linked busybox"
+fi
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

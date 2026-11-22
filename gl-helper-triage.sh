@@ -18,7 +18,8 @@
 # prints the complete report and sends nothing. The report carries a device ID so that
 # several reports from one device count once: a hash of a hardware address, never the
 # address itself, and the server hashes it again with a secret before it stores it.
-# --no-device-id leaves it out.
+# --no-device-id leaves it out. --note TEXT adds a short note of your own (where the
+# report comes from, before or after a clean-up, a repeat); it is shown before sending.
 #
 # Output is coloured on a terminal. --color forces colours (e.g. through ssh without a
 # tty), --no-color or NO_COLOR=1 turns them off. The report in the archive is plain text.
@@ -42,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.33
+VERSION=2.34
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 10:05 UTC'
+RELEASED='2026-11-22 10:11 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -146,7 +147,7 @@ BD_LOG_PATHS="etc/AdGuardHome/data/querylog.json etc/AdGuardHome/data/querylog.j
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
-SECRETS=0 MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask DEVICE_ID=1
+SECRETS=0 MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask DEVICE_ID=1 NOTE=''
 REPORT_URL=${GL_TRIAGE_REPORT_URL:-https://app.gl-i.net/csa-2026-01-report}
 
 usage() {
@@ -165,6 +166,8 @@ gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" impla
   --no-report          never offer to send a report
   --show-report        print the complete report and send nothing
   --no-device-id       leave the device ID out of the report
+  --note TEXT          a note of your own in the report, at most 120 characters of
+                       letters, digits, spaces and ._:/+@=,()-
   --with-secrets       keep the private keys and passwords the script would otherwise take
                        out of the archive (/etc/shadow is never included)
   --root/--upper/--lower DIR   override merged root, overlay upper and base image
@@ -202,6 +205,7 @@ while [ $# -gt 0 ]; do
 	--with-secrets) SECRETS=1 ;;
 	-o | --out) [ $# -ge 2 ] || die "$1 needs a directory"; OUTDIR=$2; shift ;;
 	--root) [ $# -ge 2 ] || die "$1 needs a directory"; ROOT=$2; shift ;;
+	--note) [ $# -ge 2 ] || die "$1 needs a text"; NOTE=$2; shift ;;
 	--upper) [ $# -ge 2 ] || die "$1 needs a directory"; UPPER=$2; UPPER_SET=1; shift ;;
 	--lower) [ $# -ge 2 ] || die "$1 needs a directory"; LOWER=$2; LOWER_SET=1; shift ;;
 	-h | --help) usage; exit 0 ;;
@@ -1723,7 +1727,7 @@ build_report() {
 	ssize=-1; safe "$(r etc/mp_ip_mapping_info)" && ssize=$(cat "$(r etc/mp_ip_mapping_info)" 2>/dev/null | wc -c | tr -d ' ')
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 8,
+"schema": 9,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -1751,6 +1755,7 @@ build_report() {
 "astrowarp": $(jstr "$aw" 8),
 "state_file_size": ${ssize:--1},
 "review_items": [$revs],
+"note": $(jstr "$NOTE" 120),
 "device_id": $(jstr "$devid")
 }
 EOF
@@ -1772,7 +1777,7 @@ send_report() {
 # few lines what the report holds. The lines taken from the user's own files and firewall
 # are always shown word for word: they are the only part that can hold a secret of theirs.
 offer_report() {
-	local answer n ioc extra
+	local answer n ioc extra note
 	[ "$LIVE" = 1 ] && [ "$REPORT" != no ] && [ -s "$TMP/report.json" ] || return 0
 	if [ "$REPORT" = show ]; then
 		section "Anonymous report (not sent)"
@@ -1797,6 +1802,12 @@ offer_report() {
 		[ -n "$extra" ] && ysay "Also: ${extra#, }."
 	fi
 	grep -q '^"device_id": "..*"$' "$TMP/report.json" && ysay "And a device ID (a hash, not an address), so repeated reports count once."
+	# the note leaves the device: show it as the report holds it, after jstr's filter
+	note=$(sed -n 's/^"note": "\(.*\)",$/\1/p' "$TMP/report.json")
+	if [ -n "$note" ]; then
+		ysay "And your note, as it will be sent:"
+		printf '        %s\n' "$note" >&3
+	fi
 	if [ -s "$TMP/rlines" ]; then
 		ysay "And these lines from your autostart files (rc.local in full) and firewall:"
 		sed 's/^/        /' "$TMP/rlines" >&3

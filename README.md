@@ -311,6 +311,7 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 | `--fix [-o DIR]` | Archive first (aborts if that fails), then remediate and re-check |
 | `--report`, `--no-report`, `--show-report` | Send the anonymous report without asking, never offer it, or print it without sending. See below. |
 | `--no-device-id` | Leave the device ID out of the report. |
+| `--note TEXT` | Add a note of your own to the report, for example where it comes from or whether the device was checked before or after a clean-up. At most 120 characters; only letters, digits, spaces and `._:/+@=,()-` are kept. |
 | `--with-secrets` | Keep the private keys and passwords that the script would otherwise take out of the evidence archive. |
 | `--color`, `--no-color` | Force or disable coloured output. By default colours are used only on a terminal; `NO_COLOR=1` also turns them off. |
 
@@ -375,6 +376,11 @@ bound to a GoodCloud account and whether remote SSH and the remote web interface
 through the cloud are on: yes, no or unknown each, never the account's name or address.
 People ask whether a device that was only bound, with remote access off, was at risk;
 these three answers let the reports say.
+
+Since 2.34 it carries the note given with `--note`, empty without one. It is for people
+who report many devices, to say where a report comes from, whether the device was
+checked before or after a clean-up, or that it is a repeat. The script prints the note
+as it will be sent before it asks.
 
 Since 2.23 it also carries what the script listed for `REVIEW`: for each finding its kind
 and path, at most 40, and for a file its SHA-256 and its two times (written, and
