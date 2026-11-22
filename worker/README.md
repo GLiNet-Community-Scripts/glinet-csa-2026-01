@@ -322,6 +322,12 @@ characters.
 - The file is the union of schema versions 1 to 10: the fields of version 1 are required,
   the later ones allowed. The worker stays the stricter check and requires every field of
   the version a report names.
+- Check the size limit of your plan first. Cloudflare inspects a body only up to a size
+  that depends on the plan (at the time of writing: Free 1 KiB, Pro and Business 8 KiB,
+  Enterprise 128 KiB), and a larger body counts as a violation. Reports are up to 48 KiB;
+  of those received so far, four in ten are larger than 1 KiB and a few larger than
+  8 KiB. Below Enterprise, "Block" therefore stops real reports, however right the schema
+  is. Then leave the validation off or at "Log": the worker checks every report anyway.
 - Start with the action "Log", look at what it would have stopped, then switch to "Block".
   The script does not show a failed send as an error, so a wrong rule loses reports unseen.
 - It covers `POST /csa-2026-01-report` only. Leave the action for addresses that are not
