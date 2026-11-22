@@ -570,6 +570,33 @@ run "$D" "$OWL" --check >"$D/check.txt"
 expect "WireGuard server config written seconds after the loader is noted" 'grep -A1 "REVIEW  *backdoor-wg  */etc/config/wireguard_server" "$D/check.txt" | grep -q "written 11 s after"'
 umount "$D/m"
 
+echo "=== what the base image's busybox loads must be the base image's (issue 8)"
+OWB=$BASE/openwrt-rom-libs
+cp -a "$OWL" "$OWB"; mkdir -p "$OWB/lib"
+printf 'ELF junk /lib/ld-musl-test.so.1 more libc.so and libgcc_s.so.1 end\n' >"$OWB/bin/busybox"
+echo 'the real libc' >"$OWB/lib/libc.so"; echo 'the real libgcc' >"$OWB/lib/libgcc_s.so.1"; ln -s libc.so "$OWB/lib/ld-musl-test.so.1"
+D=$(mkscen libs "$OWB"); U=$D/u
+mnt "$D" "$OWB"
+run "$D" "$OWB" --check >"$D/check.txt"; rc=$?
+expect "untouched libraries: no finding, no warning" '[ $rc = 0 ] && ! grep -q "changed-lib" "$D/check.txt" && ! grep -q "would load files" "$D/check.txt"'
+umount "$D/m"
+mkdir -p "$U/lib"; echo 'another libc' >"$U/lib/libc.so"
+mnt "$D" "$OWB"
+run "$D" "$OWB" --check >"$D/check.txt"
+grep -E -A1 'changed-lib|would load' "$D/check.txt"
+expect "a libc in the overlay is REVIEW changed-lib, and the tools are not trusted" 'grep -q "REVIEW  *changed-lib  */lib/libc.so" "$D/check.txt" && grep -q "Trusted tools  *no" "$D/check.txt" && grep -A1 "would load files" "$D/check.txt" | grep -q "(/lib/libc.so)"'
+umount "$D/m"
+rm "$U/lib/libc.so"; cp "$OWB/lib/libc.so" "$U/lib/libc.so"; mkdir -p "$U/etc"; echo /tmp/x >"$U/etc/ld-musl-test.path"
+mnt "$D" "$OWB"
+run "$D" "$OWB" --check >"$D/check.txt"
+expect "an identical copy is fine; a library path file for the loader is REVIEW changed-lib" '! grep -q "changed-lib  */lib/libc.so" "$D/check.txt" && grep -q "REVIEW  *changed-lib  */etc/ld-musl-test.path" "$D/check.txt"'
+umount "$D/m"
+rm "$U/etc/ld-musl-test.path"; rm "$U/lib/libc.so"; rm -f "$U/lib/ld-musl-test.so.1"; ln -s /tmp/evil.so "$U/lib/ld-musl-test.so.1"
+mnt "$D" "$OWB"
+run "$D" "$OWB" --check >"$D/check.txt"
+expect "a loader link that points elsewhere is REVIEW changed-lib" 'grep -q "REVIEW  *changed-lib  */lib/ld-musl-test.so.1" "$D/check.txt"'
+umount "$D/m"
+
 echo "=== the report's note (--note)"
 # The report is only built on a live device (--root /), so the script runs as / of a
 # chroot that holds nothing but a static busybox: its ash, as on a router. Nothing is
@@ -622,6 +649,20 @@ if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 	echo 'another build' >"$L/tmp/ujaild (deleted)"; ln -s '/tmp/ujaild (deleted)' "$L/proc/4242/exe"
 	live --no-report >"$L/check.txt"; rc=$?
 	expect "ujaild with another hash is still IOC backdoor-proc, not called the known one" '[ $rc = 1 ] && grep -A1 "IOC  *backdoor-proc  *4242" "$L/check.txt" | grep -q "older backdoor: comm=ujaild" && ! grep -q "known second stage" "$L/check.txt"'
+	# Tools that are not busybox applets (issue 8): run only when they are the base image's.
+	# The chroot gets a base image with the same busybox and an iptables-save that prints
+	# the rule the attack leaves; first the same file in the system, then a changed one.
+	mkdir -p "$L/rom/bin" "$L/rom/usr/sbin" "$L/usr/sbin"; cp "$BB" "$L/rom/bin/busybox"
+	printf '#!/bin/sh\necho "*nat"\necho "-A SDWAN_IP_MAPPING -d 127.0.0.1/32 -j DNAT --to-destination 127.0.0.1"\necho COMMIT\n' >"$L/rom/usr/sbin/iptables-save"
+	chmod +x "$L/rom/usr/sbin/iptables-save"; cp -p "$L/rom/usr/sbin/iptables-save" "$L/usr/sbin/iptables-save"
+	livep() { PATH=/usr/sbin:/bin TMPDIR=/tmp GL_TRIAGE_REPORT_URL=http://127.0.0.1:9/ chroot "$L" /bin/sh /t.sh --no-device-id "$@" </dev/null 2>&1; }
+	livep --no-report >"$L/tool.txt"
+	expect "a tool that is the base image's is run: its rule is found" 'grep -q "Trusted tools  *yes (/rom/bin/busybox" "$L/tool.txt" && grep -q "IOC  *fw-rule" "$L/tool.txt" && ! grep -q "tool-skipped" "$L/tool.txt"'
+	echo 'echo changed >/dev/null' >>"$L/usr/sbin/iptables-save"
+	livep --no-report >"$L/tool.txt"
+	grep -E -A1 'tool-skipped' "$L/tool.txt"
+	expect "a changed tool is not run and is listed as skipped" 'grep -q "INFO  *tool-skipped  */usr/sbin/iptables-save" "$L/tool.txt" && ! grep -q "IOC  *fw-rule" "$L/tool.txt"'
+	rm -r "$L/rom" "$L/usr"
 	umount "$L/dev/null"
 else
 	echo "  SKIP: needs a statically linked busybox"

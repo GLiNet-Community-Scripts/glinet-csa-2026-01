@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.36
+VERSION=2.37
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 11:48 UTC'
+RELEASED='2026-11-22 12:59 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -275,9 +275,12 @@ u() { printf '%s/%s' "${UPPER%/}" "$1"; }
 l() { printf '%s/%s' "${LOWER%/}" "$1"; }
 exists() { [ -e "$1" ] || [ -L "$1" ]; }
 
-# The implant replaced at least /usr/bin/netstat. Use the busybox from the read-only
-# base image for every tool this script calls, so a replaced applet cannot lie to us.
+# The implant replaced at least /usr/bin/netstat. Use the busybox from the base image
+# for every tool this script calls, so a replaced applet cannot lie to us. Nothing may
+# tell that busybox to load other libraries than its own.
+unset LD_PRELOAD LD_LIBRARY_PATH
 TRUSTED=no
+OLDPATH=$PATH
 if [ -n "$LOWER" ] && [ -x "$(l bin/busybox)" ] && "$(l bin/busybox)" true 2>/dev/null; then
 	TBB=$(l bin/busybox)
 	mkdir "$TMP/bin"
@@ -382,6 +385,74 @@ same_as_lower() {
 		return
 	fi
 	[ -f "$a" ] && [ -f "$b" ] && [ ! -L "$b" ] && filecmp "$a" "$b"
+}
+
+# Is a path in the running system the base image's own file? Without a copy in the overlay
+# it is; with one, when that copy does not differ.
+base_same() {
+	[ -n "$LOWER" ] || return 1
+	if [ -n "$UPPER" ] && ! exists "$(u "$1")"; then exists "$(l "$1")"; return; fi
+	same_as_lower "$1"
+}
+
+# What "trusted" rests on (issue 8). The busybox of the base image is linked dynamically on
+# GL.iNet's routers: it loads its loader and libraries from /lib of the running system,
+# where the overlay can put other files in their place. So before its tools count as
+# trusted, those files have to be the base image's too; and with musl a file
+# /etc/ld-musl-ARCH.path names other places to look for libraries, so that one as well.
+# The names are read from the busybox itself. A static busybox loads nothing; where the
+# names cannot be read, nothing is claimed about the libraries.
+: >"$TMP/badlibs"
+TRUST_LIBS=unchecked
+base_libs() {
+	local ld n d
+	ld=$(grep -ao '/lib/ld-[A-Za-z0-9._-]*' "$1" 2>/dev/null | head -n 1)
+	[ -n "$ld" ] || ld=$(grep -o '/lib/ld-[A-Za-z0-9._-]*' "$1" 2>/dev/null | head -n 1)
+	[ -n "$ld" ] || return 1
+	echo "${ld#/}"
+	case $ld in */ld-musl-*) n=${ld##*/ld-musl-}; echo "etc/ld-musl-${n%%.so*}.path" ;; esac
+	{ grep -aoE 'lib[A-Za-z0-9_+-]+\.so(\.[0-9]+)*' "$1" 2>/dev/null || grep -oE 'lib[A-Za-z0-9_+-]+\.so(\.[0-9]+)*' "$1" 2>/dev/null; } | sort -u | while IFS= read -r n; do
+		for d in lib usr/lib; do exists "$(l "$d/$n")" && echo "$d/$n" && break; done
+	done
+	return 0
+}
+if [ -n "$LOWER" ] && [ -f "$(l bin/busybox)" ] && [ -r "$(l bin/busybox)" ]; then
+	if base_libs "$(l bin/busybox)" >"$TMP/libs" 2>/dev/null; then
+		TRUST_LIBS=same
+		while IFS= read -r p; do
+			exists "$(r "$p")" || continue
+			base_same "$p" 2>/dev/null || echo "$p" >>"$TMP/badlibs"
+		done <"$TMP/libs"
+		[ -s "$TMP/badlibs" ] && TRUST_LIBS=differ
+	else
+		TRUST_LIBS=none
+	fi
+fi
+case $TRUST_LIBS in
+differ)
+	# not the base image's libraries: its busybox is no better than the tools in $PATH
+	PATH=$OLDPATH; export PATH
+	TRUSTED=no ;;
+same) [ "$TRUSTED" = no ] || TRUSTED="yes ($TBB, with the base image's own libraries)" ;;
+esac
+
+# May a tool that is not a busybox applet be run? iptables-save, nft, logread, curl and
+# the like come from \$PATH. The malware replaces netstat to get itself started; a
+# replaced one of these would run as root in a plain check. So on a running device such a
+# tool is used only when it is the base image's file, and a skipped one is listed.
+tool_ok() {
+	local p x rel
+	p=$(command -v "$1" 2>/dev/null) || return 1
+	case $p in "$TMP"/bin/*) return 0 ;; /*) ;; *) return 1 ;; esac
+	[ "$LIVE" = 1 ] && [ -n "$LOWER" ] || return 0
+	x=$(readlink -f "$p" 2>/dev/null); [ -n "$x" ] || x=$p
+	rel=${x#/}
+	base_same "$rel" 2>/dev/null && return 0
+	if ! grep -qxF "$p" "$TMP/skipped" 2>/dev/null; then
+		echo "$p" >>"$TMP/skipped"
+		[ -n "${FIND:-}" ] && add INFO tool-skipped "$p" "not run: this is not the base image's $1, and a replaced tool would run as root. What it would have shown is missing from this check"
+	fi
+	return 1
 }
 
 check_markers() {
@@ -538,6 +609,13 @@ own_tailscale() { # $1: the directory it lives in, usr/sbin on routers, usr/bin 
 
 check_applets() {
 	local p up lp owner ts
+	# the files the base image's busybox loads, where they are not the base image's
+	while IFS= read -r p; do
+		case $p in
+		etc/ld-musl-*.path) add REVIEW changed-lib "/$p" "tells the loader where to look for libraries, and is not the base image's: the busybox of the base image may load other libraries than its own" ;;
+		*) add REVIEW changed-lib "/$p" "the busybox of the base image loads this file, and it is not the base image's: the script's own tools cannot be trusted" ;;
+		esac
+	done <"$TMP/badlibs"
 	applet_candidates >"$TMP/cand"
 	while IFS= read -r p; do
 		up=$(src "$p") lp=
@@ -1010,8 +1088,8 @@ check_firewall() {
 	fi
 	[ "$LIVE" = 1 ] || return 0
 	: >"$TMP/fw-redirect"
-	if command -v iptables-save >/dev/null 2>&1 && iptables-save >"$TMP/iptables-save.txt" 2>/dev/null; then
-		command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save >"$TMP/ip6tables-save.txt" 2>/dev/null
+	if tool_ok iptables-save && iptables-save >"$TMP/iptables-save.txt" 2>/dev/null; then
+		tool_ok ip6tables-save && ip6tables-save >"$TMP/ip6tables-save.txt" 2>/dev/null
 		awk '/^\*/ {t=substr($0,2); next} /^-A / {print t "\t" $0}' "$TMP/iptables-save.txt" >"$TMP/fw-rules"
 		awk -F '\t' '$2 ~ /-j (DNAT|REDIRECT)/ || $2 ~ /^-A SDWAN_IP_MAPPING / {print $1 ": " $2}' "$TMP/fw-rules" >>"$TMP/fw-redirect"
 		awk -F '\t' -v re="$FW_RULE_RE" '$2 ~ re' "$TMP/fw-rules" >"$TMP/fw-ioc"
@@ -1019,7 +1097,7 @@ check_firewall() {
 			add IOC fw-rule "$p:SDWAN_IP_MAPPING" "rule left by the command of the reported remote shell: $f"
 		done <"$TMP/fw-ioc"
 	fi
-	if command -v nft >/dev/null 2>&1 && nft list ruleset >"$TMP/nft-ruleset.txt" 2>/dev/null; then
+	if tool_ok nft && nft list ruleset >"$TMP/nft-ruleset.txt" 2>/dev/null; then
 		# with iptables-nft the same rules appear in both; show the nft view only without iptables
 		[ -s "$TMP/iptables-save.txt" ] || grep -E 'dnat|redirect|SDWAN_IP_MAPPING' "$TMP/nft-ruleset.txt" | sed 's/^[[:space:]]*/nft: /' >>"$TMP/fw-redirect"
 		if [ ! -s "$TMP/fw-ioc" ] && grep -qE 'daddr 127\.0\.0\.1 .*dnat to 127\.0\.0\.1' "$TMP/nft-ruleset.txt"; then
@@ -1205,7 +1283,12 @@ report_head() {
 	off) kv "Remote access" "not in use, GoodCloud is off (stored settings: SSH $ssh, web $web)" ;;
 	*) kv "Remote access" "SSH: $ssh, web: $web (through GoodCloud)" ;;
 	esac
-	[ "$TRUSTED" = no ] && say "   ${YEL}WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered${N}"
+	if [ "$TRUST_LIBS" = differ ]; then
+		say "   ${YEL}WARNING: the busybox of the base image would load files that are not the base image's${N}"
+		say "   ${YEL}($(sed 's#^#/#' "$TMP/badlibs" | tr '\n' ' ' | sed 's/ $//')), so tools come from \$PATH and could be tampered${N}"
+	elif [ "$TRUSTED" = no ]; then
+		say "   ${YEL}WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered${N}"
+	fi
 	[ -z "$UPPER" ] && say "   ${YEL}NOTE: overlay upper layer unknown, results are less precise${N}"
 	return 0
 }
@@ -1444,7 +1527,7 @@ collect() {
 			[ -s "$TMP/$f" ] && cp "$TMP/$f" "$E/net/$f"
 		done
 		dmesg >"$E/logs/dmesg.txt" 2>/dev/null
-		command -v logread >/dev/null 2>&1 && logread >"$E/logs/logread.txt" 2>/dev/null
+		tool_ok logread && logread >"$E/logs/logread.txt" 2>/dev/null
 		for f in /var/log/messages /var/log/messages.0 /var/log/messages.1 /userdata/log/messages; do
 			[ -f "$f" ] && cp "$f" "$E/logs/$(echo "${f#/}" | tr / _)" 2>/dev/null
 		done
@@ -1570,7 +1653,10 @@ fix() {
 	if [ "$LIVE" = 1 ] && [ -s "$TMP/fw-ioc" ]; then
 		while IFS="$TAB" read -r p f; do
 			# shellcheck disable=SC2086 # the saved rule is a list of iptables arguments
-			if iptables -t "$p" $(printf '%s' "$f" | sed 's/^-A /-D /') 2>/dev/null; then
+			if ! tool_ok iptables; then
+				say "   ${YEL}left the firewall rule ($p): iptables is not the base image's, so it was not run${N}"
+				echo fail >>"$TMP/fixfail"
+			elif iptables -t "$p" $(printf '%s' "$f" | sed 's/^-A /-D /') 2>/dev/null; then
 				act "removed firewall rule ($p): $f"
 			else
 				echo fail >>"$TMP/fixfail"
@@ -1581,7 +1667,8 @@ fix() {
 	# 8. make cron forget a removed crontab (KVM: S50crond, OpenWrt: cron)
 	if [ "$LIVE" = 1 ]; then
 		for s in /etc/init.d/S50crond /etc/init.d/cron; do
-			[ -x "$s" ] && "$s" restart >/dev/null 2>&1 && act "restarted cron ($s)" && break
+			# an init script that is not the firmware's is not run
+			[ -x "$s" ] && { [ -z "$LOWER" ] || base_same "${s#/}" 2>/dev/null; } && "$s" restart >/dev/null 2>&1 && act "restarted cron ($s)" && break
 		done
 		sync
 	fi
@@ -1820,9 +1907,9 @@ EOF
 }
 
 send_report() {
-	if command -v curl >/dev/null 2>&1; then
+	if tool_ok curl; then
 		curl -fsS -m 20 -o /dev/null -H 'Content-Type: application/json' --data-binary "@$TMP/report.json" "$REPORT_URL" 2>/dev/null
-	elif command -v wget >/dev/null 2>&1; then
+	elif tool_ok wget; then
 		wget -q -T 20 -O /dev/null --header='Content-Type: application/json' --post-file="$TMP/report.json" "$REPORT_URL" 2>/dev/null ||
 			wget -q -T 20 -O /dev/null --header='Content-Type: application/json' --post-data="$(cat "$TMP/report.json")" "$REPORT_URL" 2>/dev/null
 	else

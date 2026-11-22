@@ -42,7 +42,7 @@ and users of GL.iNet's forum contributed findings and checks. See [Credits](#-cr
 - 🔎 **Check** – Read-only detection of the known indicators of the implant
 - 📦 **Archive** – Saves evidence before anything is changed. No archive, no changes.
 - 🧹 **Fix** – Removes the known implant files and their persistence on request
-- 🛡️ **Trusted tools** – Uses the busybox from the read-only base image, not the tools an attacker may have replaced
+- 🛡️ **Trusted tools** – Uses the busybox from the base image, not the tools an attacker may have replaced, and checks that the libraries it loads are the base image's too
 - 👀 **Review list** – Reports other unusual changes for a human to judge and never touches them
 - 🖥️ **Routers and KVMs** – GL.iNet / OpenWrt routers and GL.iNet KVMs (RM1 family)
 
@@ -263,7 +263,26 @@ processes running from deleted binaries.
 > ⚠️ **Do not run `netstat` on a device you suspect.** It may be the implant's replacement,
 > and GL.iNet staff [says](https://forum.gl-inet.com/t/quickly-check-if-your-router-is-under-attack/73070/41)
 > that running the replacement starts the malware. The script never calls it and uses the
-> busybox from the read-only base image (`/rom`) for its own tools.
+> busybox from the base image (`/rom`) for its own tools.
+
+What "trusted tools" rests on (since 2.37):
+
+- The busybox of the base image is linked dynamically on GL.iNet's routers. It loads its
+  loader and its libraries (`libc.so`, `libgcc_s.so.1`) from `/lib` of the running system,
+  where the overlay can put other files in their place. The script reads their names from
+  the busybox and compares each with the base image, and with musl also looks for a file
+  `/etc/ld-musl-ARCH.path` that would send the loader elsewhere. If one differs it is
+  listed as `REVIEW changed-lib`, the head of the report says `Trusted tools  no`, and the
+  tools come from `$PATH`. Where the names cannot be read, nothing is claimed about the
+  libraries; the run goes on in every case.
+- Tools that are not busybox applets come from `$PATH`: `iptables-save`, `ip6tables-save`,
+  `nft`, `logread`, `curl` or `wget`, and `iptables` and the cron init script in `--fix`.
+  On a running device each is used only when it is the base image's own file. One that is
+  not is not run and is listed as `INFO tool-skipped`, because a replaced tool would run as
+  root; what it would have shown is then missing from the check. For a firewall tool that
+  means the rule the attack leaves cannot be seen.
+- The base image is what everything is compared with. The script does not check that
+  nobody wrote to it. No such case is known.
 
 ---
 
@@ -581,7 +600,7 @@ was also run in check and archive mode on a GL.iNet router with firmware 4.11
 
 - Only known indicators are remediated. A different implant variant, or other changes
   an attacker made, may remain. Read the `REVIEW` items.
-- Without a read-only base image (`/rom`) the results are less precise and the tools come
+- Without a base image (`/rom`) the results are less precise and the tools come
   from `$PATH`.
 - The script only reads regular files. A named pipe or a link into `/proc` in a place it
   scans is not opened, because reading one could block the run for good; where such a
