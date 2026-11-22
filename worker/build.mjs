@@ -13,3 +13,12 @@ writeFileSync(
     `export const DASHBOARD = ${JSON.stringify(html)};\n`,
 );
 console.log(`dashboard.js written (${html.length} characters)`);
+
+// The page that explains a result of the script (csa.gl-i.net/2026-01/), the same way.
+const result = readFileSync(new URL('result.html', dir), 'utf8');
+writeFileSync(
+  new URL('result.js', dir),
+  '// Generated from result.html by build.mjs. Do not edit; change the HTML and run "node build.mjs".\n' +
+    `export const RESULT = ${JSON.stringify(result)};\n`,
+);
+console.log(`result.js written (${result.length} characters)`);

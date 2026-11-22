@@ -325,6 +325,53 @@ node test/run.mjs serve
 The second command serves the worker on `127.0.0.1:8787` with storage in memory. Point the
 script at it with `GL_TRIAGE_REPORT_URL=http://127.0.0.1:8787/`.
 
+## The page that explains a result
+
+`src/result.html` is a page for people who cannot do much with the script's output. The
+script ends with an address like
+
+```
+https://csa.gl-i.net/2026-01/#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0
+```
+
+and the page behind it says in plain words what was found, what that means and what to do,
+in English, German and Chinese. Without a result in the address it offers a short list to
+tick by hand.
+
+- The result is in the part of the address after `#`. A browser does not send that part,
+  so the worker serves the same page to everyone and learns nothing about a device. Do not
+  move the codes into the path.
+- The codes: `v` the script's version, `p` router (`r`), KVM (`k`) or unknown (`u`), `r` the
+  verdict (`m` malware or remote shell, `a` a command ran, `c` clean), `k` the kinds of
+  findings joined by dots, `b=1` the older backdoor, `g` GoodCloud on (`1`), off (`0`) or
+  not known (`x`), `n=1` restarted since the attacks began, `f` what `--fix` did (`2` done,
+  `3` incomplete), `rv` the number of review findings. Never a path, a name or an ID.
+- The table of finding codes is `RESULT_CODES` in the script and `NAMES` in the page. The
+  tests fail when the script knows a code the page does not, when a language lacks a text
+  another one has, or when a plan names a step without a text.
+- The page takes only codes it knows and shows only its own texts, so a made-up address
+  cannot put anything else on it.
+- The worker puts in the version of the script it serves, and the page warns when a result
+  comes from an older one.
+
+It is served at `/2026-01/` on whatever host the worker answers on, without a login.
+`/csa-2026-01/` and `/2026-01` lead there. For `csa.gl-i.net`, add the host to the routes
+in `wrangler.toml` and deploy:
+
+```toml
+routes = [
+  { pattern = "app.gl-i.net/csa-2026-01-report*", zone_name = "gl-i.net" },
+  # ... the routes you already have ...
+  { pattern = "csa.gl-i.net", custom_domain = true },
+]
+```
+
+With `custom_domain = true` Cloudflare creates the DNS record and the certificate itself.
+The script must not print the address before the page answers there: deploy this first,
+open `https://csa.gl-i.net/2026-01/`, then publish the script.
+
+After a change to the page: `node build.mjs`, which also writes `src/result.js`.
+
 ## Known release files
 
 `src/known-hashes.json` lists the SHA-256 of every binary in the releases of the

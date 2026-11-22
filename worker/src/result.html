@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>CSA-2026-01: your result</title>
+<style>
+:root {
+  --bg: #f4f6f5; --surface: #fff; --surface-2: #edf1ef; --text: #17201c; --text-2: #5d6a64; --accent: #16774c; --accent-soft: rgba(22, 119, 76, .11);
+  --border: rgba(16, 40, 30, .12); --nav-bg: rgba(244, 246, 245, .82); --shadow: 0 1px 2px rgba(10, 30, 20, .04), 0 10px 30px rgba(10, 30, 20, .05);
+  --warn: #9a5b00; --warn-bar: #f5a524; --warn-bg: rgba(255, 159, 10, .13); --info-bg: rgba(0, 122, 255, .1); --danger: #b42318; --danger-bg: rgba(217, 45, 32, .08);
+  --term-bg: #13201a; --term-fg: #e4ede8; --on-accent: #fff;
+  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1412; --surface: #18201c; --surface-2: #222b27; --text: #e9efec; --text-2: #9aa8a1; --accent: #4cc38a; --accent-soft: rgba(76, 195, 138, .15);
+    --border: rgba(255, 255, 255, .12); --nav-bg: rgba(15, 20, 18, .82); --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+    --warn: #ffc266; --warn-bg: rgba(255, 179, 64, .14); --info-bg: rgba(64, 156, 255, .14); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .13); --on-accent: #06281a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+[hidden] { display: none !important; }
+.bar { position: sticky; top: 0; z-index: 5; background: var(--nav-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); }
+.bar .in { max-width: 860px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
+.bar a.home { font-size: 15px; font-weight: 700; color: var(--text); text-decoration: none; }
+.grow { flex: 1; }
+.lang { display: inline-flex; padding: 3px; border-radius: 980px; background: var(--surface-2); }
+.lang button { border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--text-2); padding: 4px 12px; border-radius: 980px; cursor: pointer; }
+.lang button[aria-pressed=true] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .1); }
+main { max-width: 860px; margin: 0 auto; padding: 18px 16px 60px; }
+.crumbs { font-size: 13.5px; color: var(--text-2); }
+.crumbs a { color: inherit; text-decoration: none; } .crumbs a:hover { text-decoration: underline; } .crumbs span { margin: 0 6px; opacity: .5; }
+.hero { margin-top: 14px; padding: 24px 26px; border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); border-left: 6px solid var(--tone); }
+.hero[data-tone=bad] { --tone: var(--danger); --tone-bg: var(--danger-bg); --tone-fg: var(--danger); }
+.hero[data-tone=warn] { --tone: var(--warn-bar); --tone-bg: var(--warn-bg); --tone-fg: var(--warn); }
+.hero[data-tone=ok] { --tone: var(--accent); --tone-bg: var(--accent-soft); --tone-fg: var(--accent); }
+.eyebrow { margin: 0; font-size: 13px; font-weight: 650; color: var(--text-2); }
+h1 { margin: 6px 0 0; font-size: 30px; line-height: 1.18; letter-spacing: -.01em; text-wrap: balance; }
+.lead { margin: 10px 0 0; font-size: 18px; }
+.verdict { display: inline-block; margin-top: 14px; padding: 3px 12px; border-radius: 980px; background: var(--tone-bg); color: var(--tone-fg); font-size: 13.5px; font-weight: 700; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip { padding: 3px 11px; border-radius: 980px; background: var(--surface-2); font-size: 13.5px; color: var(--text-2); }
+.chip b { color: var(--text); font-weight: 650; }
+.note { margin: 12px 0 0; padding: 12px 16px; border-radius: 14px; background: var(--info-bg); font-size: 14.5px; line-height: 1.5; }
+.note.warn { background: var(--warn-bg); } .note.bad { background: var(--danger-bg); }
+.note b { display: block; }
+h2 { margin: 30px 0 0; font-size: 21px; }
+.sub { margin: 4px 0 0; color: var(--text-2); font-size: 15px; }
+.found { display: grid; gap: 10px; margin-top: 12px; }
+.card { padding: 16px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+.card h3 { margin: 0; font-size: 17px; }
+.card p { margin: 5px 0 0; font-size: 15.5px; }
+.card .as { margin-top: 9px; font-size: 12.5px; color: var(--text-2); }
+code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 2px 7px; border-radius: 6px; color: var(--text); overflow-wrap: anywhere; }
+.means p { margin: 0; font-size: 16px; } .means p + p { margin-top: 9px; }
+ol.steps { list-style: none; counter-reset: s; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+ol.steps > li { counter-increment: s; position: relative; padding: 16px 18px 16px 62px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+ol.steps > li::before { content: counter(s); position: absolute; left: 18px; top: 16px; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 15px; display: grid; place-items: center; }
+ol.steps b.t { display: block; font-size: 17px; }
+ol.steps p { margin: 4px 0 0; font-size: 15.5px; }
+.cmd { margin-top: 10px; padding: 11px 14px; border-radius: 12px; background: var(--term-bg); color: var(--term-fg); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.help { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.help a { display: block; padding: 14px 16px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); text-decoration: none; color: var(--text); font-size: 15px; }
+.help a b { display: block; color: var(--accent); font-size: 15.5px; }
+.pick { margin-top: 14px; }
+.pick fieldset { margin: 12px 0 0; padding: 0; border: 0; }
+.pick legend { padding: 0; font-weight: 650; font-size: 15.5px; }
+.pick label { display: flex; gap: 9px; align-items: baseline; margin-top: 7px; font-size: 15.5px; cursor: pointer; }
+.btn { margin-top: 14px; padding: 9px 18px; border: 0; border-radius: 980px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 15px; font-weight: 650; cursor: pointer; }
+.btn.quiet { background: var(--surface-2); color: var(--text); }
+.share { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 14px; color: var(--text-2); }
+.share .btn { margin: 0; padding: 6px 14px; font-size: 14px; }
+.fine { margin-top: 22px; font-size: 13px; color: var(--text-2); }
+@media (max-width: 560px) { .hero { padding: 20px 18px; } h1 { font-size: 25px; } body { font-size: 16px; } ol.steps > li { padding-left: 54px; } .bar a.home { font-size: 14px; } .lang button { padding: 4px 9px; } }
+</style>
+</head>
+<body>
+<div class="bar"><div class="in">
+  <a class="home" href="https://gl-i.net/">GL.iNet Community</a><span class="grow"></span>
+  <div class="lang" role="group" aria-label="Language">
+    <button type="button" data-lang="en">English</button><button type="button" data-lang="de">Deutsch</button><button type="button" data-lang="zh">简体中文</button>
+  </div>
+</div></div>
+<main id="page"><noscript>This page explains the result of the community script for CSA-2026-01. It needs JavaScript to read the codes in its address. The advisory is at https://gl-i.net/security/csa-2026-01/</noscript></main>
+
+<script>
+// The version of the script that is served right now; the worker puts it in. Empty when
+// it is not known, and then nothing is said about old versions.
+const CURRENT = '__CURRENT_VERSION__'.replace(/^__.*__$/, '');
+const ADVISORY = 'https://gl-i.net/security/csa-2026-01/', GUIDE = 'https://gl-i.net/security/csa-2026-01/fix/', FORUM = 'https://forum.gl-inet.com/t/2026-11-20-gl-inet-security-notice-goodcloud-kvm-routers/73056';
+const GC_OFF = "/etc/init.d/gl-cloud stop; uci set 'gl-cloud.@cloud[0].enable=0'; uci commit gl-cloud; /etc/init.d/gl-cloud disable";
+
+// Codes in the address and the names the script prints for them. The script holds the
+// same table (RESULT_CODES); a test compares the two.
+const NAMES = {
+  mk: 'IOC  marker', ah: 'IOC  applet-hijack', pr: 'IOC  persist-ref', kr: 'IOC  keep-ref', cr: 'IOC  cron-ref', sk: 'IOC  ssh-key', rt: 'IOC  rtty-server',
+  pq: 'IOC  process  (crond -i /tmp/.log)', pi: 'IOC  process', ps: 'IOC  process  (remote shell)', pp: 'IOC  pipe  /tmp/f', cs: 'IOC  connection', cm: 'IOC  connection',
+  fw: 'IOC  fw-rule', cc: 'IOC  cloud-command  /etc/mp_ip_mapping_info', it: 'IOC  installer-trace',
+  bi: 'IOC  backdoor-init', bf: 'IOC  backdoor-file', bk: 'IOC  backdoor-keep', bh: 'IOC  backdoor-host', bp: 'IOC  backdoor-proc',
+  pe: 'PERSIST  persistence', none: 'Summary: IOC=0', rs: 'Running since …', rv: 'REVIEW  …',
+};
+const MALWARE = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'cm'], SHELL = ['ps', 'pp', 'cs'];
+// which steps go with which result; "gc" stands for the GoodCloud step that fits the setting
+const PLAN = {
+  router: { c: ['gc', 'update', 'again'], cr: ['gc', 'update', 'sure', 'again'], a: ['gc', 'archive', 'reset', 'creds', 'clients'], i: ['gc', 'archive', 'reset', 'creds', 'clients'], s: ['norestart', 'gc', 'archive', 'reset', 'creds', 'clients'], m: ['gc', 'archive', 'reset', 'creds', 'clients'], b: ['offline', 'archive', 'reflash', 'credsold', 'clients'] },
+  kvm: { c: ['gc', 'kvmupdate', 'again'], cr: ['gc', 'kvmupdate', 'sure', 'again'], a: ['gc', 'archive', 'kvmfw', 'creds', 'kvmhost'], i: ['gc', 'archive', 'kvmfw', 'creds', 'kvmhost'], s: ['norestart', 'gc', 'archive', 'kvmfw', 'creds', 'kvmhost'], m: ['gc', 'archive', 'kvmfw', 'creds', 'kvmhost'], b: ['offline', 'archive', 'kvmfw', 'credsold', 'kvmhost'] },
+};
+const TONE = { c: 'ok', cr: 'ok', a: 'bad', i: 'bad', s: 'bad', m: 'bad', b: 'bad' };
+
+// Every text of the page, per language. {dev} is "router", "KVM device" or "device".
+const T = {
+  en: {
+    title: 'CSA-2026-01: your result',
+    crumbs: ['Security advisories', 'CSA-2026-01', 'Your result'],
+    eyebrow: 'Your result · community script {v} · {dev}', eyebrowHand: 'What you ticked · {dev}',
+    dev: { r: 'router', k: 'KVM device', u: 'device' },
+    note: 'This page explains a result. It did not check your device, and nothing was sent to it: the address only carries short codes for what the script found, and your browser keeps that part of the address to itself.',
+    old: 'This result is from script version {v}. The current version is {cur} and finds more. Run the script again before you rely on this.',
+    gc: { 1: 'on', 0: 'off', x: 'not known' }, gcLabel: 'GoodCloud',
+    rs: { 1: 'Restarted since the attack', 0: 'Not restarted since the attack' },
+    hFound: 'What the script found', hMeans: 'What that means', hDo: 'Do this now', hHelp: 'If you are unsure',
+    as: 'In the script’s output:',
+    fix2: ['The script removed what it found.', 'That takes away the known traces, nothing more. The device was in someone else’s hands, so the steps below still apply.'],
+    fix3: ['The script could not remove everything it found.', 'Do not rely on the clean-up. Follow the steps below; the reset does what the script could not.'],
+    also: ['Also on this {dev}: an older backdoor', 'It is not part of the attack of 20 November and may have been there for months. The script does not remove it. Install the firmware again without keeping settings, do not restore a backup taken from this device, and take the device off the internet until then.'],
+    help: [['Ask in the forum', 'Post this page’s address there. It holds nothing that identifies you or your device.'], ['Read the advisory', 'What is known about the attack, and what is not.'], ['How to run the script', 'The options, and how to read the full output.']],
+    share: 'This address can be passed on: it holds the result, nothing about you.', copy: 'Copy the address', copied: 'Copied',
+    fine: 'Community work, not a GL.iNet page. The script knows only the known traces, so a clean result does not prove that a device is clean.',
+    pickTitle: 'What did you see on your device?', pickLead: 'This page explains a result of the community script. Its address normally carries that result. Without one you can tick what you found yourself, for example with GL.iNet’s manual check.',
+    pickDev: 'Which device?', pickGc: 'Is GoodCloud switched on?', pickWhat: 'What did you find?', pickGo: 'Explain this',
+    pickItems: { pq: 'A running process “crond -i /tmp/.log”', cs: 'A connection to 170.39.226.219', pp: 'A file /tmp/f', mk: 'Files in /etc/glinet/.cache or /etc/config/.gl', bi: 'Lines with “monitord” or “ulogd” in /etc/init.d/urandom_seed' },
+    pickNone: 'Tick nothing if you found none of these.', pickRun: 'Better: run the script. It checks far more than this list.',
+    results: {
+      c: ['NOTHING FOUND', 'Nothing known was found on this {dev}', 'The script found none of the traces it knows. That is good news, but not proof: it can only find what is known so far.',
+        ['None of the known traces is on the {dev}: no malware files, no remote access, no sign that a command from the attacker ran.', 'The {dev} was not restarted since the attacks began, so traces in memory would still be there. That makes this result more reliable than one taken after a restart.']],
+      cr: ['NOTHING FOUND', 'Nothing known was found on this {dev}', 'The script found none of the traces it knows. Because the {dev} was restarted since the attacks began, that says little about the time before the restart.',
+        ['None of the known traces is on the {dev} now: no malware files, no remote access, no sign that a command from the attacker ran.', 'A restart wipes what the attack leaves in memory. If GoodCloud was on between 20 and 21 November, the {dev} may have been reached and show nothing today.']],
+      a: ['ATTACKED', 'A command from the attacker ran on this {dev}', 'No malware and no open remote access were found. But the command ran with full rights, so treat the {dev} as one that someone else had control of.',
+        ['Someone sent your {dev} a crafted command through GL.iNet’s cloud service, and the {dev} carried it out with full rights.', 'What the command did cannot be told any more. One that was recovered only looked around and reported back; others opened a remote access for the attacker. Either way it could read every password and key stored on the {dev}.']],
+      i: ['ATTACKED', 'The malware’s installer was at work on this {dev}', 'Its files are not there now. They may have been removed since, by a firmware update or by the attacker. Treat the {dev} as one that was infected.',
+        ['The installer of the gl-helper malware leaves a small change behind, and that change was made during the attack. So the malware was put on this {dev}, even though it is gone now.', 'While it was there it had full control. It could read every password and key on the {dev} and reach whatever the {dev} is connected to.']],
+      s: ['COMPROMISED', 'The attacker had remote access to this {dev}', 'The script found a remote access that the attacker opened on 20 November: a way to type commands on your {dev} from outside, with full rights.',
+        ['A command sent through GL.iNet’s cloud service made your {dev} connect to the attacker’s server and take commands from there.', 'Nobody can tell what was typed. Everything stored on the {dev} counts as read: passwords, VPN profiles, keys. Devices in your network could be reached from it.']],
+      m: ['INFECTED', 'The gl-helper malware is on this {dev}', 'The script found the malware from GL.iNet’s security notice. It starts again after every restart and gives the attacker full control of the {dev}.',
+        ['The malware was installed through GL.iNet’s cloud service. It keeps itself running, hides its connections and fetches commands from the attacker’s servers.', 'Everything stored on the {dev} counts as read, and whatever is connected to it could be reached.']],
+      b: ['INFECTED', 'An older backdoor is on this {dev}', 'This is not the attack of 20 November. It is a hidden program that forum users found while looking for it, and it may have been on the {dev} for months.',
+        ['A hidden program starts with the {dev}, reports to a server and fetches a second program that runs only in memory. That one gives whoever runs the server full control of the {dev}.', 'How it got there is not known. Because it may have been there for a long time, everything the {dev} ever held counts as copied.']],
+    },
+    kinds: {
+      mk: ['Files of the gl-helper malware', 'The malware’s own files are on the device, in a hidden folder that survives restarts and updates that keep settings.'],
+      ah: ['A system tool was replaced', 'The malware swaps a tool of the device for its own, so that looking at the network connections starts the malware and hides its traffic.'],
+      pr: ['An autostart entry starts the malware', 'A file that runs at every start of the device calls the malware. That is how it comes back after a restart.'],
+      kr: ['The malware is set to survive a firmware update', 'Its files were added to the list of things a firmware update keeps.'],
+      cr: ['A timer entry starts the malware', 'The device’s schedule holds a line that starts the malware again and again.'],
+      sk: ['An SSH key the malware added', 'With this key the attacker can log in to the device without a password.'],
+      rt: ['The remote terminal service points to the attacker', 'The service that normally lets GoodCloud open a terminal on the device is set to the attacker’s server instead.'],
+      pq: ['The malware is running', 'A process that calls itself “crond -i /tmp/.log” is running. That is the sign GL.iNet’s own notice names.'],
+      pi: ['A program of the malware is running', 'One of the malware’s programs is active on the device right now.'],
+      ps: ['A remote access for the attacker is open right now', 'A program on the device is connected to the attacker’s server and waits for commands. It stays until the device restarts.'],
+      pp: ['A remote access was open since the last restart', 'The remote access leaves a small helper file in memory. It is there, so the access ran at some point since the device last started.'],
+      cs: ['A connection to the attacker’s server', 'The device has, or tries to open, a connection to the server the remote accesses went to.'],
+      cm: ['A connection to a server of the malware', 'The device is connected to one of the servers the malware fetches its files and commands from.'],
+      fw: ['A firewall rule the command left behind', 'The command leaves one odd rule in the firewall. The rule does no harm by itself, but it is only there when the command ran. It is gone after a restart.'],
+      cc: ['A trace that the command ran', 'The cloud service writes a small file when it handles this kind of command. On your device that file is empty and was written during the attack, and AstroWarp, which would explain it, is off. This trace stays after a restart.'],
+      it: ['The installer left its mark', 'The malware’s installer creates one particular link on the device. It was created during the attack.'],
+      bi: ['A start-up file was changed to start the backdoor', 'A file of the firmware that runs at every start has extra lines that start the hidden program.'],
+      bf: ['The backdoor’s files', 'The hidden loader is on the device, under a name that looks like a normal system program.'],
+      bk: ['The backdoor is set to survive a firmware update', 'Its files were added to the list of things a firmware update keeps. An update that keeps settings does not remove it.'],
+      bh: ['A server of the backdoor is named in the configuration', 'A configuration file names one of the servers the backdoor reports to.'],
+      bp: ['The backdoor is running', 'Its programs are active on the device right now.'],
+      pe: ['Your autostart files differ from the firmware’s', 'The files that run at every start are not the ones the firmware came with. That is common and usually your own doing; it is not a trace by itself.'],
+      none: ['No known trace', 'The script checked files, autostart entries, running programs, the firewall and open connections against everything known about this attack and about the older backdoor.'],
+      rs: ['The device was restarted since 19 November', 'A remote access and what it leaves in memory are gone after a restart. The script can only see what is still there.'],
+      rv: ['{n} other changes are listed for you to look at', 'The script lists everything that differs from the firmware and that it cannot place. Almost always these are your own settings and installed programs. They are not traces of the attack.'],
+    },
+    steps: {
+      gcoff: ['Switch GoodCloud and AstroWarp off now', 'The attack came in through GoodCloud, and the faulty part is still in the firmware of most devices. Use the GoodCloud switch in the admin panel, or run this on the router:', GC_OFF],
+      gcoffk: ['Switch the cloud service off now', 'The attack came in through GL.iNet’s cloud service. Switch it off in the KVM’s web interface; a user found the switch under “More Settings”.'],
+      gckeep: ['Leave GoodCloud switched off', 'Keep it off until GL.iNet’s fixed firmware is installed, and check the switch again after every firmware update: an update can switch it back on.'],
+      gcx: ['Make sure GoodCloud and AstroWarp are off', 'The script could not read whether GoodCloud is on. Look at the GoodCloud switch in the admin panel and switch it off until fixed firmware is installed.'],
+      norestart: ['Do not restart the device yet', 'The remote access and its traces exist only in memory. Save the evidence first (next steps), then reset.'],
+      archive: ['Save the evidence before you restart or reset', 'Run the script once more with --archive and copy the file it names off the device. A restart or a reset wipes the traces.', 'sh gl-helper-triage.sh --archive'],
+      reset: ['Reset the router to factory settings', 'A firmware update that keeps your settings is not enough. Set the router up again by hand afterwards and do not restore a backup taken from it.'],
+      reflash: ['Install the firmware again, without keeping settings', 'Download the firmware for your model from GL.iNet and install it with “keep settings” switched off. Set the router up by hand afterwards and do not restore a backup taken from it.'],
+      kvmfw: ['Install GL.iNet’s security firmware and reset the KVM', 'Install the latest firmware for your model, then restore the factory settings. An update that keeps settings also keeps the password and what the attacker may have added.'],
+      creds: ['Change every password and key the device knew', 'The admin password, the Wi-Fi password, your GoodCloud account, VPN profiles and SSH keys. Create new VPN profiles with your provider; the old ones count as copied.'],
+      credsold: ['Change every password and key the device ever held', 'The backdoor may have been there for months. The admin password, Wi-Fi, your GoodCloud account, VPN profiles, SSH keys and DDNS logins all count as copied.'],
+      clients: ['Look at the devices behind the router', 'Computers and other devices that used this router could be reached from it. Check them for unknown programs and accounts, the important ones first.'],
+      kvmhost: ['Check the computer connected to the KVM', 'A KVM can see the screen and type on the keyboard of the computer it is connected to. Look there for unknown software, accounts and autostart entries.'],
+      offline: ['Take the device off the internet until it is reflashed', 'The backdoor’s second program runs in memory and takes commands from outside. If you cannot unplug it, block these names in your network: adguardns.com, adguardns.org, lede-openproject.org, adxinsight.com, openwrt-project.org.'],
+      update: ['Install the fixed firmware when it is offered', 'In the anonymous reports no router on firmware 4.11 shows traces. Install GL.iNet’s security firmware for your model as soon as it is available.'],
+      kvmupdate: ['Install GL.iNet’s security firmware', 'Install the latest firmware for your KVM model as soon as it is available.'],
+      again: ['Run the script again in a few days', 'It changes several times a day as the community learns more. A device an early version called clean may not be.'],
+      sure: ['If GoodCloud was on during the attack, consider a reset anyway', 'Nothing was found, but nothing can be ruled out after a restart. A factory reset and new passwords are the safe choice.'],
+    },
+  },
+  de: {
+    title: 'CSA-2026-01: dein Ergebnis',
+    crumbs: ['Sicherheitshinweise', 'CSA-2026-01', 'Dein Ergebnis'],
+    eyebrow: 'Dein Ergebnis · Community-Skript {v} · {dev}', eyebrowHand: 'Was du angekreuzt hast · {dev}',
+    // German needs the article with the word: "der Router" but "das Gerät"
+    dev: { r: { dev: 'Router', nom: 'der Router', Nom: 'Der Router', acc: 'den Router', dies: 'diesen Router' }, k: { dev: 'KVM-Gerät', nom: 'das KVM-Gerät', Nom: 'Das KVM-Gerät', acc: 'das KVM-Gerät', dies: 'dieses KVM-Gerät' }, u: { dev: 'Gerät', nom: 'das Gerät', Nom: 'Das Gerät', acc: 'das Gerät', dies: 'dieses Gerät' } },
+    note: 'Diese Seite erklärt ein Ergebnis. Sie hat dein Gerät nicht geprüft, und es wurde nichts an sie gesendet: Die Adresse enthält nur kurze Kürzel für das, was das Skript gefunden hat, und dein Browser behält diesen Teil der Adresse für sich.',
+    old: 'Dieses Ergebnis stammt von Skriptversion {v}. Aktuell ist {cur}, und sie findet mehr. Lass das Skript noch einmal laufen, bevor du dich darauf verlässt.',
+    gc: { 1: 'an', 0: 'aus', x: 'nicht bekannt' }, gcLabel: 'GoodCloud',
+    rs: { 1: 'Seit dem Angriff neu gestartet', 0: 'Seit dem Angriff nicht neu gestartet' },
+    hFound: 'Was das Skript gefunden hat', hMeans: 'Was das bedeutet', hDo: 'Das solltest du jetzt tun', hHelp: 'Wenn du unsicher bist',
+    as: 'In der Ausgabe des Skripts:',
+    fix2: ['Das Skript hat entfernt, was es gefunden hat.', 'Damit sind die bekannten Spuren weg, mehr nicht. Das Gerät war in fremder Hand, deshalb gelten die Schritte unten weiterhin.'],
+    fix3: ['Das Skript konnte nicht alles entfernen, was es gefunden hat.', 'Verlass dich nicht auf die Bereinigung. Folge den Schritten unten; das Zurücksetzen erledigt, was das Skript nicht konnte.'],
+    also: ['Außerdem auf diesem {dev}: eine ältere Hintertür', 'Sie gehört nicht zum Angriff vom 20. November und kann seit Monaten dort sein. Das Skript entfernt sie nicht. Installiere die Firmware neu, ohne die Einstellungen zu behalten, spiele keine Sicherung von diesem Gerät ein und nimm es bis dahin vom Internet.'],
+    help: [['Im Forum fragen', 'Poste dort die Adresse dieser Seite. Sie enthält nichts, was dich oder dein Gerät erkennbar macht.'], ['Den Sicherheitshinweis lesen', 'Was über den Angriff bekannt ist und was nicht.'], ['So benutzt du das Skript', 'Die Optionen, und wie man die volle Ausgabe liest.']],
+    share: 'Diese Adresse kannst du weitergeben: Sie enthält das Ergebnis, nichts über dich.', copy: 'Adresse kopieren', copied: 'Kopiert',
+    fine: 'Arbeit der Community, keine Seite von GL.iNet. Das Skript kennt nur die bekannten Spuren; ein sauberes Ergebnis beweist deshalb nicht, dass ein Gerät sauber ist.',
+    pickTitle: 'Was hast du auf deinem Gerät gesehen?', pickLead: 'Diese Seite erklärt ein Ergebnis des Community-Skripts. Normalerweise steckt dieses Ergebnis in ihrer Adresse. Ohne Ergebnis kannst du ankreuzen, was du selbst gefunden hast, zum Beispiel mit der Handprüfung von GL.iNet.',
+    pickDev: 'Welches Gerät?', pickGc: 'Ist GoodCloud eingeschaltet?', pickWhat: 'Was hast du gefunden?', pickGo: 'Erklären',
+    pickItems: { pq: 'Ein laufender Prozess „crond -i /tmp/.log“', cs: 'Eine Verbindung zu 170.39.226.219', pp: 'Eine Datei /tmp/f', mk: 'Dateien in /etc/glinet/.cache oder /etc/config/.gl', bi: 'Zeilen mit „monitord“ oder „ulogd“ in /etc/init.d/urandom_seed' },
+    pickNone: 'Kreuze nichts an, wenn du nichts davon gefunden hast.', pickRun: 'Besser: Lass das Skript laufen. Es prüft weit mehr als diese Liste.',
+    results: {
+      c: ['NICHTS GEFUNDEN', 'Auf diesem {dev} wurde nichts Bekanntes gefunden', 'Das Skript hat keine der Spuren gefunden, die es kennt. Das ist eine gute Nachricht, aber kein Beweis: Es findet nur, was bisher bekannt ist.',
+        ['Keine der bekannten Spuren ist auf dem {dev}: keine Schadsoftware, kein Fernzugang, kein Zeichen dafür, dass ein Befehl des Angreifers lief.', '{Nom} wurde seit Beginn der Angriffe nicht neu gestartet. Spuren im Arbeitsspeicher wären also noch da. Das macht dieses Ergebnis verlässlicher als eines nach einem Neustart.']],
+      cr: ['NICHTS GEFUNDEN', 'Auf diesem {dev} wurde nichts Bekanntes gefunden', 'Das Skript hat keine der Spuren gefunden, die es kennt. Weil {nom} seit Beginn der Angriffe neu gestartet wurde, sagt das wenig über die Zeit vor dem Neustart.',
+        ['Keine der bekannten Spuren ist jetzt auf dem {dev}: keine Schadsoftware, kein Fernzugang, kein Zeichen dafür, dass ein Befehl des Angreifers lief.', 'Ein Neustart löscht, was der Angriff im Arbeitsspeicher hinterlässt. War GoodCloud zwischen dem 20. und 21. November an, kann {nom} erreicht worden sein und heute nichts zeigen.']],
+      a: ['ANGEGRIFFEN', 'Auf diesem {dev} lief ein Befehl des Angreifers', 'Es wurden keine Schadsoftware und kein offener Fernzugang gefunden. Der Befehl lief aber mit vollen Rechten. Behandle {acc} deshalb wie ein Gerät, das jemand anderes in der Hand hatte.',
+        ['Jemand hat deinem {dev} über den Cloud-Dienst von GL.iNet einen präparierten Befehl geschickt, und {nom} hat ihn mit vollen Rechten ausgeführt.', 'Was der Befehl getan hat, lässt sich nicht mehr feststellen. Einer, der sichergestellt wurde, hat sich nur umgesehen und zurückgemeldet; andere haben dem Angreifer einen Fernzugang geöffnet. In beiden Fällen konnte er jedes Passwort und jeden Schlüssel lesen, der auf dem {dev} gespeichert ist.']],
+      i: ['ANGEGRIFFEN', 'Auf diesem {dev} war das Installationsprogramm der Schadsoftware am Werk', 'Ihre Dateien sind jetzt nicht mehr da. Sie können inzwischen entfernt worden sein, durch ein Firmware-Update oder durch den Angreifer. Behandle {acc} wie ein Gerät, das infiziert war.',
+        ['Das Installationsprogramm der gl-helper-Schadsoftware hinterlässt eine kleine Änderung, und diese Änderung stammt aus der Zeit des Angriffs. Die Schadsoftware wurde also auf {dies} gebracht, auch wenn sie jetzt weg ist.', 'Solange sie da war, hatte sie volle Kontrolle. Sie konnte jedes Passwort und jeden Schlüssel auf dem {dev} lesen und alles erreichen, womit {nom} verbunden ist.']],
+      s: ['KOMPROMITTIERT', 'Der Angreifer hatte Fernzugriff auf {dies}', 'Das Skript hat einen Fernzugang gefunden, den der Angreifer am 20. November geöffnet hat: einen Weg, von außen mit vollen Rechten Befehle auf deinem {dev} einzugeben.',
+        ['Ein Befehl über den Cloud-Dienst von GL.iNet hat dafür gesorgt, dass sich dein {dev} mit dem Server des Angreifers verbindet und von dort Befehle annimmt.', 'Niemand kann sagen, was eingegeben wurde. Alles, was auf dem {dev} gespeichert ist, gilt als gelesen: Passwörter, VPN-Profile, Schlüssel. Geräte in deinem Netz waren von dort aus erreichbar.']],
+      m: ['INFIZIERT', 'Die gl-helper-Schadsoftware ist auf diesem {dev}', 'Das Skript hat die Schadsoftware aus dem Sicherheitshinweis von GL.iNet gefunden. Sie startet nach jedem Neustart wieder und gibt dem Angreifer volle Kontrolle über {acc}.',
+        ['Die Schadsoftware wurde über den Cloud-Dienst von GL.iNet installiert. Sie hält sich selbst am Laufen, versteckt ihre Verbindungen und holt sich Befehle von den Servern des Angreifers.', 'Alles, was auf dem {dev} gespeichert ist, gilt als gelesen, und alles, was damit verbunden ist, war erreichbar.']],
+      b: ['INFIZIERT', 'Auf diesem {dev} ist eine ältere Hintertür', 'Das ist nicht der Angriff vom 20. November. Es ist ein verstecktes Programm, das Forennutzer bei der Suche danach gefunden haben, und es kann seit Monaten auf dem {dev} sein.',
+        ['Ein verstecktes Programm startet mit dem {dev}, meldet sich bei einem Server und holt ein zweites Programm, das nur im Arbeitsspeicher läuft. Dieses gibt dem Betreiber des Servers volle Kontrolle über {acc}.', 'Wie es dorthin kam, ist nicht bekannt. Weil es lange dort gewesen sein kann, gilt alles als kopiert, was {nom} je gespeichert hat.']],
+    },
+    kinds: {
+      mk: ['Dateien der gl-helper-Schadsoftware', 'Die Dateien der Schadsoftware liegen auf dem Gerät, in einem versteckten Ordner, der Neustarts und Updates mit behaltenen Einstellungen übersteht.'],
+      ah: ['Ein Systemwerkzeug wurde ersetzt', 'Die Schadsoftware tauscht ein Werkzeug des Geräts gegen ihr eigenes. Wer sich damit die Netzwerkverbindungen ansieht, startet die Schadsoftware und sieht ihren Datenverkehr nicht.'],
+      pr: ['Ein Autostart-Eintrag startet die Schadsoftware', 'Eine Datei, die bei jedem Start des Geräts ausgeführt wird, ruft die Schadsoftware auf. So kommt sie nach einem Neustart zurück.'],
+      kr: ['Die Schadsoftware soll ein Firmware-Update überstehen', 'Ihre Dateien wurden in die Liste dessen eingetragen, was ein Firmware-Update behält.'],
+      cr: ['Ein Zeitplan-Eintrag startet die Schadsoftware', 'Im Zeitplan des Geräts steht eine Zeile, die die Schadsoftware immer wieder startet.'],
+      sk: ['Ein SSH-Schlüssel, den die Schadsoftware hinzugefügt hat', 'Mit diesem Schlüssel kann sich der Angreifer ohne Passwort am Gerät anmelden.'],
+      rt: ['Der Fernterminal-Dienst zeigt auf den Angreifer', 'Der Dienst, über den GoodCloud normalerweise ein Terminal auf dem Gerät öffnet, ist auf den Server des Angreifers eingestellt.'],
+      pq: ['Die Schadsoftware läuft', 'Ein Prozess, der sich „crond -i /tmp/.log“ nennt, läuft. Das ist das Zeichen, das GL.iNet in seinem eigenen Hinweis nennt.'],
+      pi: ['Ein Programm der Schadsoftware läuft', 'Eines der Programme der Schadsoftware ist gerade auf dem Gerät aktiv.'],
+      ps: ['Ein Fernzugang für den Angreifer ist gerade offen', 'Ein Programm auf dem Gerät ist mit dem Server des Angreifers verbunden und wartet auf Befehle. Es bleibt, bis das Gerät neu startet.'],
+      pp: ['Seit dem letzten Neustart war ein Fernzugang offen', 'Der Fernzugang hinterlässt eine kleine Hilfsdatei im Arbeitsspeicher. Sie ist da, also lief der Zugang irgendwann seit dem letzten Start des Geräts.'],
+      cs: ['Eine Verbindung zum Server des Angreifers', 'Das Gerät hat eine Verbindung zu dem Server, zu dem die Fernzugänge gingen, oder versucht, eine aufzubauen.'],
+      cm: ['Eine Verbindung zu einem Server der Schadsoftware', 'Das Gerät ist mit einem der Server verbunden, von denen die Schadsoftware ihre Dateien und Befehle holt.'],
+      fw: ['Eine Firewall-Regel, die der Befehl hinterlassen hat', 'Der Befehl hinterlässt eine auffällige Regel in der Firewall. Die Regel richtet selbst keinen Schaden an, steht aber nur dort, wenn der Befehl lief. Nach einem Neustart ist sie weg.'],
+      cc: ['Eine Spur, dass der Befehl lief', 'Der Cloud-Dienst legt eine kleine Datei an, wenn er einen solchen Befehl verarbeitet. Auf deinem Gerät ist diese Datei leer und während des Angriffs geschrieben worden, und AstroWarp, das sie erklären würde, ist aus. Diese Spur bleibt auch nach einem Neustart.'],
+      it: ['Das Installationsprogramm hat eine Spur hinterlassen', 'Das Installationsprogramm der Schadsoftware legt eine bestimmte Verknüpfung auf dem Gerät an. Sie wurde während des Angriffs angelegt.'],
+      bi: ['Eine Startdatei wurde geändert, um die Hintertür zu starten', 'Eine Datei der Firmware, die bei jedem Start ausgeführt wird, enthält zusätzliche Zeilen, die das versteckte Programm starten.'],
+      bf: ['Die Dateien der Hintertür', 'Das versteckte Ladeprogramm liegt auf dem Gerät, unter einem Namen, der wie ein normales Systemprogramm aussieht.'],
+      bk: ['Die Hintertür soll ein Firmware-Update überstehen', 'Ihre Dateien wurden in die Liste dessen eingetragen, was ein Firmware-Update behält. Ein Update mit behaltenen Einstellungen entfernt sie nicht.'],
+      bh: ['Ein Server der Hintertür steht in der Konfiguration', 'Eine Konfigurationsdatei nennt einen der Server, bei denen sich die Hintertür meldet.'],
+      bp: ['Die Hintertür läuft', 'Ihre Programme sind gerade auf dem Gerät aktiv.'],
+      pe: ['Deine Autostart-Dateien weichen von der Firmware ab', 'Die Dateien, die bei jedem Start ausgeführt werden, sind nicht die, mit denen die Firmware geliefert wurde. Das ist häufig und meist deine eigene Änderung; für sich genommen ist es keine Spur.'],
+      none: ['Keine bekannte Spur', 'Das Skript hat Dateien, Autostart-Einträge, laufende Programme, die Firewall und offene Verbindungen mit allem verglichen, was über diesen Angriff und über die ältere Hintertür bekannt ist.'],
+      rs: ['Das Gerät wurde seit dem 19. November neu gestartet', 'Ein Fernzugang und was er im Arbeitsspeicher hinterlässt, sind nach einem Neustart verschwunden. Das Skript sieht nur, was noch da ist.'],
+      rv: ['{n} weitere Änderungen stehen zur Durchsicht in der Liste', 'Das Skript listet alles auf, was von der Firmware abweicht und was es nicht einordnen kann. Fast immer sind das deine eigenen Einstellungen und installierten Programme. Es sind keine Spuren des Angriffs.'],
+    },
+    steps: {
+      gcoff: ['GoodCloud und AstroWarp jetzt ausschalten', 'Der Angriff kam über GoodCloud, und der fehlerhafte Teil steckt noch in der Firmware der meisten Geräte. Nutze den GoodCloud-Schalter in der Verwaltungsoberfläche oder führe das auf dem Router aus:', GC_OFF],
+      gcoffk: ['Den Cloud-Dienst jetzt ausschalten', 'Der Angriff kam über den Cloud-Dienst von GL.iNet. Schalte ihn in der Weboberfläche des KVM aus; ein Nutzer hat den Schalter unter „More Settings“ gefunden.'],
+      gckeep: ['GoodCloud ausgeschaltet lassen', 'Lass es aus, bis die korrigierte Firmware von GL.iNet installiert ist, und prüfe den Schalter nach jedem Firmware-Update erneut: Ein Update kann ihn wieder einschalten.'],
+      gcx: ['Sicherstellen, dass GoodCloud und AstroWarp aus sind', 'Das Skript konnte nicht lesen, ob GoodCloud an ist. Sieh in der Verwaltungsoberfläche nach dem GoodCloud-Schalter und schalte ihn aus, bis die korrigierte Firmware installiert ist.'],
+      norestart: ['Das Gerät noch nicht neu starten', 'Der Fernzugang und seine Spuren existieren nur im Arbeitsspeicher. Sichere zuerst die Beweise (nächste Schritte), setze dann zurück.'],
+      archive: ['Beweise sichern, bevor du neu startest oder zurücksetzt', 'Lass das Skript noch einmal mit --archive laufen und kopiere die genannte Datei vom Gerät herunter. Ein Neustart oder ein Zurücksetzen löscht die Spuren.', 'sh gl-helper-triage.sh --archive'],
+      reset: ['Den Router auf Werkseinstellungen zurücksetzen', 'Ein Firmware-Update, das deine Einstellungen behält, reicht nicht. Richte den Router danach von Hand neu ein und spiele keine Sicherung ein, die von ihm stammt.'],
+      reflash: ['Die Firmware neu installieren, ohne die Einstellungen zu behalten', 'Lade die Firmware für dein Modell bei GL.iNet herunter und installiere sie mit ausgeschaltetem „Einstellungen behalten“. Richte den Router danach von Hand ein und spiele keine Sicherung ein, die von ihm stammt.'],
+      kvmfw: ['Die Sicherheits-Firmware von GL.iNet installieren und das KVM zurücksetzen', 'Installiere die neueste Firmware für dein Modell und stelle danach die Werkseinstellungen wieder her. Ein Update mit behaltenen Einstellungen behält auch das Passwort und was der Angreifer hinzugefügt haben kann.'],
+      creds: ['Alle Passwörter und Schlüssel ändern, die das Gerät kannte', 'Das Admin-Passwort, das WLAN-Passwort, dein GoodCloud-Konto, VPN-Profile und SSH-Schlüssel. Lege bei deinem VPN-Anbieter neue Profile an; die alten gelten als kopiert.'],
+      credsold: ['Alle Passwörter und Schlüssel ändern, die das Gerät je gespeichert hat', 'Die Hintertür kann seit Monaten dort sein. Admin-Passwort, WLAN, dein GoodCloud-Konto, VPN-Profile, SSH-Schlüssel und DDNS-Zugänge gelten alle als kopiert.'],
+      clients: ['Die Geräte hinter dem Router ansehen', 'Computer und andere Geräte, die diesen Router benutzt haben, waren von ihm aus erreichbar. Prüfe sie auf unbekannte Programme und Konten, die wichtigen zuerst.'],
+      kvmhost: ['Den Computer prüfen, der am KVM hängt', 'Ein KVM sieht den Bildschirm und tippt auf der Tastatur des Computers, an dem es hängt. Suche dort nach unbekannter Software, Konten und Autostart-Einträgen.'],
+      offline: ['Das Gerät vom Internet nehmen, bis die Firmware neu installiert ist', 'Das zweite Programm der Hintertür läuft im Arbeitsspeicher und nimmt Befehle von außen an. Wenn du es nicht abstecken kannst, sperre diese Namen in deinem Netz: adguardns.com, adguardns.org, lede-openproject.org, adxinsight.com, openwrt-project.org.'],
+      update: ['Die korrigierte Firmware installieren, sobald sie angeboten wird', 'In den anonymen Berichten zeigt kein Router mit Firmware 4.11 Spuren. Installiere die Sicherheits-Firmware von GL.iNet für dein Modell, sobald sie verfügbar ist.'],
+      kvmupdate: ['Die Sicherheits-Firmware von GL.iNet installieren', 'Installiere die neueste Firmware für dein KVM-Modell, sobald sie verfügbar ist.'],
+      again: ['Das Skript in ein paar Tagen noch einmal laufen lassen', 'Es ändert sich mehrmals täglich, weil die Community dazulernt. Ein Gerät, das eine frühe Version sauber nannte, muss es nicht sein.'],
+      sure: ['War GoodCloud während des Angriffs an, erwäge trotzdem ein Zurücksetzen', 'Es wurde nichts gefunden, aber nach einem Neustart lässt sich nichts ausschließen. Werkseinstellungen und neue Passwörter sind die sichere Wahl.'],
+    },
+  },
+  zh: {
+    title: 'CSA-2026-01：你的检查结果',
+    crumbs: ['安全公告', 'CSA-2026-01', '你的检查结果'],
+    eyebrow: '你的检查结果 · 社区脚本 {v} · {dev}', eyebrowHand: '你勾选的情况 · {dev}',
+    dev: { r: '路由器', k: 'KVM 设备', u: '设备' },
+    note: '本页面只负责解释检查结果。它没有检查你的设备，也没有收到任何数据：地址里只有几个简短的代码，表示脚本发现了什么，而且浏览器不会把地址的这一部分发送出去。',
+    old: '这个结果来自脚本版本 {v}。当前版本是 {cur}，能发现更多痕迹。请重新运行脚本后再参考本页内容。',
+    gc: { 1: '已开启', 0: '已关闭', x: '未知' }, gcLabel: 'GoodCloud',
+    rs: { 1: '攻击发生后重启过', 0: '攻击发生后没有重启过' },
+    hFound: '脚本发现了什么', hMeans: '这意味着什么', hDo: '现在请这样做', hHelp: '如果你拿不准',
+    as: '在脚本输出中显示为：',
+    fix2: ['脚本已经删除了它发现的东西。', '这只是清除了已知的痕迹，仅此而已。设备曾经落入他人之手，所以下面的步骤仍然需要执行。'],
+    fix3: ['脚本没能删除它发现的全部内容。', '请不要依赖这次清理。请按下面的步骤操作；恢复出厂设置可以完成脚本没能做到的事。'],
+    also: ['这台{dev}上还有：一个更早的后门', '它不属于 11 月 20 日的那次攻击，可能已经存在好几个月了。脚本不会删除它。请在不保留设置的情况下重新刷写固件，不要导入从这台设备备份出来的配置，在此之前请让设备断开互联网。'],
+    help: [['到论坛提问', '把本页的地址贴到论坛即可。里面没有任何能识别你或你的设备的信息。'], ['阅读安全公告', '目前已经确认的情况，以及尚不清楚的情况。'], ['如何运行脚本', '各个选项的用法，以及如何阅读完整输出。']],
+    share: '这个地址可以转发给别人：里面只有检查结果，没有关于你的任何信息。', copy: '复制地址', copied: '已复制',
+    fine: '这是社区的工作成果，不是 GL.iNet 官方页面。脚本只认识已知的痕迹，所以“未发现”并不能证明设备一定是干净的。',
+    pickTitle: '你在设备上看到了什么？', pickLead: '本页面用来解释社区脚本的检查结果，通常结果就包含在页面地址里。如果没有结果，你也可以勾选自己发现的情况，例如按照 GL.iNet 的手动检查方法查到的内容。',
+    pickDev: '是哪种设备？', pickGc: 'GoodCloud 是否开启？', pickWhat: '你发现了什么？', pickGo: '解释这个结果',
+    pickItems: { pq: '有一个 “crond -i /tmp/.log” 进程在运行', cs: '有一条连到 170.39.226.219 的连接', pp: '存在文件 /tmp/f', mk: '/etc/glinet/.cache 或 /etc/config/.gl 里有文件', bi: '/etc/init.d/urandom_seed 里有包含 “monitord” 或 “ulogd” 的行' },
+    pickNone: '如果以上情况都没有，就什么都不要勾选。', pickRun: '更好的办法是运行脚本，它检查的内容远比这个列表多。',
+    results: {
+      c: ['未发现痕迹', '这台{dev}上没有发现已知痕迹', '脚本没有发现它所认识的任何痕迹。这是好消息，但不是证明：它只能发现目前已知的东西。',
+        ['这台{dev}上没有任何已知痕迹：没有恶意软件文件，没有远程访问通道，也没有攻击者命令执行过的迹象。', '这台{dev}在攻击开始之后没有重启过，所以内存里的痕迹如果存在，现在应该还在。因此这个结果比重启之后得到的结果更可靠。']],
+      cr: ['未发现痕迹', '这台{dev}上没有发现已知痕迹', '脚本没有发现它所认识的任何痕迹。不过这台{dev}在攻击开始之后重启过，所以这个结果很难说明重启之前的情况。',
+        ['这台{dev}上目前没有任何已知痕迹：没有恶意软件文件，没有远程访问通道，也没有攻击者命令执行过的迹象。', '重启会清除攻击留在内存里的东西。如果 11 月 20 日至 21 日期间 GoodCloud 是开启的，这台{dev}有可能被攻击过，而现在看不出任何痕迹。']],
+      a: ['已被攻击', '攻击者的一条命令在这台{dev}上执行过', '没有发现恶意软件，也没有发现仍然开着的远程访问通道。但这条命令是以最高权限执行的，所以请把这台{dev}当作曾被他人控制过来处理。',
+        ['有人通过 GL.iNet 的云服务向你的{dev}发送了一条精心构造的命令，{dev}以最高权限执行了它。', '这条命令具体做了什么，现在已经无法确定。被还原出来的一条命令只是查看了设备情况并回传；另一些则为攻击者打开了远程访问通道。无论是哪一种，它都能读取{dev}上保存的所有密码和密钥。']],
+      i: ['已被攻击', '恶意软件的安装程序在这台{dev}上运行过', '它的文件现在已经不在了，可能后来被固件升级或攻击者自己删除了。请把这台{dev}当作曾经被感染过来处理。',
+        ['gl-helper 恶意软件的安装程序会留下一处小改动，而这处改动正是在攻击期间产生的。也就是说，恶意软件曾被装到这台{dev}上，虽然现在已经不在了。', '它存在期间拥有完全的控制权，可以读取{dev}上的所有密码和密钥，并访问与{dev}相连的一切。']],
+      s: ['已被入侵', '攻击者曾经可以远程操作这台{dev}', '脚本发现了攻击者在 11 月 20 日打开的一条远程访问通道：通过它，可以从外部以最高权限在你的{dev}上输入命令。',
+        ['一条通过 GL.iNet 云服务发来的命令，让你的{dev}主动连接到攻击者的服务器，并从那里接收命令。', '没有人能确定对方输入过什么。{dev}上保存的一切都应视为已被读取：密码、VPN 配置、密钥。你网络里的其他设备也可能从这里被访问到。']],
+      m: ['已被感染', '这台{dev}上有 gl-helper 恶意软件', '脚本发现了 GL.iNet 安全公告中提到的恶意软件。它在每次重启后都会重新启动，让攻击者完全控制这台{dev}。',
+        ['这个恶意软件是通过 GL.iNet 的云服务装上去的。它会保持自己一直运行，隐藏自己的网络连接，并从攻击者的服务器获取命令。', '{dev}上保存的一切都应视为已被读取，与它相连的一切也都可能被访问过。']],
+      b: ['已被感染', '这台{dev}上有一个更早的后门', '这不是 11 月 20 日的那次攻击。它是论坛用户在排查那次攻击时发现的一个隐藏程序，可能已经在这台{dev}上存在好几个月了。',
+        ['一个隐藏程序随{dev}一起启动，向一台服务器报到，并下载第二个只在内存中运行的程序。后者让控制那台服务器的人可以完全操纵这台{dev}。', '它是怎么装上去的，目前还不清楚。由于它可能已经存在很久，这台{dev}保存过的一切都应视为已被复制。']],
+    },
+    kinds: {
+      mk: ['gl-helper 恶意软件的文件', '恶意软件自己的文件就在设备上，放在一个隐藏文件夹里；重启和保留设置的升级都不会清除它。'],
+      ah: ['一个系统工具被替换了', '恶意软件把设备上的一个工具换成了自己的版本，这样查看网络连接时反而会启动恶意软件，并且看不到它的流量。'],
+      pr: ['有一个开机自启动项会启动恶意软件', '一个每次开机都会执行的文件调用了恶意软件。它就是靠这个在重启后恢复运行的。'],
+      kr: ['恶意软件被设置为在固件升级后保留', '它的文件被加进了固件升级时要保留的文件列表。'],
+      cr: ['有一个定时任务会启动恶意软件', '设备的定时任务里有一行，会反复启动恶意软件。'],
+      sk: ['恶意软件添加了一个 SSH 密钥', '有了这个密钥，攻击者不需要密码就能登录设备。'],
+      rt: ['远程终端服务被指向了攻击者', '这个服务原本用于让 GoodCloud 在设备上打开终端，现在却被设置成连接攻击者的服务器。'],
+      pq: ['恶意软件正在运行', '有一个自称 “crond -i /tmp/.log” 的进程在运行。这正是 GL.iNet 官方公告里提到的特征。'],
+      pi: ['恶意软件的一个程序正在运行', '恶意软件的某个程序此刻正在设备上活动。'],
+      ps: ['一条供攻击者使用的远程访问通道此刻正开着', '设备上有一个程序连着攻击者的服务器，正在等待命令。在设备重启之前它会一直存在。'],
+      pp: ['上次重启之后，曾经开过远程访问通道', '远程访问通道会在内存里留下一个小的辅助文件。这个文件存在，说明自上次开机以来通道曾经运行过。'],
+      cs: ['有一条连到攻击者服务器的连接', '设备与远程访问通道所连接的那台服务器之间有连接，或者正在尝试建立连接。'],
+      cm: ['有一条连到恶意软件服务器的连接', '设备正连着恶意软件用来下载文件和获取命令的服务器之一。'],
+      fw: ['命令留下的一条防火墙规则', '这条命令会在防火墙里留下一条不寻常的规则。规则本身没有危害，但只有命令执行过才会出现。重启后它就消失了。'],
+      cc: ['命令执行过的痕迹', '云服务在处理这类命令时会写入一个小文件。在你的设备上，这个文件是空的，写入时间正好在攻击期间，而能够解释它的 AstroWarp 功能是关闭的。这个痕迹在重启后仍然存在。'],
+      it: ['安装程序留下的痕迹', '恶意软件的安装程序会在设备上创建一个特定的链接。这个链接正是在攻击期间创建的。'],
+      bi: ['一个启动文件被改动，用来启动后门', '固件里一个每次开机都会执行的文件被加了几行，用来启动那个隐藏程序。'],
+      bf: ['后门的文件', '隐藏的加载程序就在设备上，名字看起来像一个普通的系统程序。'],
+      bk: ['后门被设置为在固件升级后保留', '它的文件被加进了固件升级时要保留的文件列表。保留设置的升级无法清除它。'],
+      bh: ['配置里出现了后门的服务器', '有一个配置文件里写着后门报到用的服务器之一。'],
+      bp: ['后门正在运行', '它的程序此刻正在设备上活动。'],
+      pe: ['你的开机自启动文件与固件自带的不同', '每次开机执行的文件不是固件原本自带的版本。这种情况很常见，通常是你自己改的；单凭这一点不算痕迹。'],
+      none: ['没有已知痕迹', '脚本把文件、开机自启动项、正在运行的程序、防火墙和网络连接，逐一与这次攻击以及更早的那个后门的全部已知特征做了比对。'],
+      rs: ['设备在 11 月 19 日之后重启过', '远程访问通道以及它留在内存里的东西，重启后都会消失。脚本只能看到现在还在的东西。'],
+      rv: ['另外还列出了 {n} 处改动，供你自己查看', '脚本会把所有与固件不同、又无法归类的地方都列出来。这些几乎总是你自己的设置和安装的程序，并不是这次攻击的痕迹。'],
+    },
+    steps: {
+      gcoff: ['立即关闭 GoodCloud 和 AstroWarp', '攻击是通过 GoodCloud 进来的，而有问题的那部分代码仍然在大多数设备的固件里。请在管理界面里关闭 GoodCloud 开关，或者在路由器上执行：', GC_OFF],
+      gcoffk: ['立即关闭云服务', '攻击是通过 GL.iNet 的云服务进来的。请在 KVM 的网页界面里把它关掉；有用户是在 “More Settings” 里找到这个开关的。'],
+      gckeep: ['保持 GoodCloud 关闭', '在安装 GL.iNet 的修复版固件之前不要打开，并且每次升级固件后都再检查一次这个开关：升级可能会把它重新打开。'],
+      gcx: ['确认 GoodCloud 和 AstroWarp 已经关闭', '脚本没能读出 GoodCloud 是否开启。请到管理界面里查看 GoodCloud 开关，并在安装修复版固件之前保持关闭。'],
+      norestart: ['先不要重启设备', '远程访问通道和它的痕迹只存在于内存里。请先保存证据（见后面的步骤），然后再恢复出厂设置。'],
+      archive: ['在重启或恢复出厂设置之前，先保存证据', '再运行一次脚本并加上 --archive，然后把它给出的文件从设备上复制出来。重启或恢复出厂设置会清除这些痕迹。', 'sh gl-helper-triage.sh --archive'],
+      reset: ['把路由器恢复出厂设置', '保留设置的固件升级是不够的。恢复之后请手动重新配置，不要导入从这台路由器备份出来的配置。'],
+      reflash: ['重新刷写固件，并且不保留设置', '从 GL.iNet 下载适用于你型号的固件，安装时关闭“保留设置”。之后请手动重新配置，不要导入从这台路由器备份出来的配置。'],
+      kvmfw: ['安装 GL.iNet 的安全固件，并重置 KVM', '安装适用于你型号的最新固件，然后恢复出厂设置。保留设置的升级也会保留密码，以及攻击者可能添加的东西。'],
+      creds: ['更换设备知道的所有密码和密钥', '包括管理密码、Wi-Fi 密码、GoodCloud 账号、VPN 配置和 SSH 密钥。请在 VPN 服务商那里重新生成配置，旧的应视为已被复制。'],
+      credsold: ['更换设备保存过的所有密码和密钥', '这个后门可能已经存在好几个月了。管理密码、Wi-Fi、GoodCloud 账号、VPN 配置、SSH 密钥和 DDNS 账号都应视为已被复制。'],
+      clients: ['检查路由器后面的设备', '使用过这台路由器的电脑和其他设备，都可能从路由器上被访问到。请检查它们有没有陌生的程序和账号，先查重要的设备。'],
+      kvmhost: ['检查连接在 KVM 上的电脑', 'KVM 能看到所连电脑的屏幕，也能操作它的键盘。请在那台电脑上检查有没有陌生的软件、账号和开机自启动项。'],
+      offline: ['在重新刷写固件之前，让设备断开互联网', '后门的第二个程序在内存里运行，并接收外部发来的命令。如果无法拔掉网线，请在你的网络里屏蔽这些域名：adguardns.com、adguardns.org、lede-openproject.org、adxinsight.com、openwrt-project.org。'],
+      update: ['修复版固件一发布就安装', '在匿名报告中，没有一台运行 4.11 固件的路由器出现痕迹。你的型号一有 GL.iNet 的安全固件，就请尽快安装。'],
+      kvmupdate: ['安装 GL.iNet 的安全固件', '你的 KVM 型号一有最新固件，就请尽快安装。'],
+      again: ['过几天再运行一次脚本', '随着社区了解的情况越来越多，脚本每天都会更新好几次。早期版本判定为干净的设备，不一定真的干净。'],
+      sure: ['如果攻击期间 GoodCloud 是开启的，仍然建议考虑恢复出厂设置', '虽然没有发现痕迹，但重启之后什么都无法排除。恢复出厂设置并更换密码是最稳妥的做法。'],
+    },
+  },
+};
+
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+const fill = (s, o) => s.replace(/\{(\w+)\}/g, (m, k) => (k in o ? o[k] : m));
+const ver = (v) => v.split('.').map(Number);
+const older = (a, b) => { const x = ver(a), y = ver(b); return x[0] < y[0] || (x[0] === y[0] && x[1] < y[1]); };
+
+// The language: what was chosen here before, else what the browser asks for.
+let lang = 'en';
+try { lang = localStorage.getItem('csa-lang') || ''; } catch { lang = ''; }
+if (!T[lang]) { const want = (navigator.languages || [navigator.language || 'en']).map((l) => l.toLowerCase()); lang = (want.map((l) => (l.startsWith('zh') ? 'zh' : l.startsWith('de') ? 'de' : l.startsWith('en') ? 'en' : '')).find(Boolean)) || 'en'; }
+
+// The result in the address. Only known codes are taken; anything else is dropped, so a
+// made-up address can show nothing but the texts of this page.
+function read() {
+  const q = new URLSearchParams(location.hash.slice(1)), one = (k, ok, d) => (ok.includes(q.get(k)) ? q.get(k) : d);
+  const v = /^\d{1,2}\.\d{1,3}$/.test(q.get('v') || '') ? q.get('v') : q.get('v') === 'hand' ? 'hand' : '';
+  const k = [...new Set((q.get('k') || '').split('.'))].filter((c) => NAMES[c] && !['none', 'rs', 'rv'].includes(c));
+  const rv = /^\d{1,3}$/.test(q.get('rv') || '') ? Number(q.get('rv')) : 0;
+  return { v, p: one('p', ['r', 'k', 'u'], 'u'), r: one('r', ['m', 'a', 'c'], ''), k, b: one('b', ['1'], '0'), g: one('g', ['1', '0', 'x'], 'x'), n: one('n', ['1', '0'], '0'), f: one('f', ['2', '3'], '0'), rv };
+}
+// Which of the page's results the codes amount to.
+function classify(c) {
+  const has = (set) => c.k.some((x) => set.includes(x)), bd = c.b === '1' || c.k.some((x) => x[0] === 'b');
+  let main = 'c';
+  if (c.r === 'm' || has(MALWARE) || has(SHELL)) main = has(MALWARE) ? 'm' : 's';
+  else if (c.r === 'a' || has(['cc', 'fw', 'it'])) main = c.k.includes('it') ? 'i' : 'a';
+  if (main === 'c' && bd) return { main: 'b', also: false };
+  if (main === 'c' && c.n === '1') main = 'cr';
+  return { main, also: bd };
+}
+
+function render() {
+  const t = T[lang], c = read(), page = document.getElementById('page');
+  document.documentElement.lang = lang === 'zh' ? 'zh-Hans' : lang; document.title = t.title;
+  for (const b of document.querySelectorAll('.lang button')) b.setAttribute('aria-pressed', String(b.dataset.lang === lang));
+  page.replaceChildren();
+  const cr = el('nav', null, 'crumbs'); cr.setAttribute('aria-label', 'Breadcrumb');
+  [['https://gl-i.net/security/', t.crumbs[0]], [ADVISORY, t.crumbs[1]], ['', t.crumbs[2]]].forEach(([href, name], i) => { if (i) cr.append(el('span', '/')); const a = el(href ? 'a' : 'b', name); if (href) a.href = href; cr.append(a); });
+  page.append(cr);
+  if (!c.v) return pick(t, page);
+
+  const dv = t.dev[c.p], o = { ...(typeof dv === 'string' ? { dev: dv } : dv), v: c.v, cur: CURRENT }, cls = classify(c), res = t.results[cls.main];
+  const hero = el('header', null, 'hero'); hero.dataset.tone = TONE[cls.main];
+  hero.append(el('p', fill(c.v === 'hand' ? t.eyebrowHand : t.eyebrow, o), 'eyebrow'), el('h1', fill(res[1], o)), el('p', fill(res[2], o), 'lead'), el('span', res[0], 'verdict'));
+  const chips = el('div', null, 'chips'), gc = el('span', t.gcLabel + ': ', 'chip'); gc.append(el('b', t.gc[c.g])); chips.append(gc);
+  if (c.v !== 'hand') chips.append(el('span', t.rs[c.n], 'chip'));
+  hero.append(chips); page.append(hero);
+
+  const box = (pair, kind) => { const p = el('p', null, 'note ' + kind); p.append(el('b', fill(pair[0], o)), fill(pair[1], o)); page.append(p); };
+  if (c.v !== 'hand' && CURRENT && older(c.v, CURRENT)) page.append(el('p', fill(t.old, o), 'note warn'));
+  if (c.f === '2') box(t.fix2, 'warn'); if (c.f === '3') box(t.fix3, 'bad');
+  if (cls.also) box(t.also, 'bad');
+  page.append(el('p', t.note, 'note'));
+
+  page.append(el('h2', t.hFound));
+  const found = el('div', null, 'found'), list = c.k.length ? [...c.k] : ['none'];
+  if (c.n === '1' && c.v !== 'hand') list.push('rs'); if (c.rv) list.push('rv');
+  for (const k of list) {
+    const d = t.kinds[k], card = el('div', null, 'card'), as = el('p', t.as + ' ', 'as');
+    as.append(el('code', NAMES[k])); card.append(el('h3', fill(d[0], { n: c.rv })), el('p', d[1])); if (c.v !== 'hand') card.append(as); found.append(card);
+  }
+  page.append(found);
+
+  page.append(el('h2', t.hMeans)); const m = el('div', null, 'card means'); for (const x of res[3]) m.append(el('p', fill(x, o))); page.append(m);
+
+  page.append(el('h2', t.hDo)); const ol = el('ol', null, 'steps'), kvm = c.p === 'k';
+  for (let s of PLAN[kvm ? 'kvm' : 'router'][cls.main]) {
+    if (s === 'gc') s = c.g === '0' ? 'gckeep' : c.g === 'x' ? 'gcx' : kvm ? 'gcoffk' : 'gcoff';
+    const d = t.steps[s], li = el('li'); li.append(el('b', d[0], 't'), el('p', d[1])); if (d[2]) li.append(el('div', d[2], 'cmd')); ol.append(li);
+  }
+  page.append(ol);
+
+  page.append(el('h2', t.hHelp)); const h = el('div', null, 'help');
+  [FORUM, ADVISORY, GUIDE].forEach((href, i) => { const a = el('a'); a.href = href; a.rel = 'noopener'; a.append(el('b', t.help[i][0] + ' →'), t.help[i][1]); h.append(a); });
+  page.append(h);
+
+  const sh = el('div', null, 'share'), cp = el('button', t.copy, 'btn quiet'); cp.type = 'button';
+  cp.addEventListener('click', async () => { try { await navigator.clipboard.writeText(location.href); cp.textContent = t.copied; } catch { /* no clipboard: the address bar has it */ } });
+  sh.append(cp, t.share); page.append(sh);
+  page.append(el('p', t.fine, 'fine'));
+}
+
+// Without a result in the address: tick what you saw yourself.
+function pick(t, page) {
+  const hero = el('header', null, 'hero'); hero.dataset.tone = 'ok'; hero.append(el('h1', t.pickTitle), el('p', t.pickLead, 'lead')); page.append(hero);
+  const f = el('form', null, 'card pick'), group = (legend) => { const s = el('fieldset'); s.append(el('legend', legend)); f.append(s); return s; };
+  const radio = (set, name, value, label, on) => { const l = el('label'), i = el('input'); i.type = 'radio'; i.name = name; i.value = value; i.checked = !!on; l.append(i, label); set.append(l); };
+  const d = group(t.pickDev); radio(d, 'p', 'r', t.dev.r.dev || t.dev.r, true); radio(d, 'p', 'k', t.dev.k.dev || t.dev.k);
+  const g = group(t.pickGc); radio(g, 'g', '1', t.gc[1]); radio(g, 'g', '0', t.gc[0]); radio(g, 'g', 'x', t.gc.x, true);
+  const w = group(t.pickWhat); for (const [code, label] of Object.entries(t.pickItems)) { const l = el('label'), i = el('input'); i.type = 'checkbox'; i.name = 'k'; i.value = code; l.append(i, label); w.append(l); }
+  w.append(el('p', t.pickNone, 'sub'));
+  const go = el('button', t.pickGo, 'btn'); go.type = 'submit'; f.append(go);
+  f.addEventListener('submit', (e) => { e.preventDefault(); const fd = new FormData(f); location.hash = `v=hand&p=${fd.get('p')}&k=${fd.getAll('k').join('.')}&g=${fd.get('g')}`; });
+  page.append(f);
+  const run = el('p', t.pickRun + ' ', 'note'), a = el('a', GUIDE.replace('https://', '')); a.href = GUIDE; run.append(a); page.append(run);
+  page.append(el('p', t.fine, 'fine'));
+}
+
+for (const b of document.querySelectorAll('.lang button')) b.addEventListener('click', () => { lang = b.dataset.lang; try { localStorage.setItem('csa-lang', lang); } catch { /* for this visit only */ } render(); });
+addEventListener('hashchange', () => { render(); scrollTo(0, 0); });
+render();
+</script>
+</body>
+</html>

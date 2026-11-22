@@ -4,6 +4,7 @@
 // about the sender: no IP address, no country, no headers.
 
 import { DASHBOARD } from './dashboard.js';
+import { RESULT } from './result.js';
 
 const MAX_BYTES = 49152;
 const SAFE = /^[A-Za-z0-9 ._:\/+@=,()-]*$/;
@@ -391,9 +392,38 @@ async function script(request, env, ctx, pathname) {
   });
 }
 
+// The page that explains a result of the script in plain words, in English, German and
+// Chinese: csa.gl-i.net/2026-01/#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0. The result is in the part
+// of the address after "#", which a browser does not send. So this answer is the same for
+// everyone, and the worker learns nothing about a device from it. Open to all, no login.
+// The one thing put in is the version of the script served now, so that the page can say
+// when a result comes from an older one.
+async function resultPage(request, env) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
+  let current = '';
+  try {
+    const have = JSON.parse((await env.REPORTS.get(SCRIPT_KEY)) || 'null');
+    current = ((have && /^VERSION=(\d{1,2}\.\d{1,3})$/m.exec(have.body)) || [])[1] || '';
+  } catch { /* not known: the page then says nothing about versions */ }
+  return new Response(request.method === 'HEAD' ? null : RESULT.replace('__CURRENT_VERSION__', current || '__CURRENT_VERSION__'), {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      'x-content-type-options': 'nosniff',
+      'referrer-policy': 'no-referrer',
+    },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
-    const { pathname } = new URL(request.url);
+    const { pathname, hostname } = new URL(request.url);
+    // the result page; the long form of the address leads to the short one (a browser
+    // keeps the part after "#" across the redirect)
+    if (pathname === '/2026-01/') return resultPage(request, env);
+    if (/^\/(csa-)?2026-01\/?$/.test(pathname)) return Response.redirect(new URL('/2026-01/', request.url).href, 302);
+    if (hostname.startsWith('csa.') && pathname === '/') return Response.redirect('https://gl-i.net/security/', 302);
     if (/\/csa-2026-01-fix(\/|$)/.test(pathname)) return script(request, env, ctx, pathname);
     if (pathname.endsWith('/migrate')) {
       // a browser, or curl without -X POST, sends GET and would only see the text below

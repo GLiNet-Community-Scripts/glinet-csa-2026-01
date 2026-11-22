@@ -192,7 +192,34 @@ if (process.argv[2] === 'serve') {
   // the list of known release files is built into the page, and every entry is a SHA-256 with a name
   { const { DASHBOARD } = await import('../src/dashboard.js'); const m = /const KNOWN = (\{.*?\});/.exec(DASHBOARD); let known = {}; try { known = JSON.parse(m[1]); } catch { /* stays empty */ }
     expect('the known release files are in the built page', !DASHBOARD.includes('/*KNOWN_HASHES*/') && Object.keys(known).length > 100 && Object.entries(known).every(([h, n]) => /^[0-9a-f]{64}$/.test(h) && /^[\w .,-]{5,80}$/.test(n))); }
-  // review items, GoodCloud, state file size (schema 6)
+  // the page that explains a result: served to anyone, the same for everyone, with the
+  // version of the script that is served now; its texts are complete in every language
+  {
+    const { RESULT } = await import('../src/result.js');
+    let ok = true; try { for (const m of RESULT.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]); } catch { ok = false; }
+    expect('the result page\'s script parses', ok);
+    const pick = (name, end) => { const i = RESULT.indexOf(`const ${name} = {`), j = RESULT.indexOf(end, i); return new Function('GC_OFF', 'return ' + RESULT.slice(i + `const ${name} = `.length, j + 2))('x'); };
+    const T = pick('T', '\n};\n'), NAMES = pick('NAMES', '\n};\n'), PLAN = pick('PLAN', '\n};\n');
+    const keys = (o) => Object.keys(o).sort().join(' '), langs = Object.keys(T);
+    expect('the result page has English, German and Chinese', keys(T) === 'de en zh');
+    expect('every language has the same results, findings, steps and choices', langs.every((l) => ['results', 'kinds', 'steps', 'pickItems', 'dev', 'gc', 'rs'].every((part) => keys(T[l][part]) === keys(T.en[part])) && keys(T[l]) === keys(T.en)));
+    expect('no text is empty or left in a half-written state', langs.every((l) => JSON.stringify(T[l]).length > 5000 && !/TODO|undefined|""/.test(JSON.stringify(T[l]))));
+    expect('every finding code has a name and a text', keys(T.en.kinds) === keys(NAMES));
+    const steps = new Set(Object.values(PLAN).flatMap((p) => Object.values(p).flat()));
+    expect('every step of every plan has a text, and every result has a plan', [...steps].every((s) => s === 'gc' || T.en.steps[s]) && ['router', 'kvm'].every((p) => keys(PLAN[p]) === keys(T.en.results)));
+    // the script's own table of codes: each one must be known to the page
+    const sh = readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8'), table = (/^RESULT_CODES='([^']+)'$/m.exec(sh) || [])[1];
+    if (table) expect('every code the script can put into the address is known to the page', table.split(' ').every((x) => NAMES[x.split('=')[1]]) && new Set(table.split(' ').map((x) => x.split('=')[1])).size === table.split(' ').length);
+    const page = await call('GET', undefined, {}, '/2026-01/');
+    const html = await page.text();
+    expect('the result page is served without a login, as HTML that nothing may frame or extend', page.status === 200 && page.headers.get('content-type').startsWith('text/html') && /frame-ancestors 'none'/.test(page.headers.get('content-security-policy')) && html.includes('const T = {'));
+    const long = await call('GET', undefined, {}, '/csa-2026-01/'), bare = await call('GET', undefined, {}, '/2026-01');
+    expect('the long form and the form without the last slash lead to the short address', long.status === 302 && long.headers.get('location') === 'https://example.org/2026-01/' && bare.status === 302);
+    expect('the result page takes no data', (await call('POST', '{}', {}, '/2026-01/')).status === 405);
+    await env.REPORTS.put('script/csa-2026-01-fix', JSON.stringify({ commit: 'x', body: '#!/bin/sh\nVERSION=7.77\n', checked: Date.now() }));
+    expect('the page is told the version of the script that is served now', (await (await call('GET', undefined, {}, '/2026-01/')).text()).includes("const CURRENT = '7.77'"));
+    await env.REPORTS.put('script/csa-2026-01-fix', 'null');
+  }
   const good6 = { ...good5, schema: 6, tool: '2.23', goodcloud: 'on', cloud_client: '1.2.3-4', astrowarp: 'off', state_file_size: 0, review_items: [{ kind: 'changed', path: '/etc/init.d/urandom_seed', sha256: 'b'.repeat(64) }, { kind: 'process', path: '', sha256: '' }] };
   expect('a schema 6 report is valid, also without a state file or review items', validate(good6) === null && validate({ ...good6, state_file_size: -1, review_items: [], goodcloud: 'unknown', cloud_client: '' }) === null);
   expect('schema 6 needs its fields, schema 5 must not carry them', validate({ ...good5, schema: 6 }) !== null && validate({ ...good5, review_items: [] }) !== null);
