@@ -369,5 +369,19 @@ run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
 expect "with malware files as well the verdict is INFECTED, and enable in another section does not count" '[ $rc = 1 ] && grep -q "Verdict: INFECTED - gl-helper" "$D/check.txt" && grep -q "IOC  *cloud-command" "$D/check.txt"'
 umount "$D/m"
 
+echo "=== an updated program that replaces a link of the base image is no hijack"
+OWT=$BASE/openwrt-rom-ts
+cp -a "$OWL" "$OWT"; mkdir -p "$OWT/usr/sbin"; echo tailscaled >"$OWT/usr/sbin/tailscaled"; ln -s tailscaled "$OWT/usr/sbin/tailscale"
+printf 'P:busybox\nF:bin\nR:busybox\n\nP:tailscale\nF:usr/sbin\nR:tailscale\nR:tailscaled\n\n' >"$OWT/lib/apk/db/installed"
+D=$(mkscen ts "$OWT"); U=$D/u
+mkdir -p "$U/usr/sbin" "$U/bin"; echo combined >"$U/usr/sbin/tailscale"; echo combined >"$U/usr/sbin/tailscaled"
+mnt "$D" "$OWT"
+run "$D" "$OWT" --check >"$D/check.txt"; rc=$?
+expect "Tailscale's own binary over the base link = REVIEW, exit 0" '[ $rc = 0 ] && grep -q "REVIEW  *replaced-link  */usr/sbin/tailscale" "$D/check.txt" && ! grep -q "applet-hijack" "$D/check.txt"'
+echo fake >"$D/m/bin/login"
+run "$D" "$OWT" --check >"$D/check.txt"; rc=$?
+expect "a file over a busybox link is still IOC" '[ $rc = 1 ] && grep -q "IOC  *applet-hijack  */bin/login" "$D/check.txt"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

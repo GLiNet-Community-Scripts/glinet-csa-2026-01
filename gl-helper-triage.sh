@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.17
+VERSION=2.18
 
 # watch.sh: reported for KVMs, run every three minutes by a second cron daemon
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/glinet/.cache/watch.sh etc/config/.gl/gl-helper etc/config/.gl/gb"
@@ -433,7 +433,14 @@ check_applets() {
 		if [ -n "$owner" ]; then
 			add INFO package-file "/$p" "installed by package $owner"
 		elif [ -n "$lp" ] && [ -L "$lp" ]; then
-			add IOC applet-hijack "/$p" "regular file shadows base symlink -> $(readlink "$lp")"
+			# a link to busybox is an applet; replacing that is what the malware does. Other
+			# links are replaced by ordinary updates, for example Tailscale's combined binary.
+			case $(readlink "$lp") in
+			busybox | */busybox)
+				add IOC applet-hijack "/$p" "regular file shadows base symlink -> $(readlink "$lp")" ;;
+			*)
+				add REVIEW replaced-link "/$p" "regular file where the base image has a link -> $(readlink "$lp"); an update of that program can do this" ;;
+			esac
 		elif [ "${p##*/}" = netstat ]; then
 			add IOC applet-hijack "/$p" "netstat replaced by a foreign regular file"
 		elif [ -n "$lp" ] && [ -f "$lp" ]; then
