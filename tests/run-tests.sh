@@ -378,7 +378,7 @@ mkdir -p "$U/usr/sbin" "$U/bin"; echo combined >"$U/usr/sbin/tailscale"; echo co
 mnt "$D" "$OWT"
 run "$D" "$OWT" --check >"$D/check.txt"; rc=$?
 expect "Tailscale's own binary over the base link = REVIEW, exit 0" '[ $rc = 0 ] && grep -q "REVIEW  *replaced-link  */usr/sbin/tailscale" "$D/check.txt" && ! grep -q "applet-hijack" "$D/check.txt"'
-echo fake >"$D/m/bin/login"
+rm "$D/m/bin/login"; echo fake >"$D/m/bin/login"
 run "$D" "$OWT" --check >"$D/check.txt"; rc=$?
 expect "a file over a busybox link is still IOC" '[ $rc = 1 ] && grep -q "IOC  *applet-hijack  */bin/login" "$D/check.txt"'
 umount "$D/m"
