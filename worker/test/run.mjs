@@ -194,6 +194,7 @@ if (process.argv[2] === 'serve') {
   expect('schema 9 needs the note, and at most 120 characters', validate({ ...good8, schema: 9 }) !== null && validate({ ...good9, note: 'x'.repeat(121) }) !== null && validate({ ...good9, note: 42 }) !== null);
   expect('refuses a note with a control or non-ASCII character', validate({ ...good9, note: 'a\nb' }) !== null && validate({ ...good9, note: 'a\tb' }) !== null && validate({ ...good9, note: 'caf\u00e9' }) !== null && validate({ ...good9, note: 'a\u007fb' }) !== null);
   expect('the state file\'s first call is a time or empty, and only from schema 9 on', validate({ ...good9, state_file_first: '' }) === null && validate({ ...good9, state_file_first: '2026-03-02' }) !== null && validate({ ...good9, state_file_first: undefined }) !== null && validate({ ...good8, state_file_first: '' }) === 'unknown field state_file_first');
+  expect('a time from a router whose clock was not set is kept as it is', validate({ ...good9, state_file_time: '1970-01-01 00:00:07 UTC', state_file_first: '1970-01-01 00:00:03 UTC' }) === null);
   expect('schema 8 must not carry a note', validate({ ...good8, note: 'x' }) === 'unknown field note' && validate({ ...good7, note: '' }) === 'unknown field note');
   await call('POST', JSON.stringify(good4));
   expect('without the secret the id is dropped', lastReport().device_id === '');

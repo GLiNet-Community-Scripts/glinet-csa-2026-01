@@ -421,6 +421,12 @@ expect "noatime: the access time is the first call, the time written the last" '
 umount "$D/m"; mnt "$D" "$OWL"
 run "$D" "$OWL" --check >"$D/check.txt"
 expect "without noatime only the time written is given" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 2026-11-21 10:00:00 UTC, 39 bytes" && ! grep -q "first call" "$D/check.txt"'
+touch -d '1970-01-01 00:00:07 UTC' "$D/m/etc/mp_ip_mapping_info"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "a time before 2020 is shown as not a real date" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 1970-01-01 00:00:07 UTC (clock was not set, not a real date), 39 bytes"'
+touch -d '2020-01-01 00:00:00 UTC' "$D/m/etc/mp_ip_mapping_info"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "from 2020 on a time is shown as it is" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 2020-01-01 00:00:00 UTC, 39 bytes" && ! grep -q "clock was not set" "$D/check.txt"'
 umount "$D/m"
 
 echo "=== an updated program that replaces a link of the base image is no hijack"

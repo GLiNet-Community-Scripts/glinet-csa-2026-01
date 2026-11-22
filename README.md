@@ -159,6 +159,10 @@ routers surveyed, the script also gives its access time as the handler's first c
 the time written as its last (since 2.34, also in the report as `state_file_first`). That
 is the time the file was created, so the first call since the file last did not exist.
 
+GL.iNet travel routers have no battery clock and have a wrong date until they sync the
+time. A file time before 2020 is therefore shown with "clock was not set, not a real
+date"; the report keeps the time as it is.
+
 This trace and the firewall rule only show that a crafted command ran. With nothing
 else found, the verdict is `ATTACKED`, not `INFECTED`: a forum user recovered one such
 message from the memory of the cloud client on a GL-BE9300, and it only listed the

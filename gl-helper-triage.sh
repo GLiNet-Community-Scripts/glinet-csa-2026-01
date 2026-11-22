@@ -803,6 +803,16 @@ file_ctime() {
 		sed -n 's/.* \([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\) \([0-9][0-9]:[0-9][0-9]:[0-9][0-9]\)[.0-9]* +0000 .*/\1 \2 UTC/p' | head -n 1
 }
 
+# A file time as the user reads it. A router without a battery clock has a wrong date until
+# it has synced the time; on some routers the older backdoor's files carry times a few
+# seconds after 1 January 1970. Before 2020 is not a real date. The report keeps the time.
+shown_time() {
+	case $1 in
+	19[0-9][0-9]-* | 20[01][0-9]-*) printf '%s (clock was not set, not a real date)' "$1" ;;
+	*) printf '%s' "$1" ;;
+	esac
+}
+
 # Time a file was last read (atime), in UTC, and only where the filesystem holding it is
 # mounted noatime: there it stays at the time the file was created. Empty everywhere else,
 # also when the mount cannot be found in /proc/mounts.
@@ -938,7 +948,7 @@ check_tmp() {
 	local f
 	exists "$(r tmp/.log)" && add REVIEW tmp-file /tmp/.log "path from GL.iNet's quick check (crond -i /tmp/.log) exists"
 	f=$(r tmp/f)
-	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(file_time "$f")"
+	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(shown_time "$(file_time "$f")")"
 	exists "$(r tmp/.dg)" && add REVIEW tmp-file /tmp/.dg "the malware's installer leaves a file of this name after its first report following a restart"
 	# the live crontab of GL.iNet's firmware; the installer adds its watchdog there too
 	f=$(r tmp/gl_crontabs/root)
@@ -958,8 +968,8 @@ check_tmp() {
 		local t n aw w a
 		t=$(file_time "$f") n=$(cat "$f" 2>/dev/null | wc -c | tr -d ' ')
 		aw=off; astrowarp_on && aw=on
-		w="written $t"
-		a=$(file_atime "$f"); [ -n "$a" ] && w="first call $a, last call $t"
+		w="written $(shown_time "$t")"
+		a=$(file_atime "$f"); [ -n "$a" ] && w="first call $(shown_time "$a"), last call $(shown_time "$t")"
 		if [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
 			add IOC cloud-command /etc/mp_ip_mapping_info "$w, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
 		else
