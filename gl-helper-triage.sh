@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.35
+VERSION=2.36
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 10:32 UTC'
+RELEASED='2026-11-22 11:48 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1281,9 +1281,12 @@ report_body() {
 			say "   ${D}or by the attacker. Treat the device as one that was infected.${N}"
 		else
 			say "   ${RED}Verdict: ATTACKED - a command sent through GoodCloud ran on this device${N}"
-			say "   ${D}No malware files and no remote shell were found. The one such command that was recovered${N}"
-			say "   ${D}only looked for the malware and reported back; others opened a remote shell. What ran${N}"
-			say "   ${D}here cannot be told from the device, least of all after a restart.${N}"
+			say "   ${D}Someone could run commands on this device through GoodCloud, and ran at least one.${N}"
+			say "   ${D}Which ones, and what they did, cannot be told from the device, least of all after a${N}"
+			say "   ${D}restart. It may have been a first scan with nothing installed yet, or something not${N}"
+			say "   ${D}known so far. No malware files and no remote shell were found. The one such command${N}"
+			say "   ${D}that was recovered only looked for the malware and reported back; others opened a${N}"
+			say "   ${D}remote shell.${N}"
 		fi
 	else
 		say "   ${GRN}${B}Verdict: no gl-helper indicators found${N}"
