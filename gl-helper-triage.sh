@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.25
+VERSION=2.26
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1574,13 +1574,15 @@ build_report() {
 				n=$(r "${f#/}")
 				if [ -n "$pid" ]; then
 					# a program that runs from a deleted file: the kernel still has it
-					[ "$(cat "/proc/$pid/exe" 2>/dev/null | wc -c)" -le 20971520 ] && sha=$(sha256sum "/proc/$pid/exe" 2>/dev/null | cut -c1-64)
+					[ "$(cat "/proc/$pid/exe" 2>/dev/null | wc -c)" -le 67108864 ] && sha=$(sha256sum "/proc/$pid/exe" 2>/dev/null | cut -c1-64)
 				elif [ -L "$n" ] || [ -e "$n" ]; then
 					# the time the kernel last changed the entry, also for a link or a directory
 					ct=$(file_ctime "$n")
 					if [ -f "$n" ] && [ ! -L "$n" ]; then
 						mt=$(file_time "$n")
-						[ "$(cat "$n" 2>/dev/null | wc -c)" -le 5242880 ] && sha=$(sha256sum "$n" 2>/dev/null | cut -c1-64)
+						# up to 64 MiB: an added program is often large (Tailscale has about 30 MiB),
+						# and those are the ones worth comparing across devices
+						[ -n "$(find "$n" -maxdepth 0 -size -65537k 2>/dev/null)" ] && sha=$(sha256sum "$n" 2>/dev/null | cut -c1-64)
 					fi
 				fi ;;
 			esac
