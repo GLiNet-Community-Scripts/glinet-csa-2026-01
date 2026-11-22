@@ -15,7 +15,7 @@
   --brand: #1f4d3a; --border: rgba(16, 40, 30, .09); --nav-bg: rgba(244, 246, 245, .78);
   --card-shadow: 0 1px 2px rgba(10, 30, 20, .04), 0 10px 30px rgba(10, 30, 20, .05);
   --warn: #9a5b00; --warn-bar: #f5a524; --warn-bg: rgba(255, 159, 10, .13); --warn-line: rgba(154, 91, 0, .24);
-  --info-bg: rgba(0, 122, 255, .1); --danger: #b42318; --danger-bg: rgba(217, 45, 32, .08); --danger-line: rgba(180, 35, 24, .24); --ok-line: rgba(22, 119, 76, .22);
+  --info: #0a66c2; --info-bg: rgba(0, 122, 255, .1); --danger: #b42318; --danger-bg: rgba(217, 45, 32, .08); --danger-line: rgba(180, 35, 24, .24); --ok-line: rgba(22, 119, 76, .22);
   --bar-bg: #1f4d3a; --bar-fg: #f1f7f3; --bar-link: #b9f0d3; --term-bg: #13201a; --term-fg: #e4ede8; --on-accent: #fff;
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
@@ -25,7 +25,7 @@
     --bg: #0a0c0b; --surface: #161a18; --surface-2: #212623; --text: #f1f4f2; --text-2: #9ba6a1; --accent: #4cc38a; --accent-soft: rgba(76, 195, 138, .14);
     --brand: #2c6b51; --border: rgba(255, 255, 255, .11); --nav-bg: rgba(10, 12, 11, .74); --card-shadow: none;
     --warn: #ffb340; --warn-bar: #e59a22; --warn-bg: rgba(255, 159, 10, .15); --warn-line: rgba(255, 179, 64, .3);
-    --info-bg: rgba(10, 132, 255, .17); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .12); --danger-line: rgba(255, 120, 105, .3); --ok-line: rgba(76, 195, 138, .28);
+    --info: #64b5ff; --info-bg: rgba(10, 132, 255, .17); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .12); --danger-line: rgba(255, 120, 105, .3); --ok-line: rgba(76, 195, 138, .28);
     --bar-bg: #173d2d; --term-bg: #0c120f; --on-accent: #04140c;
     color-scheme: dark;
   }
@@ -65,38 +65,47 @@ button { font: inherit; color: inherit; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 14px; color: var(--text-2); }
 .crumbs a { color: var(--text-2); } .crumbs a:hover { color: var(--accent); } .crumbs .sep { opacity: .5; } .crumbs b { font-weight: 600; }
 
-.hero { margin-top: 18px; padding: 26px 28px 28px; border-radius: 20px; background: var(--surface); border: 1px solid var(--tone-line); box-shadow: var(--card-shadow); }
+.hero { margin-top: 16px; padding: 22px 26px 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--tone-line); box-shadow: var(--card-shadow); }
 .hero[data-tone=bad] { --tone-line: var(--danger-line); --tone-bg: var(--danger-bg); --tone-fg: var(--danger); }
 .hero[data-tone=warn] { --tone-line: var(--warn-line); --tone-bg: var(--warn-bg); --tone-fg: var(--warn); }
 .hero[data-tone=ok] { --tone-line: var(--ok-line); --tone-bg: var(--accent-soft); --tone-fg: var(--accent); }
 .eyebrow { font-size: 14px; font-weight: 600; color: var(--tone-fg, var(--text-2)); }
-h1 { margin-top: 8px; font-size: clamp(28px, 4.2vw, 40px); line-height: 1.12; letter-spacing: -.03em; }
-.lead { margin-top: 12px; font-size: 18px; line-height: 1.55; color: var(--text-2); }
-.verdict { display: inline-block; margin-top: 16px; padding: 3px 12px; border-radius: 980px; background: var(--tone-bg); color: var(--tone-fg); font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+h1 { margin-top: 6px; font-size: clamp(26px, 3.6vw, 34px); line-height: 1.12; letter-spacing: -.03em; }
+.lead { margin-top: 10px; font-size: 17px; line-height: 1.5; color: var(--text-2); }
+.verdict { display: inline-block; margin-top: 12px; padding: 3px 12px; border-radius: 980px; background: var(--tone-bg); color: var(--tone-fg); font-size: 13px; font-weight: 700; letter-spacing: .02em; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .chip { padding: 3px 11px; border-radius: 980px; background: var(--surface-2); font-size: 13.5px; color: var(--text-2); }
 .chip b { color: var(--text); font-weight: 650; }
 .note { margin-top: 12px; padding: 12px 16px; border-radius: 14px; background: var(--info-bg); font-size: 14.5px; line-height: 1.5; }
 .note.warn { background: var(--warn-bg); } .note.bad { background: var(--danger-bg); }
 .note b { display: block; }
-h2 { margin-top: 44px; font-size: 24px; }
+h2 { margin-top: 30px; font-size: 21px; }
 .sub { margin-top: 6px; color: var(--text-2); font-size: 15px; }
-.found { display: grid; gap: 10px; margin-top: 14px; }
-.card { padding: 18px 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); }
-.card h3 { font-size: 17px; letter-spacing: -.01em; }
-.card p { margin-top: 5px; font-size: 15.5px; line-height: 1.55; }
-.card .as { margin-top: 10px; font-size: 12.5px; color: var(--text-2); }
+.card { padding: 16px 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); }
+.card h3 { font-size: 16.5px; letter-spacing: -.01em; }
+.card p { margin-top: 3px; font-size: 15px; line-height: 1.5; }
+/* one card, one row per finding or step */
+.rows { margin: 12px 0 0; padding: 0; list-style: none; }
+.row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 16px; padding: 13px 18px; }
+.row + .row { border-top: 1px solid var(--border); }
+.row p { color: var(--text-2); }
+.row .as { margin-top: 5px; font-size: 12px; }
+.side { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding-top: 1px; }
+.side small { font-size: 11.5px; line-height: 1.25; color: var(--text-2); }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; font-family: var(--font-mono); }
+.tag.ioc { background: var(--danger-bg); color: var(--danger); } .tag.persist { background: var(--warn-bg); color: var(--warn); }
+.tag.review { background: var(--info-bg); color: var(--info); } .tag.note { background: var(--surface-2); color: var(--text-2); } .tag.ok { background: var(--accent-soft); color: var(--accent); }
+.legend { margin-top: 8px; display: grid; gap: 4px; font-size: 13.5px; line-height: 1.45; color: var(--text-2); }
+.chip.ioc { background: var(--danger-bg); color: var(--danger); } .chip.ioc b { color: inherit; }
 code { font-family: var(--font-mono); font-size: 12px; background: var(--surface-2); padding: 2px 7px; border-radius: 6px; color: var(--text); overflow-wrap: anywhere; }
-.means { margin-top: 14px; }
-.means p { margin: 0; font-size: 16px; line-height: 1.65; } .means p + p { margin-top: 10px; }
-ol.steps { list-style: none; counter-reset: s; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-ol.steps > li { counter-increment: s; position: relative; padding: 18px 20px 18px 62px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); }
-ol.steps > li::before { content: counter(s); position: absolute; left: 20px; top: 18px; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 14px; display: grid; place-items: center; }
-ol.steps b.t { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
-ol.steps p { margin-top: 4px; font-size: 15.5px; line-height: 1.55; color: var(--text-2); }
-.cmd { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--term-bg); color: var(--term-fg); font: 12.5px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.help { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
-.help a { display: block; padding: 16px 18px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); color: var(--text-2); font-size: 14.5px; line-height: 1.5; }
+.means { margin-top: 12px; }
+.means p { margin: 0; font-size: 15.5px; line-height: 1.6; } .means p + p { margin-top: 8px; }
+ol.steps { counter-reset: s; }
+ol.steps > li { counter-increment: s; grid-template-columns: 30px minmax(0, 1fr); }
+ol.steps > li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 13.5px; display: grid; place-items: center; }
+.cmd { margin-top: 9px; padding: 10px 13px; border-radius: 12px; background: var(--term-bg); color: var(--term-fg); font: 12.5px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.help { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.help a { display: block; padding: 13px 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); color: var(--text-2); font-size: 14.5px; line-height: 1.5; }
 .help a:hover { text-decoration: none; border-color: var(--ok-line); }
 .help a b { display: block; color: var(--accent); font-size: 15.5px; font-weight: 650; }
 .pick { margin-top: 14px; }
@@ -113,7 +122,7 @@ input.code::placeholder { color: var(--text-2); opacity: .45; }
 .share .btn { margin: 0; padding: 6px 14px; font-size: 14px; }
 .fine { margin-top: 20px; font-size: 13px; color: var(--text-2); }
 
-.footer { margin-top: 96px; border-top: 1px solid var(--border); }
+.footer { margin-top: 64px; border-top: 1px solid var(--border); }
 .footer-inner { padding-block: 40px 48px; display: flex; flex-direction: column; gap: 32px; }
 .cols { display: flex; flex-wrap: wrap; gap: 32px 88px; }
 .col { display: flex; flex-direction: column; gap: 9px; font-size: 13.5px; }
@@ -130,8 +139,9 @@ input.code::placeholder { color: var(--text-2); opacity: .45; }
   .nav-inner { gap: 10px; } .nav-links { gap: 12px; }
   .lang button { padding: 4px 8px; }
   .hero { padding: 20px 18px 22px; }
-  ol.steps > li { padding-left: 56px; } ol.steps > li::before { left: 16px; }
-  h2 { margin-top: 36px; font-size: 22px; }
+  .row { grid-template-columns: 78px minmax(0, 1fr); gap: 4px 12px; padding: 12px 14px; }
+  ol.steps > li { grid-template-columns: 28px minmax(0, 1fr); }
+  h2 { margin-top: 26px; font-size: 20px; }
 }
 @media (max-width: 420px) { .nav-links a { display: none; } }
 </style>
@@ -210,6 +220,8 @@ const T = {
     old: 'This result is from script version {v}. The current version is {cur} and finds more. Run the script again before you rely on this.',
     gc: { 1: 'on', 0: 'off', x: 'not known' }, gcLabel: 'GoodCloud',
     rs: { 1: 'Restarted since the attack', 0: 'Not restarted since the attack' },
+    types: { ioc: ['IOC', 'known trace'], persist: ['PERSIST', 'changed'], review: ['REVIEW', 'to look at'], note: ['NOTE', 'good to know'], ok: ['OK', 'nothing'] },
+    legend: { ioc: 'means “indicator of compromise”: a known sign that an attacker was at work. One is enough to treat the device as hit.', persist: 'a file that runs at every start is not the firmware’s own. Often your doing; no sign of an attack by itself.', review: 'a change the script cannot place. Almost always your own.' },
     hFound: 'What the script found', hMeans: 'What that means', hDo: 'Do this now', hHelp: 'If you are unsure',
     as: 'In the script’s output:',
     fix2: ['The script removed what it found.', 'That takes away the known traces, nothing more. The device was in someone else’s hands, so the steps below still apply.'],
@@ -300,6 +312,8 @@ const T = {
     old: 'Dieses Ergebnis stammt von Skriptversion {v}. Aktuell ist {cur}, und sie findet mehr. Lass das Skript noch einmal laufen, bevor du dich darauf verlässt.',
     gc: { 1: 'an', 0: 'aus', x: 'nicht bekannt' }, gcLabel: 'GoodCloud',
     rs: { 1: 'Seit dem Angriff neu gestartet', 0: 'Seit dem Angriff nicht neu gestartet' },
+    types: { ioc: ['IOC', 'bekannte Spur'], persist: ['PERSIST', 'geändert'], review: ['REVIEW', 'zum Ansehen'], note: ['HINWEIS', 'gut zu wissen'], ok: ['OK', 'nichts'] },
+    legend: { ioc: 'heißt „Indicator of Compromise“: ein bekanntes Zeichen dafür, dass ein Angreifer am Werk war. Eines reicht, um das Gerät als getroffen zu behandeln.', persist: 'eine Datei, die bei jedem Start läuft, ist nicht die der Firmware. Oft deine eigene Änderung; allein kein Zeichen für einen Angriff.', review: 'eine Änderung, die das Skript nicht einordnen kann. Fast immer deine eigene.' },
     hFound: 'Was das Skript gefunden hat', hMeans: 'Was das bedeutet', hDo: 'Das solltest du jetzt tun', hHelp: 'Wenn du unsicher bist',
     as: 'In der Ausgabe des Skripts:',
     fix2: ['Das Skript hat entfernt, was es gefunden hat.', 'Damit sind die bekannten Spuren weg, mehr nicht. Das Gerät war in fremder Hand, deshalb gelten die Schritte unten weiterhin.'],
@@ -389,6 +403,8 @@ const T = {
     old: '这个结果来自脚本版本 {v}。当前版本是 {cur}，能发现更多痕迹。请重新运行脚本后再参考本页内容。',
     gc: { 1: '已开启', 0: '已关闭', x: '未知' }, gcLabel: 'GoodCloud',
     rs: { 1: '攻击发生后重启过', 0: '攻击发生后没有重启过' },
+    types: { ioc: ['IOC', '已知痕迹'], persist: ['PERSIST', '有改动'], review: ['REVIEW', '供查看'], note: ['说明', '需要了解'], ok: ['OK', '无发现'] },
+    legend: { ioc: '即“入侵指标”（Indicator of Compromise）：表明攻击者动过设备的已知迹象。只要有一个，就应把设备当作已被攻击来处理。', persist: '一个每次开机都会执行的文件不是固件自带的版本。通常是你自己改的；单凭这一点不能说明被攻击。', review: '脚本无法归类的改动。几乎总是你自己做的。' },
     hFound: '脚本发现了什么', hMeans: '这意味着什么', hDo: '现在请这样做', hHelp: '如果你拿不准',
     as: '在脚本输出中显示为：',
     fix2: ['脚本已经删除了它发现的东西。', '这只是清除了已知的痕迹，仅此而已。设备曾经落入他人之手，所以下面的步骤仍然需要执行。'],
@@ -564,6 +580,7 @@ function render() {
   const hero = el('header', null, 'hero'); hero.dataset.tone = TONE[cls.main];
   hero.append(el('p', fill(c.v === 'hand' ? t.eyebrowHand : t.eyebrow, o), 'eyebrow'), el('h1', fill(res[1], o)), el('p', fill(res[2], o), 'lead'), el('span', res[0], 'verdict'));
   const chips = el('div', null, 'chips'), gc = el('span', t.gcLabel + ': ', 'chip'); gc.append(el('b', t.gc[c.g])); chips.append(gc);
+  { const n = c.k.filter((k) => k !== 'pe').length; if (n) { const x = el('span', 'IOC: ', 'chip ioc'); x.append(el('b', String(n))); chips.prepend(x); } }
   if (c.v !== 'hand') chips.append(el('span', t.rs[c.n], 'chip'));
   hero.append(chips); page.append(hero);
 
@@ -573,21 +590,32 @@ function render() {
   if (cls.also) box(t.also, 'bad');
   page.append(el('p', t.note, 'note'));
 
-  page.append(el('h2', t.hFound));
-  const found = el('div', null, 'found'), list = c.k.length ? [...c.k] : ['none'];
+  // What was found: one row per finding. On the left what kind of thing it is, in the
+  // script's own word (IOC, PERSIST, REVIEW) and in a plain one; above the list, once,
+  // what those words mean.
+  const list = c.k.length ? [...c.k] : ['none'];
   if (c.n === '1' && c.v !== 'hand') list.push('rs'); if (c.rv) list.push('rv');
+  const typeOf = (k) => (k === 'none' ? 'ok' : k === 'rs' ? 'note' : k === 'rv' ? 'review' : k === 'pe' ? 'persist' : 'ioc'), types = [...new Set(list.map(typeOf))];
+  page.append(el('h2', t.hFound));
+  const lg = el('p', null, 'legend');
+  for (const ty of ['ioc', 'persist', 'review']) if (types.includes(ty)) { const x = el('span'); x.append(el('b', t.types[ty][0], 'tag ' + ty), ' ' + t.legend[ty]); lg.append(x); }
+  if (lg.children.length) page.append(lg);
+  const found = el('div', null, 'card rows');
   for (const k of list) {
-    const d = t.kinds[k], card = el('div', null, 'card'), as = el('p', t.as + ' ', 'as');
-    as.append(el('code', NAMES[k])); card.append(el('h3', k === 'rv' && c.rv < 0 ? t.rvSome : fill(d[0], { n: c.rv })), el('p', d[1])); if (c.v !== 'hand') card.append(as); found.append(card);
+    const d = t.kinds[k], ty = typeOf(k), row = el('div', null, 'row'), side = el('div', null, 'side'), main = el('div');
+    side.append(el('b', t.types[ty][0], 'tag ' + ty), el('small', t.types[ty][1]));
+    main.append(el('h3', k === 'rv' && c.rv < 0 ? t.rvSome : fill(d[0], { n: c.rv })), el('p', d[1]));
+    if (c.v !== 'hand') { const as = el('p', t.as + ' ', 'as'); as.append(el('code', NAMES[k])); main.append(as); }
+    row.append(side, main); found.append(row);
   }
   page.append(found);
 
   page.append(el('h2', t.hMeans)); const m = el('div', null, 'card means'); for (const x of res[3]) m.append(el('p', fill(x, o))); page.append(m);
 
-  page.append(el('h2', t.hDo)); const ol = el('ol', null, 'steps'), kvm = c.p === 'k';
-  for (let s of PLAN[kvm ? 'kvm' : 'router'][cls.main]) {
-    if (s === 'gc') s = c.g === '0' ? 'gckeep' : c.g === 'x' ? 'gcx' : kvm ? 'gcoffk' : 'gcoff';
-    const d = t.steps[s], li = el('li'); li.append(el('b', d[0], 't'), el('p', d[1])); if (d[2]) li.append(el('div', d[2], 'cmd')); ol.append(li);
+  page.append(el('h2', t.hDo)); const ol = el('ol', null, 'card rows steps'), kvm = c.p === 'k';
+  for (let st of PLAN[kvm ? 'kvm' : 'router'][cls.main]) {
+    if (st === 'gc') st = c.g === '0' ? 'gckeep' : c.g === 'x' ? 'gcx' : kvm ? 'gcoffk' : 'gcoff';
+    const d = t.steps[st], li = el('li', null, 'row'), main = el('div'); main.append(el('h3', d[0]), el('p', d[1])); if (d[2]) main.append(el('div', d[2], 'cmd')); li.append(main); ol.append(li);
   }
   page.append(ol);
 
