@@ -14,8 +14,9 @@
   --s1: #2a78d6; --s2: #eb6834; --s3: #8a9a93; --term-bg: #13201a; --term-fg: #e4ede8; --shadow: 0 8px 28px rgba(10, 30, 20, .16);
   color-scheme: light;
 }
+/* Dark: by the system's setting unless the theme button says light, or always when it says dark */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme=light]) {
     --bg: #0a0c0b; --surface: #161a18; --surface-2: #212623; --text: #f1f4f2; --text-2: #9ba6a1; --grid: rgba(255, 255, 255, .1);
     --accent: #4cc38a; --accent-soft: rgba(76, 195, 138, .15); --border: rgba(255, 255, 255, .12); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .13);
     --warn: #ffb340; --warn-bg: rgba(255, 159, 10, .16); --bar: #3fae7a;
@@ -23,7 +24,16 @@
     color-scheme: dark;
   }
 }
+:root[data-theme=dark] {
+  --bg: #0a0c0b; --surface: #161a18; --surface-2: #212623; --text: #f1f4f2; --text-2: #9ba6a1; --grid: rgba(255, 255, 255, .1);
+  --accent: #4cc38a; --accent-soft: rgba(76, 195, 138, .15); --border: rgba(255, 255, 255, .12); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .13);
+  --warn: #ffb340; --warn-bg: rgba(255, 159, 10, .16); --bar: #3fae7a;
+  --s1: #3987e5; --s2: #d95926; --s3: #6f7f78; --term-bg: #0c120f; --shadow: 0 8px 28px rgba(0, 0, 0, .5);
+  color-scheme: dark;
+}
 * { box-sizing: border-box; }
+/* "hidden" must win over the display rules of grids and the board */
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14.5px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
 main { max-width: 1360px; margin: 0 auto; padding: 24px 24px 60px; overflow-x: clip; }
 h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
@@ -36,6 +46,24 @@ button, select, input { font: inherit; color: inherit; }
 .dim { color: var(--text-2); }
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
 .top .grow { flex: 1; }
+/* the board: every card is a unit that can be dragged to another place or hidden */
+.board { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.board > .card { flex: 1 1 100%; margin-top: 0 !important; }
+.board > .card[data-w=third] { flex: 1 1 300px; } .board > .card[data-w=half] { flex: 1 1 440px; }
+.board > .card.closed { flex: 1 1 100%; }
+.board > .card.dragging { opacity: .45; outline: 2px dashed var(--accent); outline-offset: -2px; }
+.grip { flex: none; width: 18px; height: 24px; margin-right: 2px; border-radius: 5px; cursor: grab; color: var(--text-2); opacity: .45; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; user-select: none; }
+.grip:hover { opacity: 1; background: var(--surface-2); } .grip:active { cursor: grabbing; }
+.card h2 { display: flex; align-items: center; }
+.layoutRow { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 7px; }
+.layoutRow:hover { background: var(--surface-2); }
+.layoutRow label { flex: 1; display: flex; gap: 8px; align-items: center; font-size: 13.5px; cursor: pointer; min-width: 0; }
+.layoutRow label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layoutRow button { border: 0; background: none; color: var(--text-2); cursor: pointer; padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+.layoutRow button:hover:not(:disabled) { background: var(--surface); color: var(--text); } .layoutRow button:disabled { opacity: .3; cursor: default; }
+#layoutMenu .pop { left: auto; right: 0; width: 340px; max-height: 70vh; }
+.safeTable td { vertical-align: top; }
+.safeTable .who { color: var(--text-2); font-size: 13px; white-space: nowrap; }
 .btn.sm { padding: 3px 9px; font-size: 12.5px; white-space: nowrap; }
 .labelForm { display: inline-flex; gap: 6px; align-items: center; }
 .labelForm input { width: 180px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; }
@@ -81,11 +109,7 @@ button, select, input { font: inherit; color: inherit; }
 
 .grid { display: grid; gap: 12px; }
 .kpis { grid-template-columns: 1.4fr repeat(5, minmax(0, 1fr)); }
-/* Rows of several cards. A folded card gives up its column: it becomes a slim bar across
-   the row, after the open ones, and those share the width. */
-.three, .two { display: flex; flex-wrap: wrap; margin-top: 12px; }
-.three > .card { flex: 1 1 300px; } .two > .card { flex: 1 1 440px; }
-.three > .card.closed, .two > .card.closed { flex: 1 1 100%; order: 1; }
+
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; min-width: 0; }
 .card > .sub { margin-top: 2px; }
 .chead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
@@ -265,6 +289,7 @@ tr.row.fresh td { background: var(--accent-soft); }
 </style>
 </head>
 <body>
+<script>try { const t = localStorage.getItem('csa-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch { /* no storage: the system decides */ }</script>
 <main>
   <div class="top">
     <h1>CSA-2026-01 reports</h1>
@@ -274,7 +299,18 @@ tr.row.fresh td { background: var(--accent-soft); }
     <button class="btn" type="button" id="liveBtn" aria-pressed="true" hidden>Live: on</button>
     <button class="btn" type="button" id="sinceBtn" hidden></button>
     <button class="btn" type="button" id="csv">Export CSV</button>
+    <details class="ms" id="layoutMenu"><summary>Layout</summary><div class="pop" id="layoutPop"></div></details>
+    <button class="btn" type="button" id="themeBtn" title="Light or dark. “Auto” follows your system."></button>
   </div>
+  <div class="frow" style="margin-top:12px">
+    <div class="seg" id="viewSeg" role="group" aria-label="Page"><button type="button" data-v="main">Dashboard</button><button type="button" data-v="safe">Probably safe</button></div>
+  </div>
+
+  <section class="card" id="safeView" style="margin-top:12px" hidden>
+    <div class="chead"><h2>Marked as probably safe</h2><p class="sub tnum" id="safeCount"></p></div>
+    <p class="sub">Every finding someone on the team has marked, with who did it, when and why. These are hidden on the dashboard unless asked for. Click a finding to see its reports.</p>
+    <div class="scroll" id="safeList" style="margin-top:8px"></div>
+  </section>
 
   <section class="filters" aria-label="Filters">
     <div class="frow">
@@ -534,6 +570,7 @@ function seg(id, key) {
 }
 /* ---------- the filters in the address, so a view can be shared ---------- */
 const SIMPLE = { result: 'hit', type: 'all', recv: 'all', restart: 'any' };
+let view = 'main';
 function toHash() {
   const q = new URLSearchParams();
   if (F.q) q.set('q', F.q);
@@ -543,6 +580,7 @@ function toHash() {
   if (!$('perDevice').checked) q.set('all_reports', '1');
   if (!F.hideTests) q.set('tests', '1');
   if (zoom !== 'attack') q.set('chart', zoom);
+  if (view !== 'main') q.set('view', view);
   if (sortKey !== 'received' || asc) q.set('sort', (asc ? '' : '-') + sortKey);
   const h = q.toString(); if (h !== location.hash.slice(1)) history.replaceState(null, '', h ? '#' + h : location.pathname + location.search);
 }
@@ -554,6 +592,7 @@ function fromHash() {
   F.unusual = q.has('unusual'); $('onlyUnusual').checked = F.unusual;
   $('perDevice').checked = !q.has('all_reports'); F.hideTests = !q.has('tests'); $('hideTests').checked = F.hideTests;
   if (['attack', 'all'].includes(q.get('chart'))) zoom = q.get('chart');
+  view = q.get('view') === 'safe' ? 'safe' : 'main';
   const so = q.get('sort'); if (so) { asc = !so.startsWith('-'); sortKey = so.replace(/^-/, ''); }
 }
 
@@ -582,7 +621,8 @@ function facet(id, key) {
   return draw;
 }
 const facets = [facet('fModel', 'model'), facet('fFirmware', 'firmware'), facet('fKind', 'kind')];
-document.addEventListener('click', (e) => { for (const o of document.querySelectorAll('.ms[open]')) if (!o.contains(e.target)) o.open = false; });
+// the path of the click, not "contains": a menu that redraws itself has already removed the button that was clicked
+document.addEventListener('click', (e) => { const path = e.composedPath(); for (const o of document.querySelectorAll('.ms[open]')) if (!path.includes(o)) o.open = false; });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const o of document.querySelectorAll('.ms[open]')) o.open = false; });
 function chips() {
   const box = $('chips'); box.replaceChildren();
@@ -893,7 +933,7 @@ $('yamlBtn').addEventListener('click', async () => {
 
 /* ---------- render ---------- */
 function render() {
-  repool(); markUnusual();
+  repool(); markUnusual(); applyView();
   const rows = pool.filter((r) => pass(r)), base = pool.filter((r) => pass(r, 'result')), isHit = (r) => (F.result === 'bd' ? r.bd : r.ioc > 0), hit = base.filter(isHit);
   facets.forEach((f) => f()); chips();
 
@@ -982,7 +1022,7 @@ function render() {
   const total = all.filter((r) => !r.isTest).length;
   $('status').textContent = all.length ? `${total.toLocaleString('en')} report${total === 1 ? '' : 's'} · last received ${fmt(last)} UTC` : 'No reports yet.';
   current = rows;
-  toHash();
+  safeList(); toHash();
 }
 let current = [];
 const opened = new Set();
@@ -1038,8 +1078,9 @@ $('csv').addEventListener('click', () => {
 // the server with every request.
 let closed = new Set();
 try { closed = new Set(JSON.parse(localStorage.getItem('csa-folded') || '[]')); } catch { /* no storage: nothing is folded */ }
-for (const card of document.querySelectorAll('main .card')) {
+for (const card of document.querySelectorAll('main .card:not(#safeView)')) {
   const h = card.querySelector(':scope > h2, :scope > .chead > h2'); if (!h) continue;
+  card.dataset.key = h.textContent.trim();
   const key = h.textContent.trim(), b = el('button', key, 'fold'); b.type = 'button'; h.replaceChildren(b);
   const set = (shut) => { card.classList.toggle('closed', shut); b.setAttribute('aria-expanded', String(!shut)); };
   // a card that starts folded (the glossary) is remembered the other way round: as opened
@@ -1050,6 +1091,107 @@ for (const card of document.querySelectorAll('main .card')) {
     try { localStorage.setItem('csa-folded', JSON.stringify([...closed])); } catch { /* folded for this visit only */ }
     if (!shut) render();   // a chart that was hidden has no size to lay its axis out on
   });
+}
+
+/* ---------- the board: cards that can be moved and hidden ---------- */
+// Every card goes into one flexible board, in the order of the page. A card keeps a
+// width class from where it stood (a third, a half, or the full row). Order and hidden
+// cards are remembered in this browser.
+const board = el('div', null, 'board');
+{
+  const cards = [...document.querySelectorAll('main > section.card:not(#safeView), main > section.grid:not(.kpis) > .card')];
+  $('kpis').after(board);
+  for (const c of cards) { const p = c.parentElement; c.dataset.w = p.classList.contains('three') ? 'third' : p.classList.contains('two') ? 'half' : 'full'; c.style.marginTop = ''; board.append(c); }
+  for (const g of document.querySelectorAll('main > section.grid:not(.kpis)')) if (!g.children.length) g.remove();
+}
+const DEFAULT_ORDER = [...board.children].map((c) => c.dataset.key);
+let layout = { order: [], hidden: [] };
+try { const l = JSON.parse(localStorage.getItem('csa-layout') || '{}'); layout = { order: Array.isArray(l.order) ? l.order : [], hidden: Array.isArray(l.hidden) ? l.hidden : [] }; } catch { /* no storage: the default layout */ }
+const cardOf = (key) => [...board.children].find((c) => c.dataset.key === key);
+function saveLayout() {
+  layout.order = [...board.children].map((c) => c.dataset.key);
+  try { localStorage.setItem('csa-layout', JSON.stringify(layout)); } catch { /* for this visit only */ }
+}
+function applyLayout() {
+  // known cards in the saved order; a card that is new since then keeps its default place
+  const rank = (k) => { const i = layout.order.indexOf(k); return i < 0 ? DEFAULT_ORDER.indexOf(k) + .5 : i; };
+  for (const c of [...board.children].sort((x, y) => rank(x.dataset.key) - rank(y.dataset.key))) board.append(c);
+  for (const c of board.children) c.hidden = layout.hidden.includes(c.dataset.key);
+  layoutMenu();
+}
+function layoutMenu() {
+  const pop = $('layoutPop'); pop.replaceChildren();
+  const cards = [...board.children];
+  cards.forEach((c, i) => {
+    const row = el('div', null, 'layoutRow'), lab = el('label'), cb = el('input'), up = el('button', '↑'), down = el('button', '↓');
+    cb.type = 'checkbox'; cb.checked = !c.hidden; up.type = down.type = 'button'; up.disabled = i === 0; down.disabled = i === cards.length - 1;
+    up.setAttribute('aria-label', 'Move “' + c.dataset.key + '” up'); down.setAttribute('aria-label', 'Move “' + c.dataset.key + '” down');
+    cb.addEventListener('change', () => { layout.hidden = cb.checked ? layout.hidden.filter((k) => k !== c.dataset.key) : [...layout.hidden, c.dataset.key]; c.hidden = !cb.checked; saveLayout(); render(); });
+    up.addEventListener('click', () => { board.insertBefore(c, cards[i - 1]); saveLayout(); layoutMenu(); render(); });
+    down.addEventListener('click', () => { board.insertBefore(cards[i + 1], c); saveLayout(); layoutMenu(); render(); });
+    lab.append(cb, el('span', c.dataset.key)); row.append(lab, up, down); pop.append(row);
+  });
+  const reset = el('button', 'Reset layout', 'btn sm'); reset.type = 'button'; reset.style.margin = '8px 4px 2px';
+  reset.addEventListener('click', () => { layout = { order: [], hidden: [] }; try { localStorage.removeItem('csa-layout'); } catch { /* nothing stored */ } applyLayout(); render(); });
+  pop.append(reset, el('p', 'Drag a card by the dots next to its title, or use the arrows here.', 'more'));
+  $('layoutMenu').classList.toggle('on', layout.hidden.length > 0 || layout.order.some((k, i) => DEFAULT_ORDER.filter((d) => layout.order.includes(d))[i] !== k));
+}
+// dragging: the dots in a card's title are the handle
+let dragging = null;
+for (const c of board.children) {
+  const h = c.querySelector(':scope > h2, :scope > .chead > h2'), grip = el('span', '⠿', 'grip');
+  grip.draggable = true; grip.title = 'Drag to move this card'; grip.setAttribute('aria-hidden', 'true'); h.prepend(grip);
+  grip.addEventListener('dragstart', (e) => { dragging = c; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.dataset.key); try { e.dataTransfer.setDragImage(c, 24, 24); } catch { /* the browser's own image */ } setTimeout(() => c.classList.add('dragging')); });
+  grip.addEventListener('dragend', () => { c.classList.remove('dragging'); dragging = null; saveLayout(); layoutMenu(); render(); });
+}
+board.addEventListener('dragover', (e) => {
+  if (!dragging) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  const t = e.target.closest ? e.target.closest('.board > .card') : null; if (!t || t === dragging) return;
+  const r = t.getBoundingClientRect();
+  // next to a card that shares its row: left or right half; otherwise upper or lower half
+  const before = r.width < board.clientWidth - 40 ? e.clientX < r.left + r.width / 2 : e.clientY < r.top + r.height / 2;
+  const ref = before ? t : t.nextSibling; if (ref !== dragging && ref !== dragging.nextSibling) board.insertBefore(dragging, ref);
+});
+board.addEventListener('drop', (e) => { if (dragging) e.preventDefault(); });
+applyLayout();
+
+/* ---------- light and dark ---------- */
+{
+  const btn = $('themeBtn'), order = ['auto', 'light', 'dark'];
+  let theme = 'auto'; try { const t = localStorage.getItem('csa-theme'); if (order.includes(t)) theme = t; } catch { /* auto */ }
+  const show = () => { btn.textContent = 'Theme: ' + theme; if (theme === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme; };
+  btn.addEventListener('click', () => { theme = order[(order.indexOf(theme) + 1) % 3]; try { theme === 'auto' ? localStorage.removeItem('csa-theme') : localStorage.setItem('csa-theme', theme); } catch { /* for this visit only */ } show(); });
+  show();
+}
+
+/* ---------- the two pages: the dashboard, and what was marked as probably safe ---------- */
+for (const b of $('viewSeg').children) b.addEventListener('click', () => { view = b.dataset.v; render(); scrollTo(0, 0); });
+function applyView() {
+  const safe = view === 'safe';
+  for (const b of $('viewSeg').children) b.setAttribute('aria-pressed', String(b.dataset.v === view));
+  document.querySelector('.filters').hidden = safe; $('kpis').hidden = safe; board.hidden = safe; $('safeView').hidden = !safe;
+  const n = Object.keys(LABELS).length; $('viewSeg').children[1].textContent = 'Probably safe' + (n ? ' (' + n + ')' : '');
+}
+function safeList() {
+  const box = $('safeList'); box.replaceChildren();
+  const rows = Object.entries(LABELS).sort((a, b) => (a[1].at < b[1].at ? 1 : -1));
+  $('safeCount').textContent = rows.length + (rows.length === 1 ? ' finding' : ' findings');
+  if (labelErr) box.append(el('p', labelErr, 'peak err'));
+  if (!rows.length) { box.append(el('p', 'Nothing is marked yet. Mark a finding in “Unusual changes seen on several devices” or inside a report.', 'peak')); return; }
+  const tb = el('table', null, 'safeTable'), hd = el('tr'); for (const [t, c] of [['Kind', ''], ['Path or program', ''], ['Comment', ''], ['Marked by', ''], ['When (UTC)', 'n'], ['Files', 'n'], ['Devices now', 'n'], ['', 'n']]) hd.append(el('th', t, c));
+  tb.append(hd);
+  for (const [key, lab] of rows) {
+    const i = key.indexOf(' '), kind = key.slice(0, i), path = key.slice(i + 1), g = REVALL.get(key) || { kind, path, n: 0, hit: 0, sha: new Set(lab.hashes) };
+    const tr = el('tr'), pc = el('td', path || '(not sent)', 'mono'), files = el('td', lab.hashes.length || '–', 'n'), now = el('td', g.n ? g.n + (g.hit ? ' · ' + g.hit + ' with traces' : '') : 'none in the loaded reports', 'n'), act = el('td', null, 'n'), rm = el('button', 'Remove mark', 'btn sm');
+    tr.style.cursor = 'pointer'; files.title = lab.hashes.length ? 'Fingerprints this mark covers:\n' + lab.hashes.slice(0, 6).join('\n') + (lab.hashes.length > 6 ? '\n…' : '') : 'Nothing with a fingerprint: a link, an account or a process.';
+    if (labelState(g) === 'new') { const t = el('span', 'new file since', 'tag warn'); t.style.marginLeft = '8px'; t.title = 'A file with another fingerprint was reported at this path after it was marked. It is shown on the dashboard again.'; pc.append(t); }
+    rm.type = 'button'; rm.addEventListener('click', (e) => { e.stopPropagation(); setLabel(g, '', ''); }); act.append(rm);
+    tr.append(el('td', kind), pc, el('td', lab.note || '–'), el('td', lab.by, 'who'), el('td', lab.at.slice(0, 16).replace('T', ' '), 'n'), files, now, act);
+    tr.addEventListener('click', () => { const q = key.toLowerCase(); view = 'main'; F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
+    tb.append(tr);
+  }
+  box.append(tb);
 }
 
 /* ---------- loading, and the live view ---------- */

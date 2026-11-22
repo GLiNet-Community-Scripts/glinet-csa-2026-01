@@ -173,7 +173,7 @@ if (process.argv[2] === 'serve') {
   expect('schema 5 needs the ctime, schema 4 must not carry it', validate({ ...good5, files: [file] }) !== null && validate({ ...good4, files: good5.files }) !== null);
   expect('refuses a ctime that is not a time', validate({ ...good5, files: [{ ...file, ctime: '<b>' }] }) !== null);
   // the dashboard's own script must at least parse: a syntax error leaves an empty page
-  { const { DASHBOARD } = await import('../src/dashboard.js'); let ok = true; try { new Function(DASHBOARD.match(/<script>([\s\S]*)<\/script>/)[1]); } catch { ok = false; } expect('the dashboard script parses', ok); }
+  { const { DASHBOARD } = await import('../src/dashboard.js'); let ok = true; try { for (const m of DASHBOARD.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]); } catch { ok = false; } expect('the dashboard script parses', ok); }
   // review items, GoodCloud, state file size (schema 6)
   const good6 = { ...good5, schema: 6, tool: '2.23', goodcloud: 'on', cloud_client: '1.2.3-4', astrowarp: 'off', state_file_size: 0, review_items: [{ kind: 'changed', path: '/etc/init.d/urandom_seed', sha256: 'b'.repeat(64) }, { kind: 'process', path: '', sha256: '' }] };
   expect('a schema 6 report is valid, also without a state file or review items', validate(good6) === null && validate({ ...good6, state_file_size: -1, review_items: [], goodcloud: 'unknown', cloud_client: '' }) === null);

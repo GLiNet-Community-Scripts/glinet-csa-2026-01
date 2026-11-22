@@ -144,6 +144,9 @@ A mark belongs to a kind and a path and remembers the fingerprints known for tha
 the time. A file with another fingerprint at the same path brings the finding back, as "new
 file at a path marked safe": a replaced file is exactly what should not stay hidden.
 
+The dashboard has a page "Probably safe" that lists every mark with its comment, who set
+it and when, and from which a mark can be removed.
+
 The marks are kept in the D1 table `labels`, which the worker creates on first use, or in
 one KV entry when there is no database. They can be read at `<worker>/dashboard/labels`
 with the dashboard's login. Over time they form a list of what is known to be harmless,
