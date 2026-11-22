@@ -314,5 +314,40 @@ run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
 expect "the ulogd package, an own keep list and another monitord are no indicator" '[ $rc = 0 ] && ! grep -q "backdoor-" "$D/check.txt"'
 umount "$D/m"
 
+echo "=== base files are package-owned too: a changed one must still be seen (issue 4)"
+OWP=$BASE/openwrt-rom-pkg
+cp -a "$OWL" "$OWP"
+printf 'P:busybox\nF:bin\nR:busybox\n\nP:urandom-seed\nF:etc/init.d\nR:urandom_seed\n\nP:netifd\nF:lib/upgrade/keep.d\nR:netifd\nF:etc/init.d\nR:dnsmasq\n\n' >"$OWP/lib/apk/db/installed"
+D=$(mkscen bdpkg "$OWP"); U=$D/u
+backdoor "$U"
+mkdir -p "$U/etc/glinet/.cache"; echo '#!/bin/sh' >"$U/etc/glinet/.cache/watch.sh"
+printf '#!/bin/sh\n# my own change\n' >"$U/etc/init.d/dnsmasq"
+mnt "$D" "$OWP"
+run "$D" "$OWP" --check >"$D/check.txt"; rc=$?
+expect "package-owned urandom_seed and keep list with the backdoor's lines are IOC" 'grep -q "IOC  *backdoor-init  */etc/init.d/urandom_seed" "$D/check.txt" && grep -q "IOC  *backdoor-keep  */lib/upgrade/keep.d/netifd" "$D/check.txt"'
+expect "another changed package-owned base file is REVIEW, not skipped" 'grep -q "REVIEW  *changed  */etc/init.d/dnsmasq" "$D/check.txt"'
+expect "watch.sh in the malware's directory is a marker" 'grep -q "IOC  *marker  */etc/glinet/.cache/watch.sh" "$D/check.txt"'
+umount "$D/m"
+
+echo "=== archive without secrets (issue 3)"
+D=$(mkscen scrub "$OWL"); U=$D/u
+mkdir -p "$U/root/.ssh" "$U/etc/config" "$U/etc/dropbear" "$U/etc/openvpn" "$U/tmp"
+printf 'root:$1$SECRETHASH:19000:0:99999:7:::\n' >"$U/etc/shadow"
+echo SECRETSSHKEY >"$U/root/.ssh/id_rsa"; echo 'ssh-ed25519 AAAAATTACKER evil' >"$U/root/.ssh/authorized_keys"
+echo SECRETHOSTKEY >"$U/etc/dropbear/dropbear_rsa_host_key"; echo SECRETOVPN >"$U/etc/openvpn/client.ovpn"
+printf "config peers\n\toption private_key 'SECRETWGKEY'\n\toption public_key 'PEERPUBLIC'\n\toption end_point '1.2.3.4:51820'\n" >"$U/etc/config/wireguard"
+printf "config wifi-iface\n\toption ssid 'home'\n\toption key 'SECRETWIFI'\n" >"$U/etc/config/wireless"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --archive >/dev/null; A=$(ls "$D"/out/*.tar.gz); mkdir "$D/x"; tar -xzf "$A" -C "$D/x"
+expect "no password hash, private key, host key or VPN profile in the archive" '! grep -rq "SECRETHASH\|SECRETSSHKEY\|SECRETHOSTKEY\|SECRETOVPN" "$D/x"'
+expect "key values replaced, the peer stays visible" '! grep -rq "SECRETWGKEY\|SECRETWIFI" "$D/x" && grep -rq "PEERPUBLIC" "$D/x/evidence/files" && grep -rq "1.2.3.4:51820" "$D/x/evidence/files" && grep -rq "option private_key .REDACTED." "$D/x/evidence/files"'
+expect "authorized_keys is kept: an added key is evidence" 'grep -rq "AAAAATTACKER" "$D/x/evidence/files"'
+expect "REDACTED.txt lists what was left out, and is in the manifest" 'grep -q "/etc/shadow" "$D/x/evidence/REDACTED.txt" && grep -q "/root/.ssh/id_rsa" "$D/x/evidence/REDACTED.txt" && grep -q "REDACTED.txt" "$D/x/evidence/MANIFEST.sha256"'
+expect "shadow summary is written when the base image has no shadow file" 'grep -q "^root.*hash set" "$D/x/evidence/etc/shadow-summary.txt"'
+expect "the device itself is untouched" 'grep -q SECRETSSHKEY "$D/m/root/.ssh/id_rsa" && grep -q SECRETHASH "$D/m/etc/shadow" && grep -q SECRETWGKEY "$D/m/etc/config/wireguard"'
+rm -rf "$D/x" "$D"/out/*; run "$D" "$OWL" --archive --with-secrets >/dev/null; mkdir "$D/x"; tar -xzf "$(ls "$D"/out/*.tar.gz)" -C "$D/x"
+expect "--with-secrets keeps keys, never the password hash" 'grep -rq SECRETSSHKEY "$D/x" && grep -rq SECRETWGKEY "$D/x" && ! grep -rq SECRETHASH "$D/x"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

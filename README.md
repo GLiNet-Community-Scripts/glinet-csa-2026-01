@@ -75,6 +75,7 @@ layer when one of these marker files exists:
 The vendor cleanup only runs when a marker file is present and only touches this set.
 This script also detects:
 
+- `/etc/glinet/.cache/watch.sh`, which users reported on KVMs, as a further marker file,
 - busybox/coreutils applets in the overlay that were replaced by a foreign regular file
   (for example `netstat`), unless a package (apk/opkg) installed the file,
 - running processes started from implant paths or from a replaced applet,
@@ -253,6 +254,7 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 | `--fix [-o DIR]` | Archive first (aborts if that fails), then remediate and re-check |
 | `--report`, `--no-report`, `--show-report` | Send the anonymous report without asking, never offer it, or print it without sending. See below. |
 | `--no-device-id` | Leave the device ID out of the report. |
+| `--with-secrets` | Keep private keys and passwords in the evidence archive. By default they are left out. |
 | `--color`, `--no-color` | Force or disable coloured output. By default colours are used only on a terminal; `NO_COLOR=1` also turns them off. |
 
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
@@ -357,10 +359,25 @@ SHA-256 hashes of the whole overlay upper layer, a full copy of the upper layer 
 connections, the firewall rules and configuration, `/proc/<pid>/` data and the binary of implant processes, kernel and system
 logs, and a `MANIFEST.sha256`.
 
-> ⚠️ **The archive contains device configuration, possibly including Wi-Fi keys, VPN keys and
-> other secrets.** Treat it as sensitive and do not post it publicly.
+Secrets are taken out of the copies before the archive is written, so that it can be
+handed to someone else:
 
-Password hashes are not included; the archive only records whether a hash differs from the base image.
+- `/etc/shadow` is never included. `etc/shadow-summary.txt` only records whether a hash
+  is set and whether it differs from the base image.
+- Private keys and VPN profiles are left out: root's SSH client keys, the dropbear host
+  keys, OpenVPN profiles, the Tailscale state, the ZeroTier identity. `authorized_keys`
+  and public keys stay, because a key someone added is evidence.
+- In the configuration (`/etc/config`) the values of options that hold a key or password
+  are replaced by `REDACTED`. The rest stays, so an added VPN peer is still visible.
+- `REDACTED.txt` in the archive lists what was left out. Hashes of the original files
+  are in `overlay/upper-sha256.txt`.
+
+`--with-secrets` keeps keys and passwords, for an archive that stays with you. The device
+itself is never changed by this.
+
+> ⚠️ **Still treat the archive as sensitive and do not post it publicly.** The list of
+> option names is not complete, and logs or the files of other programs can hold secrets
+> the script does not know about.
 
 On the device `/tmp` is RAM. Copy the archive off the device before rebooting.
 
@@ -457,6 +474,8 @@ This is community work, and not one person's.
 - ehidle, acs, ikangshen, nick2 and the authors of posts 26, 63 and 65 in the notice's thread – The older backdoor
   in `urandom_seed` and `/bin/ulogd`, with its signs and the hash of the loader
 - AdamK – The connection and process checks
+- [joska252](https://github.com/joska252) – Found that the archive contained password hashes and private keys, and that
+  changed files of the base image's own packages were skipped ([#3](https://github.com/admonstrator/glinet-csa-2026-01/issues/3), [#4](https://github.com/admonstrator/glinet-csa-2026-01/issues/4))
 - Everyone who sent an anonymous report or posted their output in the forum
 
 ---

@@ -42,9 +42,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.15
+VERSION=2.16
 
-MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
+# watch.sh: reported for KVMs, run every three minutes by a second cron daemon
+MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/glinet/.cache/watch.sh etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
 PERSIST="etc/rc.local etc/crontabs/root"
 APPLET_DIRS="bin sbin usr/bin usr/sbin"
@@ -69,6 +70,10 @@ SHELL_IP='170.39.226.219'
 # matched against the whole /24 in case the other end moves.
 SHELL_NET='170.39.226.'
 TOOL_RE='(^|[ /])(nc|netcat|socat) |/bin/sh -i|mkfifo'
+# Addresses a forum user recorded from a KVM that was taken over on 2026-11-19 (topic
+# 73056, post 79): a command channel and the server the malware was fetched from. One
+# report, so a connection there is for a human to judge.
+KVM_NETS='65.20.71.131 66.245.219.252'
 CONN_RE='/(nc|netcat|socat|sh|ash|bash)$'
 SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 # A second, older backdoor that is not part of GL.iNet's notice of 2026-11-20. Users of
@@ -98,7 +103,7 @@ BD_LOG_PATHS="etc/AdGuardHome/data/querylog.json etc/AdGuardHome/data/querylog.j
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
-MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask DEVICE_ID=1
+SECRETS=0 MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask DEVICE_ID=1
 REPORT_URL=${GL_TRIAGE_REPORT_URL:-https://app.gl-i.net/csa-2026-01-report}
 
 usage() {
@@ -117,6 +122,8 @@ gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" impla
   --no-report          never offer to send a report
   --show-report        print the complete report and send nothing
   --no-device-id       leave the device ID out of the report
+  --with-secrets       keep private keys and passwords in the archive (default: left out;
+                       password hashes are never included)
   --root/--upper/--lower DIR   override merged root, overlay upper and base image
   -V, --version        print version
 
@@ -149,6 +156,7 @@ while [ $# -gt 0 ]; do
 	--no-report) REPORT=no ;;
 	--show-report) REPORT=show ;;
 	--no-device-id) DEVICE_ID=0 ;;
+	--with-secrets) SECRETS=1 ;;
 	-o | --out) [ $# -ge 2 ] || die "$1 needs a directory"; OUTDIR=$2; shift ;;
 	--root) [ $# -ge 2 ] || die "$1 needs a directory"; ROOT=$2; shift ;;
 	--upper) [ $# -ge 2 ] || die "$1 needs a directory"; UPPER=$2; UPPER_SET=1; shift ;;
@@ -268,6 +276,14 @@ pkg_owner() {
 	[ -d "$info" ] && grep -lxF "/$p" "$info"/*.list 2>/dev/null | head -n 1 | sed 's#.*/##; s#\.list$##'
 }
 
+# A package explains a file only when the base image does not have that file: then it was
+# installed later. The base image's own files are all owned by a package too, so for a
+# file that differs from the base image the owner says nothing.
+pkg_new() {
+	[ -n "$LOWER" ] && exists "$(l "${1#/}")" && return 0
+	pkg_owner "$1"
+}
+
 # Where a file of the overlay lives: the upper layer if we know it, else the merged view.
 src() { if [ -n "$UPPER" ]; then u "$1"; else r "$1"; fi; }
 
@@ -323,7 +339,11 @@ check_backdoor() {
 			p=etc/init.d/${f##*/}
 			grep -qE "$BD_RE" "$f" 2>/dev/null || continue
 			same_as_lower "$p" && continue
-			[ -n "$(pkg_owner "/$p")" ] && continue
+			[ -n "$(pkg_new "/$p")" ] && continue
+			# only lines the base image's version does not have count
+			if [ -n "$LOWER" ] && [ -f "$(l "$p")" ]; then
+				grep -vxFf "$(l "$p")" "$f" 2>/dev/null | grep -qE "$BD_RE" || continue
+			fi
 			sha=
 			[ "$(sha256sum "$f" 2>/dev/null | cut -c1-64)" = "$BD_INIT_SHA" ] && sha=", the same file as on other reported devices"
 			add IOC backdoor-init "/$p" "older backdoor: starts $(grep -oE "$BD_RE" "$f" | sort -u | tr '\n' ' ' | sed 's/ $//') at boot$sha"
@@ -334,7 +354,9 @@ check_backdoor() {
 	if [ -f "$f" ] && [ ! -L "$f" ] && [ -z "$(pkg_owner /bin/ulogd)" ] && { [ -z "$LOWER" ] || ! exists "$(l bin/ulogd)"; }; then
 		sha=$(sha256sum "$f" 2>/dev/null | cut -c1-64)
 		# no known hash to compare with: the file differs from device to device
-		add IOC backdoor-file /bin/ulogd "older backdoor: its loader, not from a package (sha256 ${sha:-unreadable})"
+		owner='not from a package'
+		[ "$(head -c 4 "$f" 2>/dev/null | tr -d '\033')" = Lua ] && owner='compiled Lua, not from a package'
+		add IOC backdoor-file /bin/ulogd "older backdoor: its loader, $owner (sha256 ${sha:-unreadable})"
 	fi
 	# 3. the Lua interpreter under another name
 	f=$(r usr/bin/monitord)
@@ -347,7 +369,10 @@ check_backdoor() {
 		p=${f#"${ROOT%/}"/}
 		grep -qE "$BD_KEEP_RE" "$f" 2>/dev/null || continue
 		same_as_lower "$p" && continue
-		[ -n "$(pkg_owner "/$p")" ] && continue
+		[ -n "$(pkg_new "/$p")" ] && continue
+		if [ -n "$LOWER" ] && [ -f "$(l "$p")" ]; then
+			grep -vxFf "$(l "$p")" "$f" 2>/dev/null | grep -qE "$BD_KEEP_RE" || continue
+		fi
 		add IOC backdoor-keep "/$p" "older backdoor: keeps its files across firmware updates"
 	done
 	# 5. its servers. In the configuration that is an indicator. In AdGuard Home's query
@@ -395,7 +420,7 @@ check_applets() {
 			continue
 		fi
 		[ -f "$up" ] || continue
-		owner=$(pkg_owner "/$p")
+		owner=$(pkg_new "/$p")
 		if [ -n "$owner" ]; then
 			add INFO package-file "/$p" "installed by package $owner"
 		elif [ -n "$lp" ] && [ -L "$lp" ]; then
@@ -456,7 +481,7 @@ check_review() {
 				whiteout "$f" && continue
 				same_as_lower "$rel" && continue
 				grep -q "${TAB}/$rel${TAB}" "$FIND" && continue
-				[ -n "$(pkg_owner "/$rel")" ] && continue
+				[ -n "$(pkg_new "/$rel")" ] && continue
 				case $rel in etc/rc.d/*) known_service_link "$f" && continue ;; esac
 				# any autostart/config file that starts the implant is persistence too
 				if [ -f "$f" ] && [ ! -L "$f" ] && grep -qE "$IOC_RE" "$f" 2>/dev/null; then
@@ -663,12 +688,7 @@ check_exes() {
 		rel=${exe#/}
 		if exists "$(l "$rel")"; then
 			[ -f "$exe" ] && [ -f "$(l "$rel")" ] && filecmp "$exe" "$(l "$rel")" && continue
-			owner=$(pkg_owner "$exe")
-			if [ -n "$owner" ]; then
-				add INFO running "$exe" "differs from the base image, installed by package $owner (pid $pids)"
-			else
-				add REVIEW running "$exe" "differs from the base image, not owned by a package (pid $pids)"
-			fi
+			add REVIEW running "$exe" "differs from the base image (pid $pids)"
 		else
 			owner=$(pkg_owner "$exe")
 			if [ -n "$owner" ]; then
@@ -713,7 +733,7 @@ check_firewall() {
 			find "$e" -xdev -type f 2>/dev/null | while IFS= read -r f; do
 				rel=${f#"${base%/}"/}
 				same_as_lower "$rel" && continue
-				[ -n "$(pkg_owner "/$rel")" ] && continue
+				[ -n "$(pkg_new "/$rel")" ] && continue
 				if [ -n "$LOWER" ] && [ -f "$(l "$rel")" ]; then
 					grep -vxFf "$(l "$rel")" "$f" 2>/dev/null | grep -v '^[[:space:]]*\(#.*\)\{0,1\}$' >"$TMP/fw-lines"
 					n=$(wc -l <"$TMP/fw-lines" | tr -d ' ')
@@ -796,6 +816,11 @@ detect() {
 		decode_tcp >"$TMP/conns"
 		grep -F -- "-> $SHELL_NET" "$TMP/conns" | while IFS= read -r line; do
 			add IOC connection "${SHELL_NET}0/24" "open connection to the network of the reported remote shell ($SHELL_IP): $line"
+		done
+		for f in $KVM_NETS; do
+			grep -F -- "-> $f:" "$TMP/conns" | while IFS= read -r line; do
+				add REVIEW connection "$f" "open connection to an address reported for the malware on a KVM: $line"
+			done
 		done
 		grep -vF -- "-> $SHELL_NET" "$TMP/conns" | grep -E "$CONN_RE" | while IFS= read -r line; do
 			add REVIEW connection "${line##* }" "connection held by a shell or a netcat-like tool: $line"
@@ -908,6 +933,50 @@ report_body() {
 }
 
 # ---------------------------------------------------------------- archive
+# People hand these archives to others, so secrets are taken out of the copies made for
+# the archive. Only files below $1 (the archive's work directory) are touched, never the
+# device, and links are not followed. Password hashes always go. Private keys go unless
+# --with-secrets is given. In configuration files only the values of options that hold a
+# key or password are replaced, so an added peer or account stays visible. What was left
+# out is listed in REDACTED.txt; hashes of the originals stay in overlay/upper-sha256.txt.
+SECRET_OPT='private_key|preshared_key|presharedkey|password|passwd|secret|token|psk|key|sae_password|auth_secret'
+scrub() {
+	local E=$1 f rel
+	: >"$TMP/redacted"
+	[ -d "$E/files" ] || return 0
+	find "$E/files" -type f 2>/dev/null | while IFS= read -r f; do
+		rel=${f#"$E"/files/}; rel=${rel#*/}
+		case $rel in
+		etc/shadow | etc/shadow[-.~]* | etc/gshadow*)
+			rm -f "$f" && printf 'removed\t/%s\tpassword hashes (see etc/shadow-summary.txt)\n' "$rel" >>"$TMP/redacted"
+			continue ;;
+		esac
+		[ "$SECRETS" = 1 ] && continue
+		case $rel in
+		*.pub | */authorized_keys | */known_hosts) continue ;;
+		root/.ssh/* | etc/dropbear/dropbear_*_host_key | etc/ssh/ssh_host_*_key | \
+			etc/openvpn/* | etc/tailscale/* | var/lib/tailscale/* | */identity.secret | \
+			etc/wireguard/* | *.pem | *.key | *.p12 | *.pfx)
+			rm -f "$f" && printf 'removed\t/%s\tprivate key or VPN profile\n' "$rel" >>"$TMP/redacted"
+			continue ;;
+		esac
+		case $rel in
+		etc/config/* | etc/kvmd/user/*)
+			grep -qE "^[[:space:]]*(option|list)[[:space:]]+['\"]?($SECRET_OPT)['\"]?[[:space:]]" "$f" 2>/dev/null || continue
+			sed -E "s/^([[:space:]]*(option|list)[[:space:]]+['\"]?($SECRET_OPT)['\"]?[[:space:]]+).*/\\1'REDACTED'/" "$f" >"$TMP/scrub" &&
+				cat "$TMP/scrub" >"$f" && printf 'values replaced\t/%s\tkeys and passwords\n' "$rel" >>"$TMP/redacted" ;;
+		esac
+	done
+	{
+		echo "Left out of this archive, so that it can be handed to someone else."
+		if [ "$SECRETS" = 1 ]; then echo "Run with --with-secrets: private keys and passwords are INCLUDED. Password hashes never are."
+		else echo "Private keys, VPN profiles and the values of keys and passwords in the configuration."
+			echo "Run with --with-secrets to keep them. Password hashes are never included."; fi
+		echo
+		sort -u "$TMP/redacted"
+	} >"$E/REDACTED.txt"
+}
+
 ARCHIVE=
 collect() {
 	local E list f pid size avail base_shadow
@@ -969,7 +1038,7 @@ collect() {
 	if [ -r "$(r etc/shadow)" ]; then
 		base_shadow=/dev/null
 		[ -n "$LOWER" ] && [ -r "$(l etc/shadow)" ] && base_shadow=$(l etc/shadow)
-		awk -F: 'NR==FNR {b[$1]=$2; next}
+		awk -F: 'FILENAME==ARGV[1] {b[$1]=$2; next}
 			{st = ($1 in b) ? (b[$1]==$2 ? "same as base" : "CHANGED vs base") : "not in base"
 			 printf "%s\t%s\tlastchg=%s\n", $1, ($2 ~ /^[!*]/ || $2=="" ? "locked/empty" : "hash set, " st), $3}' \
 			"$base_shadow" "$(r etc/shadow)" >"$E/etc/shadow-summary.txt" 2>/dev/null
@@ -999,6 +1068,7 @@ collect() {
 		done
 	fi
 
+	scrub "$E"
 	(cd "$E" && find . -type f -exec sha256sum {} + >"$TMP/manifest") && mv "$TMP/manifest" "$E/MANIFEST.sha256"
 
 	if [ "$STDOUT" = 1 ]; then
