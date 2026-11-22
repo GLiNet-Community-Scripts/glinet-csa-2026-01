@@ -424,6 +424,7 @@ const LAG = 10 * 60000;
 const lag = (f) => ts(f.ctime) - ts(f.mtime);
 const dur = (ms) => { if (!isFinite(ms)) return '–'; const m = Math.round(ms / 60000); return m < 1 ? 'under a minute' : m < 90 ? m + ' min' : m < 48 * 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : Math.round(m / 1440) + ' days'; };
 
+const ATTACK_FROM = Date.parse('2026-11-20T00:00:00Z');
 const NOT_HIJACK = /^applet-hijack \/usr\/sbin\/tailscaled?$/;
 const BD_FILE = /^\/(bin\/ulogd|usr\/bin\/monitord)$/;
 function shape(x) {
@@ -431,6 +432,13 @@ function shape(x) {
   // script 2.16 and 2.17 took an updated Tailscale for a replaced system tool; not a trace
   const fp = (f) => NOT_HIJACK.test(f);
   if (r.findings.some(fp)) { r.ioc = Math.max(0, r.ioc - r.findings.filter(fp).length); r.findings = r.findings.filter((f) => !fp(f)); r.files = r.files.filter((f) => !/^\/usr\/sbin\/tailscaled?$/.test(f.path)); }
+  // Scripts before 2.17 did not know that the cloud handler's state file is a trace: they
+  // sent its time and called the device clean. The reports show the rule holds (no router
+  // has such a file from before the attack, and its times fall into the attack's waves),
+  // so it is applied here to the older reports too.
+  if (r.platform === 'openwrt' && r.astrowarp !== 'on' && (r.state_file_size === null || r.state_file_size === 0) && ts(r.state_file_time) >= ATTACK_FROM && !r.findings.some((f) => f.startsWith('cloud-command'))) {
+    r.findings = [...r.findings, 'cloud-command /etc/mp_ip_mapping_info']; r.ioc += 1; r.derived = true;
+  }
   r.id = x.id || x.received + JSON.stringify(x.report).length;
   r.recvIso = x.received;
   r.dev = r.device_id || '';
@@ -668,9 +676,9 @@ function chart(hit) {
     }
     if (edges) { const l = el('span', 'earlier', 'l'); l.style.left = '0'; const r = el('span', 'later', 'r'); r.style.left = '100%'; xa.append(l, r); }
   });
-  const top = bins.reduce((a, b) => (b.a + b.b > a.a + a.b ? b : a));
+  const top = bins.reduce((a, b) => (b.a + b.b + b.c > a.a + a.b + a.c ? b : a));
   const stepName = step === HOUR ? 'hour' : step < DAY ? step / HOUR + ' hours' : step === DAY ? 'day' : step / DAY + ' days';
-  $('chartSub').textContent = `First trace per device (start of the remote shell, or the time on the malware’s files). One column per ${stepName}, UTC. Click a column to filter.`;
+  $('chartSub').textContent = `First trace per device (start of the remote shell, the time on the malware’s files, or the time the command from the cloud ran). One column per ${stepName}, UTC. Click a column to filter.`;
   $('peak').textContent = `Busiest ${stepName}: ${fmt(top.t)} – ${fmt(top.t + step)} with ${top.a + top.b + top.c} of ${pts.length} devices. ${hit.length - pts.length} of ${hit.length} reports have no start time.` + (before.length + after.length ? ` ${before.length} lie before and ${after.length} after the range shown.` : '');
 }
 
@@ -871,7 +879,7 @@ function render() {
     const res = el('td'); res.append(r.story); const tags = el('div', null, 'tags');
     if (r.shell) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s1)'; t.append(i, 'Remote shell'); tags.append(t); }
     if (r.implant) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s2)'; t.append(i, 'gl-helper malware'); tags.append(t); }
-    if (r.cmd) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s3)'; t.append(i, 'Command only'); hover(t, 'A command from the cloud ran on this device.\nNo remote shell and no malware were found.'); tags.append(t); }
+    if (r.cmd) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s3)'; t.append(i, 'Command only'); hover(t, 'A command from the cloud ran on this device.\nNo remote shell and no malware were found.' + (r.derived ? '\nWorked out here from the time of the state file:\nthe script that sent this report did not know the rule yet.' : '')); tags.append(t); }
     if (r.bd) tags.append(el('span', 'Older backdoor', 'tag warn'));
     if (r.ioc === 0 && !r.bd) tags.append(el('span', 'Clean', 'tag ok'));
     if (r.restarted) tags.append(el('span', 'Restarted since the attack', 'tag warn'));
