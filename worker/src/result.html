@@ -79,6 +79,8 @@ h1 { margin-top: 6px; font-size: clamp(26px, 3.6vw, 34px); line-height: 1.12; le
 .note { margin-top: 12px; padding: 12px 16px; border-radius: 14px; background: var(--info-bg); font-size: 14.5px; line-height: 1.5; }
 .note.warn { background: var(--warn-bg); } .note.bad { background: var(--danger-bg); }
 .note b { display: block; }
+.note.fw small { display: block; margin-top: 4px; font-size: 12.5px; color: var(--text-2); }
+.note.fw a { font-weight: 600; }
 h2 { margin-top: 30px; font-size: 21px; }
 .sub { margin-top: 6px; color: var(--text-2); font-size: 15px; }
 .card { padding: 16px 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); }
@@ -183,6 +185,9 @@ input.code::placeholder { color: var(--text-2); opacity: .45; }
 // The version of the script that is served right now; the worker puts it in. Empty when
 // it is not known, and then nothing is said about old versions.
 const CURRENT = '__CURRENT_VERSION__'.replace(/^__.*__$/, '');
+// The newest firmware per model, from firmware.gl-i.net; the worker puts it in. null when
+// it has none: then nothing is said about firmware.
+const FIRMWARE = /*FIRMWARE*/null;
 const ADVISORY = 'https://gl-i.net/security/csa-2026-01/', GUIDE = 'https://gl-i.net/security/csa-2026-01/fix/', FORUM = 'https://forum.gl-inet.com/t/2026-11-20-gl-inet-security-notice-goodcloud-kvm-routers/73056';
 const GC_OFF = "/etc/init.d/gl-cloud stop; uci set 'gl-cloud.@cloud[0].enable=0'; uci commit gl-cloud; /etc/init.d/gl-cloud disable";
 
@@ -216,12 +221,17 @@ const T = {
     crumbs: ['Security advisories', 'CSA-2026-01', 'Your result'],
     eyebrow: 'Your result · community script {v} · {dev}', eyebrowHand: 'What you ticked · {dev}',
     dev: { r: 'router', k: 'KVM device', u: 'device' },
-    note: 'This page explains a result. It did not check your device, and nothing was sent to it: the address only carries short codes for what the script found, and your browser keeps that part of the address to itself.',
+    note: 'This page only explains. It has not checked your device and has learned nothing about it: the code in the address stands for the result, and with the longer code for the model and its firmware version. Your browser does not send that part of the address.',
     old: 'This result is from script version {v}. The current version is {cur} and finds more. Run the script again before you rely on this.',
     gc: { 1: 'on', 0: 'off', x: 'not known' }, gcLabel: 'GoodCloud',
     rs: { 1: 'Restarted since the attack', 0: 'Not restarted since the attack' },
     types: { ioc: ['IOC', 'known trace'], persist: ['PERSIST', 'changed'], review: ['REVIEW', 'to look at'], note: ['NOTE', 'good to know'], ok: ['OK', 'nothing'] },
     legend: { ioc: 'means “indicator of compromise”: a known sign that an attacker was at work. One is enough to treat the device as hit.', persist: 'a file that runs at every start is not the firmware’s own. Often your doing; no sign of an attack by itself.', review: 'a change the script cannot place. Almost always your own.' },
+    fw: { newTitle: 'Newer firmware for your {model}: {ver}', okTitle: 'Firmware {cur} on your {model}',
+      newText: 'This device runs {cur}. The newest release for the model is {ver}, from {date}.', okText: 'That is the newest release for this model.', aheadText: 'That is newer than the newest release listed, {ver}.',
+      test: 'It is a test build.', beta: 'A newer test version exists: {ver}, a beta from {date}. Test versions can have faults.',
+      unknown: 'Whether it closes the hole is for GL.iNet to say. In the anonymous reports, no router on firmware 4.11 shows traces.',
+      link: 'All firmware for the {model} →', asof: 'From the list of firmware.gl-i.net, as of {asof}. A build that came out since is not in it.' },
     hFound: 'What the script found', hMeans: 'What that means', hDo: 'Do this now', hHelp: 'If you are unsure',
     as: 'In the script’s output:',
     fix2: ['The script removed what it found.', 'That takes away the known traces, nothing more. The device was in someone else’s hands, so the steps below still apply.'],
@@ -308,12 +318,17 @@ const T = {
     eyebrow: 'Dein Ergebnis · Community-Skript {v} · {dev}', eyebrowHand: 'Was du angekreuzt hast · {dev}',
     // German needs the article with the word: "der Router" but "das Gerät"
     dev: { r: { dev: 'Router', nom: 'der Router', Nom: 'Der Router', acc: 'den Router', dies: 'diesen Router' }, k: { dev: 'KVM-Gerät', nom: 'das KVM-Gerät', Nom: 'Das KVM-Gerät', acc: 'das KVM-Gerät', dies: 'dieses KVM-Gerät' }, u: { dev: 'Gerät', nom: 'das Gerät', Nom: 'Das Gerät', acc: 'das Gerät', dies: 'dieses Gerät' } },
-    note: 'Diese Seite erklärt ein Ergebnis. Sie hat dein Gerät nicht geprüft, und es wurde nichts an sie gesendet: Die Adresse enthält nur kurze Kürzel für das, was das Skript gefunden hat, und dein Browser behält diesen Teil der Adresse für sich.',
+    note: 'Diese Seite erklärt nur. Sie hat dein Gerät nicht geprüft und nichts von ihm erfahren: Der Code in der Adresse steht für das Ergebnis, beim längeren Code auch für das Modell und seine Firmware-Version. Dein Browser schickt diesen Teil der Adresse nicht mit.',
     old: 'Dieses Ergebnis stammt von Skriptversion {v}. Aktuell ist {cur}, und sie findet mehr. Lass das Skript noch einmal laufen, bevor du dich darauf verlässt.',
     gc: { 1: 'an', 0: 'aus', x: 'nicht bekannt' }, gcLabel: 'GoodCloud',
     rs: { 1: 'Seit dem Angriff neu gestartet', 0: 'Seit dem Angriff nicht neu gestartet' },
     types: { ioc: ['IOC', 'bekannte Spur'], persist: ['PERSIST', 'geändert'], review: ['REVIEW', 'zum Ansehen'], note: ['HINWEIS', 'gut zu wissen'], ok: ['OK', 'nichts'] },
     legend: { ioc: 'heißt „Indicator of Compromise“: ein bekanntes Zeichen dafür, dass ein Angreifer am Werk war. Eines reicht, um das Gerät als getroffen zu behandeln.', persist: 'eine Datei, die bei jedem Start läuft, ist nicht die der Firmware. Oft deine eigene Änderung; allein kein Zeichen für einen Angriff.', review: 'eine Änderung, die das Skript nicht einordnen kann. Fast immer deine eigene.' },
+    fw: { newTitle: 'Neuere Firmware für deinen {model}: {ver}', okTitle: 'Firmware {cur} auf deinem {model}',
+      newText: 'Auf dem Gerät läuft {cur}. Das neueste Release für das Modell ist {ver}, vom {date}.', okText: 'Das ist das neueste Release für dieses Modell.', aheadText: 'Das ist neuer als das neueste gelistete Release, {ver}.',
+      test: 'Es ist eine Testversion.', beta: 'Es gibt eine neuere Testversion: {ver}, eine Beta vom {date}. Testversionen können Fehler haben.',
+      unknown: 'Ob sie die Lücke schließt, muss GL.iNet sagen. In den anonymen Berichten zeigt kein Router mit Firmware 4.11 Spuren.',
+      link: 'Alle Firmware für den {model} →', asof: 'Aus der Liste von firmware.gl-i.net, Stand {asof}. Was seitdem erschienen ist, steht nicht darin.' },
     hFound: 'Was das Skript gefunden hat', hMeans: 'Was das bedeutet', hDo: 'Das solltest du jetzt tun', hHelp: 'Wenn du unsicher bist',
     as: 'In der Ausgabe des Skripts:',
     fix2: ['Das Skript hat entfernt, was es gefunden hat.', 'Damit sind die bekannten Spuren weg, mehr nicht. Das Gerät war in fremder Hand, deshalb gelten die Schritte unten weiterhin.'],
@@ -399,12 +414,17 @@ const T = {
     crumbs: ['安全公告', 'CSA-2026-01', '你的检查结果'],
     eyebrow: '你的检查结果 · 社区脚本 {v} · {dev}', eyebrowHand: '你勾选的情况 · {dev}',
     dev: { r: '路由器', k: 'KVM 设备', u: '设备' },
-    note: '本页面只负责解释检查结果。它没有检查你的设备，也没有收到任何数据：地址里只有几个简短的代码，表示脚本发现了什么，而且浏览器不会把地址的这一部分发送出去。',
+    note: '本页面只负责解释。它没有检查你的设备，也没有收到关于它的任何信息：地址里的代码代表检查结果，较长的代码还包含设备型号和固件版本。浏览器不会把地址的这一部分发送出去。',
     old: '这个结果来自脚本版本 {v}。当前版本是 {cur}，能发现更多痕迹。请重新运行脚本后再参考本页内容。',
     gc: { 1: '已开启', 0: '已关闭', x: '未知' }, gcLabel: 'GoodCloud',
     rs: { 1: '攻击发生后重启过', 0: '攻击发生后没有重启过' },
     types: { ioc: ['IOC', '已知痕迹'], persist: ['PERSIST', '有改动'], review: ['REVIEW', '供查看'], note: ['说明', '需要了解'], ok: ['OK', '无发现'] },
     legend: { ioc: '即“入侵指标”（Indicator of Compromise）：表明攻击者动过设备的已知迹象。只要有一个，就应把设备当作已被攻击来处理。', persist: '一个每次开机都会执行的文件不是固件自带的版本。通常是你自己改的；单凭这一点不能说明被攻击。', review: '脚本无法归类的改动。几乎总是你自己做的。' },
+    fw: { newTitle: '你的 {model} 有更新的固件：{ver}', okTitle: '你的 {model} 上的固件是 {cur}',
+      newText: '这台设备运行的是 {cur}。该型号最新的正式版是 {ver}，发布于 {date}。', okText: '这是该型号最新的正式版。', aheadText: '它比列表中最新的正式版 {ver} 还要新。',
+      test: '这是一个测试版本。', beta: '还有更新的测试版：{ver}，{date} 发布的 beta 版。测试版可能有缺陷。',
+      unknown: '它是否修复了这个漏洞，要以 GL.iNet 的说法为准。在匿名报告中，没有一台运行 4.11 固件的路由器出现痕迹。',
+      link: '{model} 的全部固件 →', asof: '数据来自 firmware.gl-i.net 的列表，更新于 {asof}。此后发布的版本不在其中。' },
     hFound: '脚本发现了什么', hMeans: '这意味着什么', hDo: '现在请这样做', hHelp: '如果你拿不准',
     as: '在脚本输出中显示为：',
     fix2: ['脚本已经删除了它发现的东西。', '这只是清除了已知的痕迹，仅此而已。设备曾经落入他人之手，所以下面的步骤仍然需要执行。'],
@@ -508,18 +528,47 @@ if (!T[lang]) { const want = (navigator.languages || [navigator.language || 'en'
 // The script holds the same order (RESULT_KINDS); the tests compare the two.
 const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const ORDER = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'ps', 'pp', 'cs', 'cm', 'fw', 'cc', 'it', 'bi', 'bf', 'bk', 'bh', 'bp', 'pe'];
+// Five more characters may follow: model and firmware version, so that the page can say
+// whether newer firmware exists. Four hold 20 bits (7 the model as its place in MODELS,
+// 2 the first number of the version minus one, 5 the second, 5 the third, 1 a test
+// build), the fifth is their check character, tied to the first part's.
+const MODELS = ["be10000", "be14000", "be3600", "be9300", "e5800", "mg1300", "mt3000", "mt3600be", "mt5000", "mt6000", "axt1800", "be6500", "sft1200", "x3000", "xe3000", "ax1800", "mt2500", "x2000", "a1300", "b3000", "ar300m", "ar300m16", "ar750", "ar750s", "b1300", "e750", "mt1300", "mt300n-v2", "x300b", "x750", "xe300", "ap1300", "ar150", "b2200", "mifi", "mt300a", "mt300n", "mv1000", "s1300", "sf1200", "usb150", "x1200", "n300", "vixmini", "s10", "s20ble", "s20otbr", "s200", "rm1", "rm10", "rm10rc", "rm1pe", "rm1v2", "rm4pe", "rmq1"];
+function decodeExt(s, c1) {
+  const e = [...s].map((ch) => B32.indexOf(ch));
+  if (e.length !== 5 || e.some((x) => x < 0) || (e[0] + 2 * e[1] + 3 * e[2] + 4 * e[3] + c1) % 31 !== e[4]) return null;
+  const bits = e.slice(0, 4).map((x) => x.toString(2).padStart(5, '0')).join(''), n = (a, b) => parseInt(bits.slice(a, b), 2);
+  const model = MODELS[n(0, 7) - 1];
+  return model ? { model, ver: [n(7, 9) + 1, n(9, 14), n(14, 19)], test: bits[19] === '1' } : {};
+}
+function encodeExt(x, c1) {
+  const bits = (MODELS.indexOf(x.model) + 1).toString(2).padStart(7, '0') + (x.ver[0] - 1).toString(2).padStart(2, '0') + x.ver[1].toString(2).padStart(5, '0') + x.ver[2].toString(2).padStart(5, '0') + (x.test ? '1' : '0');
+  let out = '', sum = B32.indexOf(c1);
+  for (let i = 0; i < 4; i++) { const v = parseInt(bits.slice(i * 5, i * 5 + 5), 2); sum += (i + 1) * v; out += B32[v]; }
+  return out + B32[sum % 31];
+}
+// What the firmware list says about a device: is there a newer release, or only a newer
+// test version, or is it up to date. Versions are compared number by number.
+function fwState(dev, list) {
+  const entry = dev && dev.model && list && list.models ? list.models[dev.model] : null;
+  if (!entry || !entry.r) return null;
+  const num = (v) => String(v).split('.').map(Number), cmp = (a, b) => { for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) - (b[i] || 0); } return 0; };
+  const rel = num(entry.r[0]), d = cmp(dev.ver, rel), beta = entry.b && cmp(num(entry.b[0]), dev.ver) > 0 && cmp(num(entry.b[0]), rel) > 0 ? entry.b : null;
+  return { state: d < 0 ? 'new' : d > 0 ? 'ahead' : 'ok', cur: dev.ver.join('.'), rel: entry.r, beta, test: dev.test };
+}
 function clean(text) { return String(text).toUpperCase().replace(/[\s-]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0'); }
 function decode(text) {
-  const s = clean(text);
-  if (!/^[0-9A-HJKMNP-TV-Z]{9}$/.test(s)) return null;
-  const v = [...s].map((ch) => B32.indexOf(ch));
+  const all = clean(text);
+  if (!/^[0-9A-HJKMNP-TV-Z]{9}([0-9A-HJKMNP-TV-Z]{5})?$/.test(all)) return null;
+  const s = all.slice(0, 9), v = [...s].map((ch) => B32.indexOf(ch));
   let sum = 0; for (let i = 0; i < 8; i++) sum += (i + 1) * v[i];
   if (sum % 31 !== v[8]) return null;
   const bits = v.slice(0, 8).map((x) => x.toString(2).padStart(5, '0')).join('');
   let at = 0; const take = (n) => { const x = parseInt(bits.slice(at, at + n), 2); at += n; return x; };
   const minor = take(7), p = ['u', 'r', 'k', 'u'][take(2)], kb = bits.slice(at, at + 24); at += 24;
   const g = ['x', '1', '0', 'x'][take(2)], n = String(take(1)), f = ['0', '2', '3', '0'][take(2)], rv = take(2);
-  return { v: '2.' + minor, p, r: '', k: ORDER.filter((c, i) => kb[i] === '1'), b: '0', g, n, f, rv: rv ? -1 : 0 };
+  const dev = all.length === 14 ? decodeExt(all.slice(9), v[8]) : {};
+  if (!dev) return null;
+  return { v: '2.' + minor, p, r: '', k: ORDER.filter((c, i) => kb[i] === '1'), b: '0', g, n, f, rv: rv ? -1 : 0, dev };
 }
 // The same the other way round, for what someone ticks by hand.
 function encode(c) {
@@ -588,6 +637,19 @@ function render() {
   if (c.v !== 'hand' && CURRENT && older(c.v, CURRENT)) page.append(el('p', fill(t.old, o), 'note warn'));
   if (c.f === '2') box(t.fix2, 'warn'); if (c.f === '3') box(t.fix3, 'bad');
   if (cls.also) box(t.also, 'bad');
+  { // firmware: what the list of firmware.gl-i.net says for this model and version
+    const fw = fwState(c.dev, FIRMWARE);
+    if (fw) {
+      const name = 'GL-' + c.dev.model.toUpperCase(), day = (x) => { const d = String(x[1]).slice(0, 10); return lang === 'de' ? d.split('-').reverse().join('.') : d; }, q = { model: name, cur: fw.cur, ver: fw.rel[0], date: day(fw.rel), asof: FIRMWARE.asof || '' };
+      const p = el('p', null, 'note fw ' + (fw.state === 'new' ? 'warn' : '')), parts = [fill(fw.state === 'new' ? t.fw.newText : fw.state === 'ahead' ? t.fw.aheadText : t.fw.okText, q)];
+      if (fw.test) parts.push(t.fw.test);
+      if (fw.beta) parts.push(fill(t.fw.beta, { ver: fw.beta[0], date: day(fw.beta) }));
+      if (fw.state === 'new' && c.p === 'r') parts.push(t.fw.unknown);
+      const a = el('a', fill(t.fw.link, q)); a.href = 'https://firmware.gl-i.net/' + encodeURIComponent(c.dev.model) + '/'; a.rel = 'noopener';
+      p.append(el('b', fill(fw.state === 'new' ? t.fw.newTitle : t.fw.okTitle, q)), parts.join(' ') + ' ', a, el('small', ' ' + fill(t.fw.asof, q)));
+      page.append(p);
+    }
+  }
   page.append(el('p', t.note, 'note'));
 
   // What was found: one row per finding. On the left what kind of thing it is, in the

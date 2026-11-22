@@ -212,7 +212,7 @@ if (process.argv[2] === 'serve') {
     if (table) expect('every code the script can put into the address is known to the page', table.split(' ').every((x) => NAMES[x.split('=')[1]]) && new Set(table.split(' ').map((x) => x.split('=')[1])).size === table.split(' ').length);
     // the nine-character code: read the page's own functions and try them
     const src = RESULT.slice(RESULT.indexOf('const B32 = '), RESULT.indexOf('function read() {'));
-    const { decode, encode, parse, ORDER } = new Function(src + '; return { decode, encode, parse, ORDER };')();
+    const { decode, encode, parse, ORDER, MODELS, encodeExt, fwState } = new Function(src + '; return { decode, encode, parse, ORDER, MODELS, encodeExt, fwState };')();
     const sample = { minor: 41, p: 'r', k: ['cc', 'fw'], g: '1', n: '0', f: '0', rv: 4 }, code = encode(sample), back = decode(code);
     expect('a code is nine characters and comes back as the result it was made from', /^[0-9A-HJKMNP-TV-Z]{9}$/.test(code) && back.v === '2.41' && back.p === 'r' && back.k.join('.') === 'fw.cc' && back.g === '1' && back.n === '0' && back.f === '0' && back.rv === -1);
     expect('capitals, dashes and spaces do not matter, and a typed O, I or L is read as 0 or 1', decode(code.toLowerCase()) !== null && decode(code.slice(0, 4) + '-' + code.slice(4) + ' ') !== null && decode(encode({ ...sample, minor: 32 }).replace(/0/g, 'o').replace(/1/g, 'l')) !== null);
@@ -226,11 +226,36 @@ if (process.argv[2] === 'serve') {
     expect('the largest code holds everything', all.v === '2.127' && all.p === 'k' && all.k.length === 22 && all.g === '0' && all.n === '1' && all.f === '3');
     expect('the page reads a code after "#", a code typed as the path, and the long form of 2.39', parse('#' + code, '/').k.length === 2 && parse('', '/' + code.toLowerCase()).v === '2.41' && parse('#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0', '/2026-01/').k.join('.') === 'cc.fw');
     expect('nothing in the address is the list to tick, a wrong code says so', parse('', '/').v === '' && !parse('', '/').bad && !parse('', '/2026-01/').bad && parse('#' + code.slice(0, 8) + (code[8] === 'A' ? 'B' : 'A'), '/').bad === true && parse('#%3Cscript%3Ealert(1)', '/').v === '');
+    // the second part of the code: model and firmware version
+    const ext = encodeExt({ model: 'mt6000', ver: [4, 9, 1], test: false }, code[8]), longer = decode(code + '-' + ext);
+    expect('the longer code adds the model and its firmware version, the short one still works', ext.length === 5 && longer.dev.model === 'mt6000' && longer.dev.ver.join('.') === '4.9.1' && longer.dev.test === false && longer.k.join('.') === 'fw.cc' && decode(code).dev.model === undefined);
+    expect('a slip in the second part is caught too, and it belongs to its first part', decode(code + ext.slice(0, 4) + (ext[4] === 'A' ? 'B' : 'A')) === null && decode(encode({ ...sample, n: '1' }) + ext) === null && decode(code + ext.slice(0, 3)) === null);
+    const kvm = decode(encode({ minor: 45, p: 'k', k: ['mk'], g: '1', n: '0', f: '0', rv: 0 }) + encodeExt({ model: 'rm1pe', ver: [1, 10, 2], test: true }, encode({ minor: 45, p: 'k', k: ['mk'], g: '1', n: '0', f: '0', rv: 0 })[8]));
+    expect('a KVM with a test build comes back as such', kvm.dev.model === 'rm1pe' && kvm.dev.ver.join('.') === '1.10.2' && kvm.dev.test === true);
+    const fwl = { asof: '2026-11-22 16:26 UTC', models: { mt6000: { r: ['4.8.3', '2026-08-01'], b: ['4.11.1', '2026-11-06'] }, be9300: { r: ['4.10.1', '2026-09-20'] } } };
+    expect('the firmware list says: newer release, up to date, ahead, and names a newer beta', fwState({ model: 'mt6000', ver: [4, 7, 13] }, fwl).state === 'new' && fwState({ model: 'mt6000', ver: [4, 8, 3] }, fwl).state === 'ok' && fwState({ model: 'mt6000', ver: [4, 8, 3] }, fwl).beta[0] === '4.11.1' && fwState({ model: 'mt6000', ver: [4, 11, 1] }, fwl).state === 'ahead' && fwState({ model: 'mt6000', ver: [4, 11, 1] }, fwl).beta === null && fwState({ model: 'be9300', ver: [4, 10, 1] }, fwl).beta === null);
+    expect('versions are compared as numbers, not as text (4.10 is newer than 4.9)', fwState({ model: 'be9300', ver: [4, 9, 12] }, fwl).state === 'new' && fwState({ model: 'be9300', ver: [4, 10, 2] }, fwl).state === 'ahead');
+    expect('no model in the code, an unknown model or no list: nothing is said about firmware', fwState({}, fwl) === null && fwState({ model: 'zz9', ver: [1, 0, 0] }, fwl) === null && fwState({ model: 'mt6000', ver: [4, 8, 3] }, null) === null && fwState(undefined, fwl) === null);
+    const shModels = (/^RESULT_MODELS='([^']+)'$/m.exec(readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8')) || [])[1];
+    if (shModels) expect('the script numbers the models in the same order as the page', shModels === MODELS.join(' ') && MODELS.length <= 127 && new Set(MODELS).size === MODELS.length);
     const shKinds = (/^RESULT_KINDS='([^']+)'$/m.exec(readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8')) || [])[1];
     if (shKinds) expect('the script puts the kinds of findings into the code in the same order as the page', shKinds === ORDER.join(' '));
     const front = await worker.fetch(new Request('https://csa.example.org/'), env, { waitUntil() {} }), typed = await worker.fetch(new Request('https://csa.example.org/' + code), env, { waitUntil() {} });
     expect('on the csa host the page is the front door, also for a code typed without "#"', front.status === 200 && (await front.text()).includes('const B32') && typed.status === 200 && (await call('GET', undefined, {}, '/' + code)).headers.get('content-type').startsWith('text/plain'));
-    console.log('sample code: ' + code);
+    console.log('sample code: ' + code + '-' + ext);
+    // the firmware list: fetched from the archive, kept, put into the page; only what has
+    // the expected shape gets in
+    const netFetch = globalThis.fetch; let asked = 0, answer = 'fail';
+    const archive = { mt6000: { release: { version: '4.8.3', release_time: '2026-08-01 10:00:00', download: 'https://x/' }, beta: { version: '4.11.1', release_time: '2026-11-06 18:44:00' } }, 'bad name!': { release: { version: '1.0.0', release_time: '2026-01-01' } }, evil: { release: { version: '</script><script>alert(1)', release_time: '2026-01-01' } }, be9300: { release: { version: '4.10.1', release_time: '2026-09-20 18:00:31' } }, a1: { release: { version: '4.0.0', release_time: '2026-01-01' } }, a2: { release: { version: '4.0.0', release_time: '2026-01-01' } }, a3: { release: { version: '4.0.0', release_time: '2026-01-01' } } };
+    globalThis.fetch = async (u) => { if (String(u).startsWith('https://firmware.gl-i.net/')) { asked++; return answer === 'fail' ? new Response('no', { status: 503 }) : new Response(JSON.stringify(archive), { headers: { 'last-modified': 'Sun, 22 Nov 2026 16:26:50 GMT' } }); } return netFetch(u); };
+    await env.REPORTS.put('firmware/list', 'null');
+    expect('without the archive the page gets no firmware list and is served all the same', (await (await call('GET', undefined, {}, '/2026-01/')).text()).includes('const FIRMWARE = null;') && asked === 1);
+    answer = 'ok';
+    const withList = await (await call('GET', undefined, {}, '/2026-01/')).text(), put = (/const FIRMWARE = (\{.*?\});\n/.exec(withList) || [])[1], got = put ? JSON.parse(put) : null;
+    expect('the list in the page holds release and beta per model, with the time of the archive', got && got.asof === '2026-11-22 16:26 UTC' && got.models.mt6000.r.join() === '4.8.3,2026-08-01' && got.models.mt6000.b[0] === '4.11.1' && got.models.be9300.b === undefined);
+    expect('entries that do not look like a model and a version stay out', got && !('bad name!' in got.models) && !('evil' in got.models) && !withList.includes('alert(1)'));
+    const again = asked; await call('GET', undefined, {}, '/2026-01/');
+    expect('the list is kept: the next page does not ask the archive again', asked === again);
     const page = await call('GET', undefined, {}, '/2026-01/');
     const html = await page.text();
     expect('the result page is served without a login, as HTML that nothing may frame or extend', page.status === 200 && page.headers.get('content-type').startsWith('text/html') && /frame-ancestors 'none'/.test(page.headers.get('content-security-policy')) && html.includes('const T = {'));
@@ -240,6 +265,7 @@ if (process.argv[2] === 'serve') {
     await env.REPORTS.put('script/csa-2026-01-fix', JSON.stringify({ commit: 'x', body: '#!/bin/sh\nVERSION=7.77\n', checked: Date.now() }));
     expect('the page is told the version of the script that is served now', (await (await call('GET', undefined, {}, '/2026-01/')).text()).includes("const CURRENT = '7.77'"));
     await env.REPORTS.put('script/csa-2026-01-fix', 'null');
+    globalThis.fetch = netFetch;
   }
   const good6 = { ...good5, schema: 6, tool: '2.23', goodcloud: 'on', cloud_client: '1.2.3-4', astrowarp: 'off', state_file_size: 0, review_items: [{ kind: 'changed', path: '/etc/init.d/urandom_seed', sha256: 'b'.repeat(64) }, { kind: 'process', path: '', sha256: '' }] };
   expect('a schema 6 report is valid, also without a state file or review items', validate(good6) === null && validate({ ...good6, state_file_size: -1, review_items: [], goodcloud: 'unknown', cloud_client: '' }) === null);

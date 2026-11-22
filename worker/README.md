@@ -358,6 +358,20 @@ one into and a short list to tick by hand.
   may only grow at the end. The worker's tests fail when the two differ, when a language
   lacks a text another one has, or when a plan names a step without a text; the script's
   tests read every code they produce back with the page's own reader.
+- Where the script knows model and firmware, five more characters follow after a dash:
+  `csa.gl-i.net/#AA006011D-2PJ2W`. Four hold 20 bits (7 the model as its place in
+  `RESULT_MODELS` / `MODELS`, 2 + 5 + 5 the three numbers of the firmware version, 1 a test
+  build), the fifth is their check character, tied to the check character of the first
+  nine. The first nine work without them. A model and a version, never a serial number:
+  nothing in the code tells one device from another of its kind. The list of models may
+  only grow at the end.
+- With model and version the page says whether newer firmware exists. The worker takes
+  the newest release and beta per model from `firmware.gl-i.net/api/all.json` (the firmware
+  archive, built every few hours), keeps the list in KV, fetches it again at most once an
+  hour and puts it into the page; when the archive cannot be reached, the copy here keeps
+  being used, and without one the page says nothing about firmware. Only entries that look
+  like a model name and a version get in. The page compares versions number by number,
+  names the date of the list, and does not claim that a version closes the hole.
 - Scripts 2.39 and 2.40 printed a longer form, `csa.gl-i.net/2026-01/#v=2.39&p=r&...`.
   It still works.
 - The worker puts in the version of the script it serves, and the page warns when a result

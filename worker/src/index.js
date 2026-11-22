@@ -399,14 +399,53 @@ async function script(request, env, ctx, pathname) {
 // everyone, and the worker learns nothing about a device from it. Open to all, no login.
 // The one thing put in is the version of the script served now, so that the page can say
 // when a result comes from an older one.
-async function resultPage(request, env) {
+// The newest firmware per model, from the firmware archive at firmware.gl-i.net (its
+// api/all.json, built every few hours). Kept in KV and fetched again at most once an
+// hour; when the archive cannot be reached, the copy here keeps being used. Only the
+// release and the beta of each model are taken, and only values of the expected shape:
+// the list is put into a page.
+const FIRMWARE_URL = 'https://firmware.gl-i.net/api/all.json';
+const FIRMWARE_KEY = 'firmware/list';
+async function refreshFirmware(env, have) {
+  try {
+    const res = await fetch(FIRMWARE_URL, { headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error('no list');
+    const all = await res.json(), models = {}, pair = (x) => (x && /^\d{1,2}(\.\d{1,3}){1,2}$/.test(String(x.version)) && /^\d{4}-\d\d-\d\d/.test(String(x.release_time)) ? [String(x.version), String(x.release_time).slice(0, 10)] : null);
+    for (const [name, ch] of Object.entries(all)) {
+      if (!/^[a-z0-9-]{2,16}$/.test(name) || !ch || typeof ch !== 'object') continue;
+      const r = pair(ch.release), b = pair(ch.beta);
+      if (r) models[name] = b ? { r, b } : { r };
+    }
+    if (Object.keys(models).length < 5) throw new Error('too few models');
+    const stamp = new Date(res.headers.get('last-modified') || Date.now()), asof = isNaN(stamp) ? '' : stamp.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    const next = { checked: Date.now(), asof, models };
+    await env.REPORTS.put(FIRMWARE_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    if (have) await env.REPORTS.put(FIRMWARE_KEY, JSON.stringify({ ...have, checked: Date.now() - 3000_000 }));
+    return have;
+  }
+}
+async function firmwareList(env, ctx) {
+  let have = null;
+  try { have = JSON.parse((await env.REPORTS.get(FIRMWARE_KEY)) || 'null'); } catch { have = null; }
+  if (!have) return refreshFirmware(env, null);
+  if (Date.now() - have.checked > 3600_000) ctx.waitUntil(refreshFirmware(env, have));
+  return have;
+}
+
+async function resultPage(request, env, ctx) {
   if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
   let current = '';
   try {
     const have = JSON.parse((await env.REPORTS.get(SCRIPT_KEY)) || 'null');
     current = ((have && /^VERSION=(\d{1,2}\.\d{1,3})$/m.exec(have.body)) || [])[1] || '';
   } catch { /* not known: the page then says nothing about versions */ }
-  return new Response(request.method === 'HEAD' ? null : RESULT.replace('__CURRENT_VERSION__', current || '__CURRENT_VERSION__'), {
+  let fw = null;
+  try { fw = await firmwareList(env, ctx); } catch { fw = null; }
+  // as text inside a script: "<" must not be able to end it
+  const list = fw ? JSON.stringify({ asof: fw.asof, models: fw.models }).replace(/</g, '\\u003c') : 'null';
+  return new Response(request.method === 'HEAD' ? null : RESULT.replace('__CURRENT_VERSION__', current || '__CURRENT_VERSION__').replace('/*FIRMWARE*/null', () => list), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
@@ -422,12 +461,12 @@ export default {
     const { pathname, hostname } = new URL(request.url);
     // the result page; the long form of the address leads to the short one (a browser
     // keeps the part after "#" across the redirect)
-    if (pathname === '/2026-01/') return resultPage(request, env);
+    if (pathname === '/2026-01/') return resultPage(request, env, ctx);
     if (/^\/(csa-)?2026-01\/?$/.test(pathname)) return Response.redirect(new URL('/2026-01/', request.url).href, 302);
     // On csa.gl-i.net the page is also the front door: csa.gl-i.net/#AA006011D is what the
     // script prints. A code typed without the "#" arrives as the path; the page then moves
     // it behind the "#" itself.
-    if (hostname.startsWith('csa.') && (pathname === '/' || /^\/[0-9A-Za-z-]{9,11}$/.test(pathname))) return resultPage(request, env);
+    if (hostname.startsWith('csa.') && (pathname === '/' || /^\/[0-9A-Za-z-]{9,16}$/.test(pathname))) return resultPage(request, env, ctx);
     if (/\/csa-2026-01-fix(\/|$)/.test(pathname)) return script(request, env, ctx, pathname);
     if (pathname.endsWith('/migrate')) {
       // a browser, or curl without -X POST, sends GET and would only see the text below
