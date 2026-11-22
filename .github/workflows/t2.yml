@@ -1,0 +1,40 @@
+name: T2
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  script:
+    name: Script
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tools: [system, busybox]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Syntax
+        run: sh -n gl-helper-triage.sh
+
+      - name: Install busybox
+        if: matrix.tools == 'busybox'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q busybox-static
+          busybox | head -n 1
+          # one directory with every busybox applet under its own name, and nothing else
+          mkdir -p "$RUNNER_TEMP/bb"
+          for a in $(busybox --list); do ln -s "$(command -v busybox)" "$RUNNER_TEMP/bb/$a"; done
+          echo "TRIAGE_SH=busybox sh" >>"$GITHUB_ENV"
+          echo "TRIAGE_PATH=$RUNNER_TEMP/bb" >>"$GITHUB_ENV"
+
+      - name: Run the tests
+        # as root in its own mount namespace: the tests mount overlay filesystems, and the
+        # runners do not allow that in an unprivileged user namespace
+        run: sudo --preserve-env=TRIAGE_SH,TRIAGE_PATH unshare -m bash tests/run-tests.sh
