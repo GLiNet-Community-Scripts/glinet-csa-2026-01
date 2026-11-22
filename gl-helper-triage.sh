@@ -803,6 +803,22 @@ file_ctime() {
 		sed -n 's/.* \([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\) \([0-9][0-9]:[0-9][0-9]:[0-9][0-9]\)[.0-9]* +0000 .*/\1 \2 UTC/p' | head -n 1
 }
 
+# Time a file was last read (atime), in UTC, and only where the filesystem holding it is
+# mounted noatime: there it stays at the time the file was created. Empty everywhere else,
+# also when the mount cannot be found in /proc/mounts.
+file_atime() {
+	local t
+	awk -v p="$1" '$2 == "/" || index(p, $2 "/") == 1 { if (length($2) >= l) { l = length($2); o = "," $4 "," } }
+		END { exit !(o ~ /,noatime,/) }' /proc/mounts 2>/dev/null || return 0
+	t=$(stat -c %X "$1" 2>/dev/null)
+	case $t in
+	'' | *[!0-9]*) ;;
+	*) date -u -d "@$t" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null && return 0 ;;
+	esac
+	TZ=UTC0 ls -lud --full-time "$1" 2>/dev/null |
+		sed -n 's/.* \([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\) \([0-9][0-9]:[0-9][0-9]:[0-9][0-9]\)[.0-9]* +0000 .*/\1 \2 UTC/p' | head -n 1
+}
+
 # Process scan (live system only). Also maps socket inodes to pids for the net output.
 check_procs() {
 	[ "$LIVE" = 1 ] && [ -r /proc/1/cmdline ] || return 0
@@ -906,7 +922,9 @@ check_exes() {
 # restart. The pipe /tmp/f stays after the shell was stopped: it shows that the shell ran
 # since the last boot, and its time is the last data that went through it.
 # /etc/mp_ip_mapping_info is the state file of the cloud handler (SD-WAN IP mapping) that
-# the reported command came through; the handler rewrites it each time it runs.
+# the reported command came through; the handler rewrites it each time it runs. It creates
+# the file on its first call, so where the overlay is mounted noatime the access time is
+# that first call and the time written the last.
 # Is AstroWarp (SD-WAN) switched on? "option enable '1'" in the global section of
 # /etc/config/mptun, which is what the firmware's own check reads.
 astrowarp_on() {
@@ -937,13 +955,15 @@ check_tmp() {
 	done
 	f=$(r etc/mp_ip_mapping_info)
 	if safe "$f"; then
-		local t n aw
+		local t n aw w a
 		t=$(file_time "$f") n=$(cat "$f" 2>/dev/null | wc -c | tr -d ' ')
 		aw=off; astrowarp_on && aw=on
+		w="written $t"
+		a=$(file_atime "$f"); [ -n "$a" ] && w="first call $a, last call $t"
 		if [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
-			add IOC cloud-command /etc/mp_ip_mapping_info "written $t, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
+			add IOC cloud-command /etc/mp_ip_mapping_info "$w, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
 		else
-			add REVIEW state-file /etc/mp_ip_mapping_info "written $t, $n bytes, AstroWarp $aw: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
+			add REVIEW state-file /etc/mp_ip_mapping_info "$w, $n bytes, AstroWarp $aw: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
 		fi
 	fi
 	return 0
@@ -1595,7 +1615,7 @@ jlines() { while IFS= read -r line; do printf '%s,' "$(jtxt "$line" "${1:-300}")
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
 build_report() {
-	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid n revs sha gc aw ssize mt ct pid
+	local model fw up quick started ports ptime list files stime sfirst f persist rules cmds kind mac devid n revs sha gc aw ssize mt ct pid
 	# Device ID: the hardware address of the first network interface, hashed. The address
 	# itself never leaves the device.
 	devid=''
@@ -1647,7 +1667,8 @@ build_report() {
 				"$(cat "$(r "${f#/}")" 2>/dev/null | wc -c | tr -d ' ')" "$(jstr "$(file_time "$(r "${f#/}")")")" "$(jstr "$(file_ctime "$(r "${f#/}")")")"
 		done | sed 's/,$//')
 	stime=
-	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)")
+	sfirst=
+	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)") && sfirst=$(file_atime "$(r etc/mp_ip_mapping_info)")
 	# What the attacker left, only when indicators were found. /etc/rc.local in full (up
 	# to 60 lines); other autostart files: the lines that are not in the base image (up to
 	# 20 per file); from the lists of files a firmware update keeps only the lines that
@@ -1767,6 +1788,7 @@ build_report() {
 "rtty_web": $(jstr "$(cloud_opt "$(r etc/config/rtty)" web_en)" 8),
 "astrowarp": $(jstr "$aw" 8),
 "state_file_size": ${ssize:--1},
+"state_file_first": $(jstr "$sfirst"),
 "review_items": [$revs],
 "note": $(jstr "$NOTE" 120),
 "device_id": $(jstr "$devid")

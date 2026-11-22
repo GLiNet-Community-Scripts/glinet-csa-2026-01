@@ -154,6 +154,11 @@ file that is empty, was written on or after 20 November 2026 and sits on a devic
 AstroWarp is switched off. In every other case the file is `REVIEW` with its time and
 size, because it is normal on a router that uses AstroWarp.
 
+Where the filesystem holding the file is mounted `noatime`, as the overlay is on the
+routers surveyed, the script also gives its access time as the handler's first call and
+the time written as its last (since 2.34, also in the report as `state_file_first`). That
+is the time the file was created, so the first call since the file last did not exist.
+
 This trace and the firewall rule only show that a crafted command ran. With nothing
 else found, the verdict is `ATTACKED`, not `INFECTED`: a forum user recovered one such
 message from the memory of the cloud client on a GL-BE9300, and it only listed the

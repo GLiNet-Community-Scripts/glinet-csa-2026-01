@@ -411,6 +411,18 @@ run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
 expect "with malware files as well the verdict is INFECTED, and enable in another section does not count" '[ $rc = 1 ] && grep -q "Verdict: INFECTED - gl-helper" "$D/check.txt" && grep -q "IOC  *cloud-command" "$D/check.txt"'
 umount "$D/m"
 
+echo "=== the state file's first call: its access time, only on a noatime mount"
+D=$(mkscen first "$OWL"); U=$D/u
+mkdir -p "$U/etc"; printf 'aa:bb:cc:dd:ee:ff 10.0.0.2 192.168.8.2\n' >"$U/etc/mp_ip_mapping_info"
+touch -a -d '2026-03-02 08:14:55 UTC' "$U/etc/mp_ip_mapping_info"; touch -m -d '2026-11-21 10:00:00 UTC' "$U/etc/mp_ip_mapping_info"
+mount -t overlay overlay -o "noatime,lowerdir=$OWL,upperdir=$D/u,workdir=$D/w" "$D/m"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "noatime: the access time is the first call, the time written the last" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "first call 2026-03-02 08:14:55 UTC, last call 2026-11-21 10:00:00 UTC, 39 bytes"'
+umount "$D/m"; mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "without noatime only the time written is given" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 2026-11-21 10:00:00 UTC, 39 bytes" && ! grep -q "first call" "$D/check.txt"'
+umount "$D/m"
+
 echo "=== an updated program that replaces a link of the base image is no hijack"
 OWT=$BASE/openwrt-rom-ts
 cp -a "$OWL" "$OWT"; mkdir -p "$OWT/usr/sbin"; echo tailscaled >"$OWT/usr/sbin/tailscaled"; ln -s tailscaled "$OWT/usr/sbin/tailscale"
@@ -563,6 +575,16 @@ if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 	expect "the note is cut at 120 characters" 'grep -q "\"note\": \"${X%??????????}\",$" "$L/show.txt"'
 	live --show-report >"$L/show.txt"
 	expect "without --note the note is empty" 'grep -q "\"note\": \"\",$" "$L/show.txt"'
+	# the state file's first call: empty where /proc/mounts is missing or the mount is not
+	# noatime, the access time where it is. /etc of the chroot is mounted noatime for that.
+	mkdir -p "$L/etc"; : >"$L/etc/mp_ip_mapping_info"; touch -a -d '2026-03-02 08:14:55 UTC' "$L/etc/mp_ip_mapping_info"
+	expect "without /proc/mounts the first call is empty" 'live --show-report | grep -q "\"state_file_first\": \"\",$"'
+	mount --bind "$L/etc" "$L/etc"; mount -o remount,bind,noatime "$L/etc"
+	mkdir -p "$L/proc"; printf '/dev/root / ext4 rw,relatime 0 0\n' >"$L/proc/mounts"
+	expect "on a mount that is not noatime the first call is empty" 'live --show-report | grep -q "\"state_file_first\": \"\",$"'
+	printf '/dev/root / ext4 rw,relatime 0 0\n/dev/sda1 /etc ext4 rw,noatime 0 0\n' >"$L/proc/mounts"
+	expect "on a noatime mount the report carries the first call" 'live --show-report | grep -q "\"state_file_first\": \"2026-03-02 08:14:55 UTC\",$"'
+	rm "$L/proc/mounts" "$L/etc/mp_ip_mapping_info"; umount "$L/etc"
 	live --note 'fleet-a, repeat' >"$L/ask.txt"
 	expect "the summary before sending prints the note word for word" 'grep -A1 "And your note, as it will be sent:" "$L/ask.txt" | grep -qx "        fleet-a, repeat" && grep -q "Not sent" "$L/ask.txt"'
 	live >"$L/ask.txt"
