@@ -20,6 +20,10 @@ on:
         description: 'Keep this fork''s .github/workflows files (do not take upstream versions)'
         type: boolean
         default: true
+      self_test:
+        description: 'Self test - open and merge a throwaway empty PR to verify the PR + merge path'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -180,6 +184,34 @@ jobs:
           echo "::error::Could not merge ${PR_URL} after 5 attempts."
           exit 1
 
+      - name: Self test - verify PR and merge path
+        id: selftest
+        if: inputs.self_test == true
+        env:
+          BASE_BRANCH: ${{ steps.check.outputs.base }}
+        run: |
+          TEST_BRANCH="sync/selftest-${GITHUB_RUN_ID}"
+          git checkout -B "$TEST_BRANCH" "origin/${BASE_BRANCH}"
+          git commit --allow-empty -m "chore(sync): pipeline self-test (empty commit)"
+          git push origin "$TEST_BRANCH"
+          URL=$(gh pr create \
+            --base "$BASE_BRANCH" \
+            --head "$TEST_BRANCH" \
+            --title "chore(sync): pipeline self-test ${GITHUB_RUN_ID}" \
+            --body "Empty commit from the sync workflow self-test: verifies a PR can be opened and merged with the workflow token. No file changes.")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Self-test PR: $URL"
+          for attempt in 1 2 3 4 5; do
+            if gh pr merge "$URL" --merge --delete-branch; then
+              echo "Self-test merge OK"
+              exit 0
+            fi
+            echo "Merge attempt ${attempt} failed; retrying in 15s..."
+            sleep 15
+          done
+          echo "::error::Self-test could not merge ${URL}."
+          exit 1
+
       - name: Summary
         if: always()
         run: |
@@ -195,6 +227,7 @@ jobs:
             echo "| Behind by | ${{ steps.check.outputs.behind }} commit(s) |"
             echo "| Changed files | ${{ steps.build.outputs.changed }} |"
             echo "| PR | ${{ steps.pr.outputs.url || '—' }} |"
+            echo "| Self test | ${{ inputs.self_test == true && format('Yes — {0}', steps.selftest.outputs.url) || 'No' }} |"
             echo "| Dry run | ${{ inputs.dry_run == true && 'Yes' || 'No' }} |"
             echo "| Protect workflows | ${{ inputs.protect_workflows == false && 'No' || 'Yes' }} |"
             echo "| Run at | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |"
