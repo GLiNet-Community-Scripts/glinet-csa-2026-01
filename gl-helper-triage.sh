@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.30
+VERSION=2.31
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -991,7 +991,7 @@ decode_tcp() {
 			w = ""; for (i = 0; i < 4; i++) w = w word(substr(x, i*8+1, 8))
 			w = tolower(w)
 			if (substr(w,1,24) == "00000000000000000000ffff") return ip4(substr(w,25,8))
-			o = ""; for (i = 0; i < 8; i++) { g = substr(w, i*4+1, 4); sub(/^0+/, "", g); o = o (i ? ":" : "") (g == "" ? "0" : g) }
+			o = ""; for (i = 0; i < 8; i++) { g = substr(w, i*4+1, 4); sub(/^0+/, "", g); if (g == "") g = "0"; if (i) o = o ":"; o = o g }
 			return "[" o "]"
 		}
 		FNR==1 {nfile++}
@@ -1636,7 +1636,10 @@ build_report() {
 				# where the link points, and for a changed link where it pointed in the firmware
 				t = $4; sub(/^-> /, "", t); b = ""
 				if (match(t, / \(base: [^)]*\)/)) { b = substr(t, RSTART + 8, RLENGTH - 9); t = substr(t, 1, RSTART - 1) }
-				sub(/,.*/, "", t); x = "to=" t (b == "" ? "" : " base=" b)
+				sub(/,.*/, "", t); x = "to=" t
+				# not "t (b ...)": some busybox versions read a name followed by a bracket as a
+				# call to a function and stop with "Call to undefined function"
+				if (b != "") x = x " base=" b
 			}
 			# "-" stands for an empty field: the shell would swallow two tabs in a row
 			print $2 "\t" (p == "" ? "-" : p) "\t" (pid == "" ? "-" : pid) "\t" (x == "" ? "-" : x)
