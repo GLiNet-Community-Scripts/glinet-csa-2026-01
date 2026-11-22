@@ -501,6 +501,9 @@ echo elf >"$U/etc/gl_nas/.cache/gl-helper"; echo x >"$U/etc/gl_nas/.cache/run.sh
 echo mine >"$U/userdata/.gl/my-notes"
 printf '0 4 * * * /usr/bin/own-job\n*/3 * * * * /bin/sh /etc/gl_nas/.cache/watch.sh\n' >"$U/tmp/gl_crontabs/root"
 printf 'host 65.20.71.131\nport 5912\n' >"$U/etc/rtty_conf"
+mkdir -p "$U/etc/gl_crontabs/crontabs.d"
+printf '30 3 * * * /usr/bin/gl-own-task\n*/3 * * * * /bin/sh /etc/glinet/.cache/watch.sh\n' >"$U/etc/gl_crontabs/crontabs.d/tasks"
+printf '0 5 * * * /usr/bin/other-task\n' >"$U/etc/gl_crontabs/crontabs.d/clean"
 printf 'ssh-ed25519 AAAAOWNER me@home\nssh-ed25519 AAAAEVIL gl-agent\n' >"$U/etc/dropbear/authorized_keys"
 mnt "$D" "$OWL"
 rm "$D/m/bin/netstat"; printf '#!/bin/sh\n/bin/busybox netstat "$@" | grep -v x\n' >"$D/m/bin/netstat"
@@ -509,9 +512,11 @@ expect "the malware in a fallback directory is found" '[ $rc = 1 ] && grep -q "I
 expect "a fallback directory without its files is REVIEW only" 'grep -q "REVIEW  *hidden-dir  */userdata/.gl" "$D/check.txt" && ! grep -q "IOC.*userdata" "$D/check.txt"'
 expect "running crontab, rtty server and gl-agent key are IOC" 'grep -q "IOC  *cron-ref  */tmp/gl_crontabs/root" "$D/check.txt" && grep -q "IOC  *rtty-server  */etc/rtty_conf" "$D/check.txt" && grep -q "IOC  *ssh-key  */etc/dropbear/authorized_keys" "$D/check.txt"'
 expect "the netstat wrapper is named for what it is" 'grep -A1 "IOC  *applet-hijack  */bin/netstat" "$D/check.txt" | grep -q "hides lines"'
+expect "the malware's line in a crontab file of the firmware is an IOC, a file without one is not" 'grep -q "IOC  *cron-ref  */etc/gl_crontabs/crontabs.d/tasks" "$D/check.txt" && ! grep -q "crontabs.d/clean" "$D/check.txt"'
 run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
 expect "--fix removes the fallback directory with the malware, leaves the other" '[ ! -e "$D/m/etc/gl_nas/.cache" ] && [ -f "$D/m/userdata/.gl/my-notes" ]'
 expect "--fix strips only the malware's lines from crontab and authorized_keys" 'grep -q own-job "$D/m/tmp/gl_crontabs/root" && ! grep -q watch.sh "$D/m/tmp/gl_crontabs/root" && grep -q AAAAOWNER "$D/m/etc/dropbear/authorized_keys" && ! grep -q gl-agent "$D/m/etc/dropbear/authorized_keys"'
+expect "--fix strips only the malware's line from the firmware's crontab file" 'grep -q gl-own-task "$D/m/etc/gl_crontabs/crontabs.d/tasks" && ! grep -q watch.sh "$D/m/etc/gl_crontabs/crontabs.d/tasks" && grep -q other-task "$D/m/etc/gl_crontabs/crontabs.d/clean"'
 expect "--fix leaves rtty_conf alone and says so (exit $rc)" '[ $rc = 2 ] && grep -q "65.20.71.131" "$D/m/etc/rtty_conf" && grep -q "rtty_conf still names" "$D/fix.txt"'
 umount "$D/m"
 
@@ -729,6 +734,21 @@ if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 else
 	echo "  SKIP: needs a statically linked busybox"
 fi
+
+echo "=== firmware that cleans up by itself (GL.iNet's gl-sdk4-system-check, router firmware 4.9.3)"
+D=$(mkscen vclean "$OWL"); U=$D/u
+mkdir -p "$U/usr/lib/opkg"; printf 'Package: gl-sdk4-cloud\nVersion: git-2026.325.35972-e271f36\n\nPackage: gl-sdk4-system-check\nVersion: 1\n\n' >"$U/usr/lib/opkg/status"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "the cleanup package is named, and the clean result says what it is worth" 'grep -q "INFO  *vendor-cleanup" "$D/check.txt" && grep -q "cleans up by itself" "$D/check.txt" && grep -q "Not proof that nothing happened" "$D/check.txt" && grep -q "no gl-helper indicators found" "$D/check.txt"'
+expect "the code carries it, so the page can say the same" 'readcode "$D/check.txt" 1 csa.gl-i.net | grep -q " k=vc "'
+umount "$D/m"
+D=$(mkscen noclean "$OWL"); U=$D/u
+mkdir -p "$U/usr/lib/opkg"; printf 'Package: gl-sdk4-cloud\nVersion: git-2026.146.23211-bea5eca\n\n' >"$U/usr/lib/opkg/status"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "without that package nothing is said about a cleanup, the limit of a clean result still is" '! grep -q "vendor-cleanup\|cleans up by itself" "$D/check.txt" && grep -q "Not proof that nothing happened" "$D/check.txt" && ! readcode "$D/check.txt" 1 csa.gl-i.net | grep -q "vc"'
+umount "$D/m"
 
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]
