@@ -411,6 +411,24 @@ run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
 expect "with malware files as well the verdict is INFECTED, and enable in another section does not count" '[ $rc = 1 ] && grep -q "Verdict: INFECTED - gl-helper" "$D/check.txt" && grep -q "IOC  *cloud-command" "$D/check.txt"'
 umount "$D/m"
 
+echo "=== the state file's first call: its access time, only on a noatime mount"
+D=$(mkscen first "$OWL"); U=$D/u
+mkdir -p "$U/etc"; printf 'aa:bb:cc:dd:ee:ff 10.0.0.2 192.168.8.2\n' >"$U/etc/mp_ip_mapping_info"
+touch -a -d '2026-03-02 08:14:55 UTC' "$U/etc/mp_ip_mapping_info"; touch -m -d '2026-11-21 10:00:00 UTC' "$U/etc/mp_ip_mapping_info"
+mount -t overlay overlay -o "noatime,lowerdir=$OWL,upperdir=$D/u,workdir=$D/w" "$D/m"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "noatime: the access time is the first call, the time written the last" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "first call 2026-03-02 08:14:55 UTC, last call 2026-11-21 10:00:00 UTC, 39 bytes"'
+umount "$D/m"; mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "without noatime only the time written is given" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 2026-11-21 10:00:00 UTC, 39 bytes" && ! grep -q "first call" "$D/check.txt"'
+touch -d '1970-01-01 00:00:07 UTC' "$D/m/etc/mp_ip_mapping_info"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "a time before 2020 is shown as not a real date" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 1970-01-01 00:00:07 UTC (clock was not set, not a real date), 39 bytes"'
+touch -d '2020-01-01 00:00:00 UTC' "$D/m/etc/mp_ip_mapping_info"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "from 2020 on a time is shown as it is" 'grep -A1 "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 2020-01-01 00:00:00 UTC, 39 bytes" && ! grep -q "clock was not set" "$D/check.txt"'
+umount "$D/m"
+
 echo "=== an updated program that replaces a link of the base image is no hijack"
 OWT=$BASE/openwrt-rom-ts
 cp -a "$OWL" "$OWT"; mkdir -p "$OWT/usr/sbin"; echo tailscaled >"$OWT/usr/sbin/tailscaled"; ln -s tailscaled "$OWT/usr/sbin/tailscale"
@@ -551,6 +569,63 @@ mnt "$D" "$OWL"
 run "$D" "$OWL" --check >"$D/check.txt"
 expect "WireGuard server config written seconds after the loader is noted" 'grep -A1 "REVIEW  *backdoor-wg  */etc/config/wireguard_server" "$D/check.txt" | grep -q "written 11 s after"'
 umount "$D/m"
+
+echo "=== the report's note (--note)"
+# The report is only built on a live device (--root /), so the script runs as / of a
+# chroot that holds nothing but a static busybox: its ash, as on a router. Nothing is
+# sent: stdin is not a terminal, and the address points nowhere.
+BB=$(command -v busybox)
+if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
+	L=$BASE/live; mkdir -p "$L/bin" "$L/tmp" "$L/dev"; cp "$BB" "$L/bin/busybox"; cp "$T" "$L/t.sh"; : >"$L/dev/null"
+	mount --bind /dev/null "$L/dev/null"; chroot "$L" /bin/busybox --install -s /bin
+	# TMPDIR of the caller would name a directory that the chroot does not have
+	live() { TMPDIR=/tmp GL_TRIAGE_REPORT_URL=http://127.0.0.1:9/ chroot "$L" /bin/sh /t.sh --no-device-id "$@" </dev/null 2>&1; }
+	live --show-report --note 'fleet-a 2026-11-22 after clean-up (repeat)' >"$L/show.txt"
+	expect "the note and schema 9 are in the report" 'grep -q "^   \"schema\": 9,$" "$L/show.txt" && grep -q "^   \"note\": \"fleet-a 2026-11-22 after clean-up (repeat)\",$" "$L/show.txt"'
+	live --show-report --note "$(printf 'a;b"c\\d$e<\303\251>f\tg')" >"$L/show.txt"
+	expect "characters jstr does not allow are dropped from the note" 'grep -q "\"note\": \"abcdefg\",$" "$L/show.txt"'
+	X=$(head -c 130 /dev/zero | tr '\0' x); live --show-report --note "$X" >"$L/show.txt"
+	expect "the note is cut at 120 characters" 'grep -q "\"note\": \"${X%??????????}\",$" "$L/show.txt"'
+	live --show-report >"$L/show.txt"
+	expect "without --note the note is empty" 'grep -q "\"note\": \"\",$" "$L/show.txt"'
+	# the state file's first call: empty where /proc/mounts is missing or the mount is not
+	# noatime, the access time where it is. /etc of the chroot is mounted noatime for that.
+	mkdir -p "$L/etc"; : >"$L/etc/mp_ip_mapping_info"
+	expect "without /proc/mounts the first call is empty" 'live --show-report | grep -q "\"state_file_first\": \"\",$"'
+	mount --bind "$L/etc" "$L/etc"; mount -o remount,bind,noatime "$L/etc" 2>/dev/null
+	mkdir -p "$L/proc"; printf '/dev/root / ext4 rw,relatime 0 0\n' >"$L/proc/mounts"
+	expect "on a mount that is not noatime the first call is empty" 'live --show-report | grep -q "\"state_file_first\": \"\",$"'
+	# The access time is set only now: on a relatime filesystem the reads above have moved
+	# it. The mount must really be noatime, or the script's own read moves it again; a user
+	# namespace on a relatime filesystem refuses that remount, and then this is skipped.
+	F=$L/etc/mp_ip_mapping_info
+	touch -a -d '2026-03-02 08:14:55 UTC' "$F"; cat "$F" >/dev/null
+	if awk -v m="$L/etc" '$2 == m && ("," $4 ",") ~ /,noatime,/ { f = 1 } END { exit !f }' /proc/self/mounts &&
+		[ "$(stat -c %X "$F")" = "$(date -u -d '2026-03-02 08:14:55 UTC' +%s)" ]; then
+		printf '/dev/root / ext4 rw,relatime 0 0\n/dev/sda1 /etc ext4 rw,noatime 0 0\n' >"$L/proc/mounts"
+		expect "on a noatime mount the report carries the first call" 'live --show-report | grep -q "\"state_file_first\": \"2026-03-02 08:14:55 UTC\",$"'
+	else
+		echo "  SKIP: on a noatime mount the report carries the first call (no noatime mount here: $(awk -v m="$L/etc" '$2 == m { print $4 }' /proc/self/mounts))"
+	fi
+	rm "$L/proc/mounts" "$F"; umount "$L/etc"
+	live --note 'fleet-a, repeat' >"$L/ask.txt"
+	expect "the summary before sending prints the note word for word" 'grep -A1 "And your note, as it will be sent:" "$L/ask.txt" | grep -qx "        fleet-a, repeat" && grep -q "Not sent" "$L/ask.txt"'
+	live >"$L/ask.txt"
+	expect "without a note the summary does not mention one" '! grep -q "your note" "$L/ask.txt" && grep -q "Not sent" "$L/ask.txt"'
+	live --note >"$L/err.txt"; rc=$?
+	expect "--note without a text is an error, exit 4" '[ $rc = 4 ] && grep -q "ERROR: --note needs a text" "$L/err.txt"'
+	# The second stage: a process ujaild that runs from a deleted /tmp/ujaild, in a /proc
+	# made of plain files. No test can hold a program with a known hash, so this checks that
+	# another hash leaves the finding as it is.
+	mkdir -p "$L/proc/1" "$L/proc/4242"; printf 'init\0' >"$L/proc/1/cmdline"
+	echo ujaild >"$L/proc/4242/comm"; printf '/usr/sbin/ujaild\0' >"$L/proc/4242/cmdline"
+	echo 'another build' >"$L/tmp/ujaild (deleted)"; ln -s '/tmp/ujaild (deleted)' "$L/proc/4242/exe"
+	live --no-report >"$L/check.txt"; rc=$?
+	expect "ujaild with another hash is still IOC backdoor-proc, not called the known one" '[ $rc = 1 ] && grep -A1 "IOC  *backdoor-proc  *4242" "$L/check.txt" | grep -q "older backdoor: comm=ujaild" && ! grep -q "known second stage" "$L/check.txt"'
+	umount "$L/dev/null"
+else
+	echo "  SKIP: needs a statically linked busybox"
+fi
 
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

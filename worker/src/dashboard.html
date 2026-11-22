@@ -508,6 +508,7 @@ const WHY = {
 const FIELD_WHY = {
   'Device ID': 'The same ID on two reports means the same device. It is made from a hash of a hardware address and a secret that only the server knows, so it cannot be turned back into that address.',
   'Shell pipe, last data': 'Time on /tmp/f: the last moment data went through the remote shell.',
+  'Cloud handler first ran': 'The time /etc/mp_ip_mapping_info was created: the first call since the file last did not exist. Sent only where the filesystem does not update access times (noatime).',
   'Cloud handler last ran': 'Time on /etc/mp_ip_mapping_info, the state file the cloud client rewrites each time it handles an IP mapping. The attack came through that handler. Normal on devices that use AstroWarp.',
   'Counts': 'Known traces are matches for what we know of this malware. Persistence is a changed rc.local or crontab without a link to it. “To review” are other unusual changes, usually the owner’s own.',
 };
@@ -541,7 +542,7 @@ const ATTACK_FROM = Date.parse('2026-11-20T00:00:00Z');
 const NOT_HIJACK = /^applet-hijack \/usr\/sbin\/tailscaled?$/;
 const BD_FILE = /^\/(bin\/ulogd|usr\/bin\/monitord)$/;
 function shape(x) {
-  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', review_items: [], goodcloud: '', cloud_client: '', astrowarp: '', state_file_size: null, cloud_bound: '', rtty_ssh: '', rtty_web: '', ...x.report };
+  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', review_items: [], goodcloud: '', cloud_client: '', astrowarp: '', state_file_size: null, cloud_bound: '', rtty_ssh: '', rtty_web: '', note: '', state_file_first: '', ...x.report };
   // script 2.16 and 2.17 took an updated Tailscale for a replaced system tool; not a trace
   const fp = (f) => NOT_HIJACK.test(f);
   if (r.findings.some(fp)) { r.ioc = Math.max(0, r.ioc - r.findings.filter(fp).length); r.findings = r.findings.filter((f) => !fp(f)); r.files = r.files.filter((f) => !/^\/usr\/sbin\/tailscaled?$/.test(f.path)); }
@@ -1175,11 +1176,11 @@ function detail(r) {
   const tr = el('tr', null, 'detail'), td = el('td'), b = el('div', null, 'body'); td.colSpan = 7; tr.append(td); td.append(b);
   const sec = (title, node, full) => { const w = el('div', null, full ? 'full' : ''); w.append(el('h3', title), node); b.append(w); };
   const kv = el('dl', null, 'kv');
-  for (const [k, v] of [['Received', fmt(r.recv) + ' UTC'], ['Checked', fmt(ts(r.checked_at)) + ' UTC'], ['Device', `${r.model} · ${r.platform}`], ['Firmware', r.firmware], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Device ID', r.dev || 'none (older script, or not sent)'], ['Up since', fmt(r.upSince) + ' UTC' + (r.restarted ? ' (restarted since the attack)' : '')], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['GoodCloud at the check', r.goodcloud ? r.goodcloud + (r.cloud_client ? ' · client ' + r.cloud_client : '') : 'not reported (older script)'], ['AstroWarp', r.astrowarp || 'not reported (older script)'], ['Bound to a GoodCloud account', r.cloud_bound || 'not reported (older script)'], ['Remote SSH / remote web', r.rtty_ssh ? r.rtty_ssh + ' / ' + r.rtty_web : 'not reported (older script)'], ['State file size', r.state_file_size === null ? 'not reported (older script)' : r.state_file_size === -1 ? 'no such file' : r.state_file_size === 0 ? 'empty, as the attack leaves it' : r.state_file_size + ' B']])
+  for (const [k, v] of [['Received', fmt(r.recv) + ' UTC'], ['Checked', fmt(ts(r.checked_at)) + ' UTC'], ['Device', `${r.model} · ${r.platform}`], ['Firmware', r.firmware], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Device ID', r.dev || 'none (older script, or not sent)'], ['Note from the sender', r.note || (r.schema >= 9 ? 'none' : 'not reported (older script)')], ['Up since', fmt(r.upSince) + ' UTC' + (r.restarted ? ' (restarted since the attack)' : '')], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['GoodCloud at the check', r.goodcloud ? r.goodcloud + (r.cloud_client ? ' · client ' + r.cloud_client : '') : 'not reported (older script)'], ['AstroWarp', r.astrowarp || 'not reported (older script)'], ['Bound to a GoodCloud account', r.cloud_bound || 'not reported (older script)'], ['Remote SSH / remote web', r.rtty_ssh ? r.rtty_ssh + ' / ' + r.rtty_web : 'not reported (older script)'], ['State file size', r.state_file_size === null ? 'not reported (older script)' : r.state_file_size === -1 ? 'no such file' : r.state_file_size === 0 ? 'empty, as the attack leaves it' : r.state_file_size + ' B']])
     { const dt = el('dt', k); if (FIELD_WHY[k]) dt.append(info(FIELD_WHY[k])); kv.append(dt, el('dd', v)); }
   sec('Device and check', kv);
   const tl = el('dl', null, 'kv');
-  for (const [k, v] of [['Remote shell started', r.shell_started], ['Shell pipe, last data', r.pipe_time], ['Cloud handler last ran', r.state_file_time], ['First trace', isNaN(r.first) ? '' : fmt(r.first) + ' UTC']]) if (v)
+  for (const [k, v] of [['Remote shell started', r.shell_started], ['Shell pipe, last data', r.pipe_time], ['Cloud handler first ran', r.state_file_first], ['Cloud handler last ran', r.state_file_time], ['First trace', isNaN(r.first) ? '' : fmt(r.first) + ' UTC']]) if (v)
     { const dt = el('dt', k); if (FIELD_WHY[k]) dt.append(info(FIELD_WHY[k])); tl.append(dt, el('dd', v.includes('UTC') && v.length > 20 ? fmt(ts(v)) + ' UTC' : v)); }
   sec('Times', tl.children.length ? tl : el('p', 'No times in this report.', 'dim'));
   const fl = el('ul', null, 'evs');

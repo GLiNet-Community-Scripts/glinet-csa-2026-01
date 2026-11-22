@@ -16,7 +16,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5 || v === 6 || v === 7 || v === 8,
+  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5 || v === 6 || v === 7 || v === 8 || v === 9,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -82,6 +82,13 @@ const FIELDS_V7 = { ...FIELDS_V6, review_items: list(40, isFileOf({ kind: str(24
 // unknown each; the account itself is never sent.
 const FIELDS_V8 = { ...FIELDS_V7, cloud_bound: onoff, rtty_ssh: onoff, rtty_web: onoff };
 
+// Since script 2.35 (schema 9): a note of the sender's own, given with --note, for people
+// who report many devices: where a report comes from, before or after a clean-up, a
+// repeat. Empty without one. Plain text; the dashboard shows it as text.
+// Also the time the cloud handler's state file was created, its first call: the file's
+// access time, sent only where the filesystem does not update it (noatime), else empty.
+const FIELDS_V9 = { ...FIELDS_V8, note: txt(120), state_file_first: time };
+
 async function sealDeviceId(env, id) {
   if (!env.DEVICE_SALT || !id) return '';
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DEVICE_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -94,7 +101,7 @@ const text = (body, status = 200) =>
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  const fields = report.schema === 8 ? FIELDS_V8 : report.schema === 7 ? FIELDS_V7 : report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
+  const fields = report.schema === 9 ? FIELDS_V9 : report.schema === 8 ? FIELDS_V8 : report.schema === 7 ? FIELDS_V7 : report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
   for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
   for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;

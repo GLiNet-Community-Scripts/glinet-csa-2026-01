@@ -154,6 +154,15 @@ file that is empty, was written on or after 20 November 2026 and sits on a devic
 AstroWarp is switched off. In every other case the file is `REVIEW` with its time and
 size, because it is normal on a router that uses AstroWarp.
 
+Where the filesystem holding the file is mounted `noatime`, as the overlay is on the
+routers surveyed, the script also gives its access time as the handler's first call and
+the time written as its last (since 2.35, also in the report as `state_file_first`). That
+is the time the file was created, so the first call since the file last did not exist.
+
+GL.iNet travel routers have no battery clock and have a wrong date until they sync the
+time. A file time before 2020 is therefore shown with "clock was not set, not a real
+date"; the report keeps the time as it is.
+
 This trace and the firewall rule only show that a crafted command ran. With nothing
 else found, the verdict is `ATTACKED`, not `INFECTED`: a forum user recovered one such
 message from the memory of the cloud client on a GL-BE9300, and it only listed the
@@ -202,13 +211,18 @@ only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
   `/usr/bin/lua` (`backdoor-file`),
 - a changed list of files that a firmware update keeps, when it names those files
   (`backdoor-keep`): the backdoor appends `/bin/ulogd` and `/etc/init.d/urandom_seed` to
-  `/lib/upgrade/keep.d/netifd`,
+  `/lib/upgrade/keep.d/netifd`. Not always: on 8 of 28 surveyed routers with the backdoor
+  that file was the firmware's own, with the start-up script, the loader and both processes
+  present, so a missing `backdoor-keep` says nothing about whether the backdoor is there,
 - one of the known server names in the configuration (`backdoor-host`): `adguardns.com`,
   `adguardns.org`, `lede-openproject.org`, `adxinsight.com`, `openwrt-project.org`.
   A line that blocks such a name is no indicator (`backdoor-block`, `INFO`): a hosts
   entry to `0.0.0.0`, `127.0.0.1`, `::` or `::1`, or dnsmasq's `address=/name/`,
   `server=/name/` and `local=/name/` without a real address,
-- a running `monitord` or `ujaild` (`backdoor-proc`),
+- a running `monitord` or `ujaild` (`backdoor-proc`). The second stage `ujaild` runs from
+  a deleted file, so the script fingerprints the copy the kernel holds: on 30 routers of
+  four models it was one of two programs, and a match is noted as the known second stage.
+  Another fingerprint does not clear the process,
 - compiled Lua anywhere in the overlay that no package installed: with the loader's
   function names in it, it is the loader under another name (`backdoor-file`), otherwise
   `REVIEW lua-bytecode`. The firmware keeps its own compiled Lua in the read-only image,
@@ -311,6 +325,7 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 | `--fix [-o DIR]` | Archive first (aborts if that fails), then remediate and re-check |
 | `--report`, `--no-report`, `--show-report` | Send the anonymous report without asking, never offer it, or print it without sending. See below. |
 | `--no-device-id` | Leave the device ID out of the report. |
+| `--note TEXT` | Add a note of your own to the report, for example where it comes from or whether the device was checked before or after a clean-up. At most 120 characters; only letters, digits, spaces and `._:/+@=,()-` are kept. |
 | `--with-secrets` | Keep the private keys and passwords that the script would otherwise take out of the evidence archive. |
 | `--color`, `--no-color` | Force or disable coloured output. By default colours are used only on a terminal; `NO_COLOR=1` also turns them off. |
 
@@ -378,6 +393,11 @@ these three answers let the reports say. The two remote access answers are the s
 settings, and "on" is what the firmware sets by itself on many versions. They only matter
 while GoodCloud is on, so with GoodCloud off the script shows remote access as not in use
 and the dashboard counts it as off.
+
+Since 2.35 it carries the note given with `--note`, empty without one. It is for people
+who report many devices, to say where a report comes from, whether the device was
+checked before or after a clean-up, or that it is a repeat. The script prints the note
+as it will be sent before it asks.
 
 Since 2.23 it also carries what the script listed for `REVIEW`: for each finding its kind
 and path, at most 40, and for a file its SHA-256 and its two times (written, and

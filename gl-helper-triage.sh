@@ -18,7 +18,8 @@
 # prints the complete report and sends nothing. The report carries a device ID so that
 # several reports from one device count once: a hash of a hardware address, never the
 # address itself, and the server hashes it again with a secret before it stores it.
-# --no-device-id leaves it out.
+# --no-device-id leaves it out. --note TEXT adds a short note of your own (where the
+# report comes from, before or after a clean-up, a repeat); it is shown before sending.
 #
 # Output is coloured on a terminal. --color forces colours (e.g. through ssh without a
 # tty), --no-color or NO_COLOR=1 turns them off. The report in the archive is plain text.
@@ -42,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.34
+VERSION=2.35
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 10:19 UTC'
+RELEASED='2026-11-22 10:32 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -129,10 +130,18 @@ BD_HOST_RE='adguardns\.(com|org)|lede-openproject\.org|adxinsight\.com|openwrt-p
 BD_INIT_SHA=3265f27feb954744581cdea2373b88ceae9d85b67e90487353fd48902cf4fc19
 # /bin/ulogd as posted in topic 73097 (posts 1, 2, 3 and 6). The file differs from device
 # to device, so these are no detection rule; a match only says "seen before".
+# A survey of 28 routers with the backdoor found a different hash on every one, none of
+# them in this list. The list is kept for the samples it came from.
 BD_ULOGD_SHAS='c5e87c80f76415f399ce4d1644f5ddc3c8b46bbb2e698b3e05f49a1f7dcd7d06
 af500b2a912c75ae08c96c3cff70339eb8b05365e34b577f7067547236e97abc
 2a020364b1f993b542254db0053ff91248b3efa0dd728b1fa73facaa7e646272
 e009cb771c52c66f5899151345b11aa2d1cc5e64147ade8059413d09b2ed5c87'
+# The second stage ujaild, as the kernel holds it (/proc/<pid>/exe, run from a deleted
+# /tmp/ujaild). Unlike the loader it is the same program on many devices: on 30 routers of
+# four models it had one of these two hashes (6,815,892 bytes on 23, 6,750,356 bytes on 7).
+# Another hash does not clear a process: the name alone is the indicator.
+BD_STAGE_SHAS='311b5767e7d63e7dbdc1476c36608b8d7ef729c8bbcc64ded63b9470396351d6
+53736d5db721a358bec5b9ddf6056df73b36fc5330300342c42f866a05191432'
 # Names that stand in clear text in the loader although its strings are hidden
 BD_ULOGD_NAMES='get_mac_form_proc|get_ddns_form_proc|ret_pts_num|domain_table'
 # A line that blocks such a name instead of using it: a hosts entry to a null address, or
@@ -146,7 +155,7 @@ BD_LOG_PATHS="etc/AdGuardHome/data/querylog.json etc/AdGuardHome/data/querylog.j
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
-SECRETS=0 MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask DEVICE_ID=1
+SECRETS=0 MODE=check STDOUT=0 OUTDIR=/tmp ROOT=/ UPPER='' LOWER='' UPPER_SET=0 LOWER_SET=0 COLOR=auto REPORT=ask DEVICE_ID=1 NOTE=''
 REPORT_URL=${GL_TRIAGE_REPORT_URL:-https://app.gl-i.net/csa-2026-01-report}
 
 usage() {
@@ -165,6 +174,8 @@ gl-helper-triage.sh - check, archive and remediate the GL.iNet "gl-helper" impla
   --no-report          never offer to send a report
   --show-report        print the complete report and send nothing
   --no-device-id       leave the device ID out of the report
+  --note TEXT          a note of your own in the report, at most 120 characters of
+                       letters, digits, spaces and ._:/+@=,()-
   --with-secrets       keep the private keys and passwords the script would otherwise take
                        out of the archive (/etc/shadow is never included)
   --root/--upper/--lower DIR   override merged root, overlay upper and base image
@@ -202,6 +213,7 @@ while [ $# -gt 0 ]; do
 	--with-secrets) SECRETS=1 ;;
 	-o | --out) [ $# -ge 2 ] || die "$1 needs a directory"; OUTDIR=$2; shift ;;
 	--root) [ $# -ge 2 ] || die "$1 needs a directory"; ROOT=$2; shift ;;
+	--note) [ $# -ge 2 ] || die "$1 needs a text"; NOTE=$2; shift ;;
 	--upper) [ $# -ge 2 ] || die "$1 needs a directory"; UPPER=$2; UPPER_SET=1; shift ;;
 	--lower) [ $# -ge 2 ] || die "$1 needs a directory"; LOWER=$2; LOWER_SET=1; shift ;;
 	-h | --help) usage; exit 0 ;;
@@ -791,13 +803,39 @@ file_ctime() {
 		sed -n 's/.* \([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\) \([0-9][0-9]:[0-9][0-9]:[0-9][0-9]\)[.0-9]* +0000 .*/\1 \2 UTC/p' | head -n 1
 }
 
+# A file time as the user reads it. A router without a battery clock has a wrong date until
+# it has synced the time; on some routers the older backdoor's files carry times a few
+# seconds after 1 January 1970. Before 2020 is not a real date. The report keeps the time.
+shown_time() {
+	case $1 in
+	19[0-9][0-9]-* | 20[01][0-9]-*) printf '%s (clock was not set, not a real date)' "$1" ;;
+	*) printf '%s' "$1" ;;
+	esac
+}
+
+# Time a file was last read (atime), in UTC, and only where the filesystem holding it is
+# mounted noatime: there it stays at the time the file was created. Empty everywhere else,
+# also when the mount cannot be found in /proc/mounts.
+file_atime() {
+	local t
+	awk -v p="$1" '$2 == "/" || index(p, $2 "/") == 1 { if (length($2) >= l) { l = length($2); o = "," $4 "," } }
+		END { exit !(o ~ /,noatime,/) }' /proc/mounts 2>/dev/null || return 0
+	t=$(stat -c %X "$1" 2>/dev/null)
+	case $t in
+	'' | *[!0-9]*) ;;
+	*) date -u -d "@$t" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null && return 0 ;;
+	esac
+	TZ=UTC0 ls -lud --full-time "$1" 2>/dev/null |
+		sed -n 's/.* \([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\) \([0-9][0-9]:[0-9][0-9]:[0-9][0-9]\)[.0-9]* +0000 .*/\1 \2 UTC/p' | head -n 1
+}
+
 # Process scan (live system only). Also maps socket inodes to pids for the net output.
 check_procs() {
 	[ "$LIVE" = 1 ] && [ -r /proc/1/cmdline ] || return 0
 	: >"$TMP/procs"
 	: >"$TMP/sockets"
 	: >"$TMP/exes"
-	local d pid exe comm cmd
+	local d pid exe comm cmd sha known
 	for d in /proc/[0-9]*; do
 		pid=${d#/proc/}
 		[ "$pid" = $$ ] && continue
@@ -819,7 +857,12 @@ check_procs() {
 		fi
 		case "$comm $exe $cmd" in
 		monitord\ * | ujaild\ * | */monitord\ * | */ujaild\ * | *'/ujaild (deleted)'* | *monitord.pid*)
-			add IOC backdoor-proc "$pid" "older backdoor: comm=$comm started $(proc_start "$pid") exe=$exe cmd=$cmd"
+			# the program the kernel runs, up to 64 MiB as for other deleted programs
+			sha=
+			[ "$(cat "$d/exe" 2>/dev/null | wc -c)" -le 67108864 ] && sha=$(sha256sum "$d/exe" 2>/dev/null | cut -c1-64)
+			known=
+			[ -n "$sha" ] && printf '%s\n' "$BD_STAGE_SHAS" | grep -qxF "$sha" && known=" known second stage, the same program as on other reported devices (sha256 $sha):"
+			add IOC backdoor-proc "$pid" "older backdoor:$known comm=$comm started $(proc_start "$pid") exe=$exe cmd=$cmd"
 			continue ;;
 		esac
 		if printf '%s\n' "$cmd" | grep -qE "$PROC_RE"; then
@@ -889,7 +932,9 @@ check_exes() {
 # restart. The pipe /tmp/f stays after the shell was stopped: it shows that the shell ran
 # since the last boot, and its time is the last data that went through it.
 # /etc/mp_ip_mapping_info is the state file of the cloud handler (SD-WAN IP mapping) that
-# the reported command came through; the handler rewrites it each time it runs.
+# the reported command came through; the handler rewrites it each time it runs. It creates
+# the file on its first call, so where the overlay is mounted noatime the access time is
+# that first call and the time written the last.
 # Is AstroWarp (SD-WAN) switched on? "option enable '1'" in the global section of
 # /etc/config/mptun, which is what the firmware's own check reads.
 astrowarp_on() {
@@ -903,7 +948,7 @@ check_tmp() {
 	local f
 	exists "$(r tmp/.log)" && add REVIEW tmp-file /tmp/.log "path from GL.iNet's quick check (crond -i /tmp/.log) exists"
 	f=$(r tmp/f)
-	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(file_time "$f")"
+	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(shown_time "$(file_time "$f")")"
 	exists "$(r tmp/.dg)" && add REVIEW tmp-file /tmp/.dg "the malware's installer leaves a file of this name after its first report following a restart"
 	# the live crontab of GL.iNet's firmware; the installer adds its watchdog there too
 	f=$(r tmp/gl_crontabs/root)
@@ -920,13 +965,15 @@ check_tmp() {
 	done
 	f=$(r etc/mp_ip_mapping_info)
 	if safe "$f"; then
-		local t n aw
+		local t n aw w a
 		t=$(file_time "$f") n=$(cat "$f" 2>/dev/null | wc -c | tr -d ' ')
 		aw=off; astrowarp_on && aw=on
+		w="written $(shown_time "$t")"
+		a=$(file_atime "$f"); [ -n "$a" ] && w="first call $(shown_time "$a"), last call $(shown_time "$t")"
 		if [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
-			add IOC cloud-command /etc/mp_ip_mapping_info "written $t, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
+			add IOC cloud-command /etc/mp_ip_mapping_info "$w, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
 		else
-			add REVIEW state-file /etc/mp_ip_mapping_info "written $t, $n bytes, AstroWarp $aw: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
+			add REVIEW state-file /etc/mp_ip_mapping_info "$w, $n bytes, AstroWarp $aw: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
 		fi
 	fi
 	return 0
@@ -1546,8 +1593,9 @@ recommend() {
 		say "     the device, so the steps below apply even though nothing was installed."
 	fi
 	if [ "$(count_bd)" -gt 0 ]; then
-		say "   ${B}- The older backdoor: reflash the firmware with \"keep settings\" OFF. It survives an${N}"
-		say "   ${B}  update that keeps settings. Do not restore a backup taken from this device.${N}"
+		say "   ${B}- The older backdoor: reflash the firmware with \"keep settings\" OFF. Where it added${N}"
+		say "   ${B}  itself to the keep list it survives an update that keeps settings. Do not restore a${N}"
+		say "   ${B}  backup taken from this device.${N}"
 		say "   - Its second stage runs in memory only. Until the reflash, take the device off the"
 		say "     internet. Known server names, to block in your network: adguardns.com, adguardns.org,"
 		say "     lede-openproject.org, adxinsight.com, openwrt-project.org. Other variants may use others."
@@ -1587,7 +1635,7 @@ jlines() { while IFS= read -r line; do printf '%s,' "$(jtxt "$line" "${1:-300}")
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
 build_report() {
-	local model fw up quick started ports ptime list files stime f persist rules cmds kind mac devid n revs sha gc aw ssize mt ct pid
+	local model fw up quick started ports ptime list files stime sfirst f persist rules cmds kind mac devid n revs sha gc aw ssize mt ct pid
 	# Device ID: the hardware address of the first network interface, hashed. The address
 	# itself never leaves the device.
 	devid=''
@@ -1639,7 +1687,8 @@ build_report() {
 				"$(cat "$(r "${f#/}")" 2>/dev/null | wc -c | tr -d ' ')" "$(jstr "$(file_time "$(r "${f#/}")")")" "$(jstr "$(file_ctime "$(r "${f#/}")")")"
 		done | sed 's/,$//')
 	stime=
-	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)")
+	sfirst=
+	[ -f "$(r etc/mp_ip_mapping_info)" ] && stime=$(file_time "$(r etc/mp_ip_mapping_info)") && sfirst=$(file_atime "$(r etc/mp_ip_mapping_info)")
 	# What the attacker left, only when indicators were found. /etc/rc.local in full (up
 	# to 60 lines); other autostart files: the lines that are not in the base image (up to
 	# 20 per file); from the lists of files a firmware update keeps only the lines that
@@ -1732,7 +1781,7 @@ build_report() {
 	ssize=-1; safe "$(r etc/mp_ip_mapping_info)" && ssize=$(cat "$(r etc/mp_ip_mapping_info)" 2>/dev/null | wc -c | tr -d ' ')
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 8,
+"schema": 9,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -1759,7 +1808,9 @@ build_report() {
 "rtty_web": $(jstr "$(cloud_opt "$(r etc/config/rtty)" web_en)" 8),
 "astrowarp": $(jstr "$aw" 8),
 "state_file_size": ${ssize:--1},
+"state_file_first": $(jstr "$sfirst"),
 "review_items": [$revs],
+"note": $(jstr "$NOTE" 120),
 "device_id": $(jstr "$devid")
 }
 EOF
@@ -1781,7 +1832,7 @@ send_report() {
 # few lines what the report holds. The lines taken from the user's own files and firewall
 # are always shown word for word: they are the only part that can hold a secret of theirs.
 offer_report() {
-	local answer n ioc extra
+	local answer n ioc extra note
 	[ "$LIVE" = 1 ] && [ "$REPORT" != no ] && [ -s "$TMP/report.json" ] || return 0
 	if [ "$REPORT" = show ]; then
 		section "Anonymous report (not sent)"
@@ -1806,6 +1857,12 @@ offer_report() {
 		[ -n "$extra" ] && ysay "Also: ${extra#, }."
 	fi
 	grep -q '^"device_id": "..*"$' "$TMP/report.json" && ysay "And a device ID (a hash, not an address), so repeated reports count once."
+	# the note leaves the device: show it as the report holds it, after jstr's filter
+	note=$(sed -n 's/^"note": "\(.*\)",$/\1/p' "$TMP/report.json")
+	if [ -n "$note" ]; then
+		ysay "And your note, as it will be sent:"
+		printf '        %s\n' "$note" >&3
+	fi
 	if [ -s "$TMP/rlines" ]; then
 		ysay "And these lines from your autostart files (rc.local in full) and firewall:"
 		sed 's/^/        /' "$TMP/rlines" >&3
