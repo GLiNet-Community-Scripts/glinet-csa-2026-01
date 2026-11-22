@@ -184,6 +184,10 @@ if (process.argv[2] === 'serve') {
   const good7 = { ...good6, schema: 7, tool: '2.24', review_items: [{ kind: 'changed', path: '/etc/init.d/urandom_seed', sha256: 'b'.repeat(64), mtime: '2025-12-12 12:55:01 UTC', ctime: '2026-04-19 14:38:12 UTC' }, { kind: 'process', path: '', sha256: '', mtime: '', ctime: '' }] };
   expect('a schema 7 report is valid', validate(good7) === null);
   expect('schema 7 needs the times, schema 6 must not carry them', validate({ ...good7, review_items: good6.review_items }) !== null && validate({ ...good6, review_items: good7.review_items }) !== null);
+  // bound to an account, remote access (schema 8)
+  const good8 = { ...good7, schema: 8, tool: '2.28', cloud_bound: 'on', rtty_ssh: 'off', rtty_web: 'unknown' };
+  expect('a schema 8 report is valid', validate(good8) === null);
+  expect('schema 8 needs its three answers, and only on, off or unknown', validate({ ...good7, schema: 8 }) !== null && validate({ ...good8, cloud_bound: 'someone@example.org' }) !== null && validate({ ...good7, cloud_bound: 'on' }) !== null);
   await call('POST', JSON.stringify(good4));
   expect('without the secret the id is dropped', lastReport().device_id === '');
   env.DEVICE_SALT = 'test-salt';

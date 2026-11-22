@@ -375,6 +375,7 @@ tr.row.fresh td { background: var(--accent-soft); }
     <div class="card"><h2>Devices</h2><p class="sub">Click a bar to filter.</p><ul class="rank" id="devices"></ul><p class="more" id="devicesMore"></p></div>
     <div class="card"><h2>Firmware</h2><p class="sub">The version, with beta or rc where the device reports one. Build number and date are in each report.</p><ul class="rank" id="firmwares"></ul><p class="more" id="firmwaresMore"></p></div>
     <div class="card"><h2>Evidence</h2><p class="sub">Devices per kind of trace. One device can have several.</p><ul class="rank" id="kinds"></ul></div>
+    <div class="card" data-w="half"><h2>Traces by cloud setting</h2><p class="sub">Share of devices with traces, by what was switched on. The setting at the time of the check, which many changed after the attack. “Bound” means linked to a GoodCloud account.</p><div class="scroll" id="cloudSet"></div></div>
   </section>
 
   <section class="grid two">
@@ -487,7 +488,7 @@ const ATTACK_FROM = Date.parse('2026-11-20T00:00:00Z');
 const NOT_HIJACK = /^applet-hijack \/usr\/sbin\/tailscaled?$/;
 const BD_FILE = /^\/(bin\/ulogd|usr\/bin\/monitord)$/;
 function shape(x) {
-  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', review_items: [], goodcloud: '', cloud_client: '', astrowarp: '', state_file_size: null, ...x.report };
+  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', review_items: [], goodcloud: '', cloud_client: '', astrowarp: '', state_file_size: null, cloud_bound: '', rtty_ssh: '', rtty_web: '', ...x.report };
   // script 2.16 and 2.17 took an updated Tailscale for a replaced system tool; not a trace
   const fp = (f) => NOT_HIJACK.test(f);
   if (r.findings.some(fp)) { r.ioc = Math.max(0, r.ioc - r.findings.filter(fp).length); r.findings = r.findings.filter((f) => !fp(f)); r.files = r.files.filter((f) => !/^\/usr\/sbin\/tailscaled?$/.test(f.path)); }
@@ -688,6 +689,20 @@ async function setLabel(g, verdict, note) {
 }
 // One group per kind and path over a set of reports: devices, how many with traces, the
 // fingerprints behind the path, the times it changed on the devices.
+// Does a setting go with being hit? One line per setting and state, over the reports that
+// say (scripts 2.23 and 2.28 on). The older backdoor is counted apart, as everywhere.
+function cloudSettings(base) {
+  const box = $('cloudSet'); box.replaceChildren();
+  const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Setting', ''], ['With traces', 'n'], ['Older backdoor', 'n']]) hd.append(el('th', t, c));
+  tb.append(hd); let any = false;
+  for (const [name, key] of [['GoodCloud', 'goodcloud'], ['Bound to an account', 'cloud_bound'], ['Remote SSH', 'rtty_ssh'], ['Remote web access', 'rtty_web'], ['AstroWarp', 'astrowarp']]) for (const v of ['on', 'off']) {
+    const rows = base.filter((r) => r[key] === v); if (!rows.length) continue; any = true;
+    const h = rows.filter((r) => r.ioc > 0).length, bd = rows.filter((r) => r.bd).length, tr = el('tr'), w = el('td', null, 'n');
+    w.append(el('b', Math.round(h / rows.length * 100) + '%'), el('small', ` ${h} of ${rows.length}`, 'dim'));
+    tr.append(el('td', name + ': ' + v), w, el('td', bd || '–', 'n')); tb.append(tr);
+  }
+  if (any) box.append(tb); else box.append(el('p', 'No report says yet. GoodCloud and AstroWarp come with script 2.23, the binding and remote access with 2.28.', 'peak'));
+}
 function revGroups(rows) {
   const m = new Map();
   for (const r of rows) for (const i of new Map(r.review_items.map((x) => [x.kind + ' ' + x.path, x])).values()) {
@@ -955,7 +970,7 @@ function render() {
   chart(pool.filter((r) => pass(r, 'bin') && isHit(r)));
   rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && isHit(r)), FACET.model), 0, 'model');
   rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && isHit(r)), FACET.firmware), 0, 'firmware');
-  course(hit); ports(hit); matrix(); reviews(base);
+  course(hit); ports(hit); matrix(); reviews(base); cloudSettings(base);
   rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && isHit(r)), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
 
   const fm = new Map();
@@ -1030,7 +1045,7 @@ function detail(r) {
   const tr = el('tr', null, 'detail'), td = el('td'), b = el('div', null, 'body'); td.colSpan = 7; tr.append(td); td.append(b);
   const sec = (title, node, full) => { const w = el('div', null, full ? 'full' : ''); w.append(el('h3', title), node); b.append(w); };
   const kv = el('dl', null, 'kv');
-  for (const [k, v] of [['Received', fmt(r.recv) + ' UTC'], ['Checked', fmt(ts(r.checked_at)) + ' UTC'], ['Device', `${r.model} · ${r.platform}`], ['Firmware', r.firmware], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Device ID', r.dev || 'none (older script, or not sent)'], ['Up since', fmt(r.upSince) + ' UTC' + (r.restarted ? ' (restarted since the attack)' : '')], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['GoodCloud at the check', r.goodcloud ? r.goodcloud + (r.cloud_client ? ' · client ' + r.cloud_client : '') : 'not reported (older script)'], ['AstroWarp', r.astrowarp || 'not reported (older script)'], ['State file size', r.state_file_size === null ? 'not reported (older script)' : r.state_file_size === -1 ? 'no such file' : r.state_file_size === 0 ? 'empty, as the attack leaves it' : r.state_file_size + ' B']])
+  for (const [k, v] of [['Received', fmt(r.recv) + ' UTC'], ['Checked', fmt(ts(r.checked_at)) + ' UTC'], ['Device', `${r.model} · ${r.platform}`], ['Firmware', r.firmware], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Device ID', r.dev || 'none (older script, or not sent)'], ['Up since', fmt(r.upSince) + ' UTC' + (r.restarted ? ' (restarted since the attack)' : '')], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['GoodCloud at the check', r.goodcloud ? r.goodcloud + (r.cloud_client ? ' · client ' + r.cloud_client : '') : 'not reported (older script)'], ['AstroWarp', r.astrowarp || 'not reported (older script)'], ['Bound to a GoodCloud account', r.cloud_bound || 'not reported (older script)'], ['Remote SSH / remote web', r.rtty_ssh ? r.rtty_ssh + ' / ' + r.rtty_web : 'not reported (older script)'], ['State file size', r.state_file_size === null ? 'not reported (older script)' : r.state_file_size === -1 ? 'no such file' : r.state_file_size === 0 ? 'empty, as the attack leaves it' : r.state_file_size + ' B']])
     { const dt = el('dt', k); if (FIELD_WHY[k]) dt.append(info(FIELD_WHY[k])); kv.append(dt, el('dd', v)); }
   sec('Device and check', kv);
   const tl = el('dl', null, 'kv');
@@ -1066,7 +1081,7 @@ for (const b of $('zoom').children) { b.setAttribute('aria-pressed', String(b.da
 addEventListener('resize', () => { clearTimeout(qt); qt = setTimeout(render, 150); });
 $('csv').addEventListener('click', () => {
   const cols = [['received_utc', (r) => fmt(r.recv)], ['device_id', (r) => r.dev], ['reports_from_device', (r) => r.reports], ['model', (r) => r.model], ['platform', (r) => r.platform], ['firmware', (r) => r.fw], ['firmware_as_reported', (r) => r.firmware], ['unusual', (r) => r.odd.map((o) => o[0]).join(' ')], ['script', (r) => r.tool], ['class', (r) => r.cls], ['known_traces', (r) => r.ioc], ['persistence', (r) => r.persist], ['review', (r) => r.review],
-    ['remote_shell', (r) => r.shell], ['gl_helper', (r) => r.implant], ['first_trace_utc', (r) => fmt(r.first)], ['shell_ports', (r) => r.shell_ports.join(' ')], ['up_since_utc', (r) => fmt(r.upSince)], ['restarted_since_attack', (r) => r.restarted], ['state_file_time_utc', (r) => r.state_file_time.replace(' UTC', '')], ['state_file_size', (r) => (r.state_file_size === null ? '' : r.state_file_size)], ['astrowarp', (r) => r.astrowarp], ['goodcloud', (r) => r.goodcloud], ['cloud_client', (r) => r.cloud_client], ['review_items', (r) => r.review_items.map((i) => i.kind + ' ' + i.path).join('; ')], ['findings', (r) => r.findings.join('; ')], ['file_hashes', (r) => r.files.map((f) => f.path + '=' + f.sha256).join('; ')]];
+    ['remote_shell', (r) => r.shell], ['gl_helper', (r) => r.implant], ['first_trace_utc', (r) => fmt(r.first)], ['shell_ports', (r) => r.shell_ports.join(' ')], ['up_since_utc', (r) => fmt(r.upSince)], ['restarted_since_attack', (r) => r.restarted], ['state_file_time_utc', (r) => r.state_file_time.replace(' UTC', '')], ['state_file_size', (r) => (r.state_file_size === null ? '' : r.state_file_size)], ['astrowarp', (r) => r.astrowarp], ['goodcloud', (r) => r.goodcloud], ['cloud_bound', (r) => r.cloud_bound], ['remote_ssh', (r) => r.rtty_ssh], ['remote_web', (r) => r.rtty_web], ['cloud_client', (r) => r.cloud_client], ['review_items', (r) => r.review_items.map((i) => i.kind + ' ' + i.path).join('; ')], ['findings', (r) => r.findings.join('; ')], ['file_hashes', (r) => r.files.map((f) => f.path + '=' + f.sha256).join('; ')]];
   // a leading = + - @ would be run as a formula by a spreadsheet
   const cell = (v) => { let s = String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
   const csv = [cols.map((c) => c[0]).join(','), ...current.map((r) => cols.map((c) => cell(c[1](r))).join(','))].join('\r\n');
@@ -1101,7 +1116,7 @@ const board = el('div', null, 'board');
 {
   const cards = [...document.querySelectorAll('main > section.card:not(#safeView), main > section.grid:not(.kpis) > .card')];
   $('kpis').after(board);
-  for (const c of cards) { const p = c.parentElement; c.dataset.w = p.classList.contains('three') ? 'third' : p.classList.contains('two') ? 'half' : 'full'; c.style.marginTop = ''; board.append(c); }
+  for (const c of cards) { const p = c.parentElement; c.dataset.w = c.dataset.w || (p.classList.contains('three') ? 'third' : p.classList.contains('two') ? 'half' : 'full'); c.style.marginTop = ''; board.append(c); }
   for (const g of document.querySelectorAll('main > section.grid:not(.kpis)')) if (!g.children.length) g.remove();
 }
 const DEFAULT_ORDER = [...board.children].map((c) => c.dataset.key);

@@ -16,7 +16,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5 || v === 6 || v === 7,
+  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5 || v === 6 || v === 7 || v === 8,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -77,6 +77,11 @@ const FIELDS_V6 = {
 // of the malware do: when it was written and when the kernel last changed its entry.
 const FIELDS_V7 = { ...FIELDS_V6, review_items: list(40, isFileOf({ kind: str(24), path: str(160), sha256: FILE.sha256, mtime: time, ctime: time })) };
 
+// Since script 2.28 (schema 8): whether the device is bound to a GoodCloud account and
+// whether remote SSH and the remote web interface through the cloud are on. Yes, no or
+// unknown each; the account itself is never sent.
+const FIELDS_V8 = { ...FIELDS_V7, cloud_bound: onoff, rtty_ssh: onoff, rtty_web: onoff };
+
 async function sealDeviceId(env, id) {
   if (!env.DEVICE_SALT || !id) return '';
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DEVICE_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -89,7 +94,7 @@ const text = (body, status = 200) =>
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  const fields = report.schema === 7 ? FIELDS_V7 : report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
+  const fields = report.schema === 8 ? FIELDS_V8 : report.schema === 7 ? FIELDS_V7 : report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
   for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
   for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;
@@ -369,7 +374,8 @@ async function script(request, env, ctx, pathname) {
   // nothing stored and GitHub not reachable from here: send the client to GitHub itself
   if (!have) return Response.redirect(RAW_MAIN, 302);
   return new Response(request.method === 'HEAD' ? null : have.body, {
-    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-script-commit': have.commit },
+    // any page may read the script: the guide on the website shows its current version
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-script-commit': have.commit, 'access-control-allow-origin': '*' },
   });
 }
 
