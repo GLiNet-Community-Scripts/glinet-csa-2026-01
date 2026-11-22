@@ -393,7 +393,8 @@ async function script(request, env, ctx, pathname) {
 }
 
 // The page that explains a result of the script in plain words, in English, German and
-// Chinese: csa.gl-i.net/2026-01/#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0. The result is in the part
+// Chinese: csa.gl-i.net/#AA006011D (scripts 2.39 and 2.40 printed a longer form,
+// csa.gl-i.net/2026-01/#v=2.39&p=r&..., which still works). The result is in the part
 // of the address after "#", which a browser does not send. So this answer is the same for
 // everyone, and the worker learns nothing about a device from it. Open to all, no login.
 // The one thing put in is the version of the script served now, so that the page can say
@@ -423,7 +424,10 @@ export default {
     // keeps the part after "#" across the redirect)
     if (pathname === '/2026-01/') return resultPage(request, env);
     if (/^\/(csa-)?2026-01\/?$/.test(pathname)) return Response.redirect(new URL('/2026-01/', request.url).href, 302);
-    if (hostname.startsWith('csa.') && pathname === '/') return Response.redirect('https://gl-i.net/security/', 302);
+    // On csa.gl-i.net the page is also the front door: csa.gl-i.net/#AA006011D is what the
+    // script prints. A code typed without the "#" arrives as the path; the page then moves
+    // it behind the "#" itself.
+    if (hostname.startsWith('csa.') && (pathname === '/' || /^\/[0-9A-Za-z-]{9,11}$/.test(pathname))) return resultPage(request, env);
     if (/\/csa-2026-01-fix(\/|$)/.test(pathname)) return script(request, env, ctx, pathname);
     if (pathname.endsWith('/migrate')) {
       // a browser, or curl without -X POST, sends GET and would only see the text below

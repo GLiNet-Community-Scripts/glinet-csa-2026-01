@@ -103,6 +103,10 @@ ol.steps p { margin-top: 4px; font-size: 15.5px; line-height: 1.55; color: var(-
 .pick fieldset { margin: 14px 0 0; padding: 0; border: 0; } .pick fieldset:first-child { margin-top: 0; }
 .pick legend { padding: 0; font-weight: 650; font-size: 15.5px; }
 .pick label { display: flex; gap: 9px; align-items: baseline; margin-top: 7px; font-size: 15.5px; cursor: pointer; }
+.codelabel { display: block !important; font-weight: 650; }
+input.code { display: block; width: 100%; max-width: 320px; margin-top: 10px; padding: 11px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--text); font: 600 22px/1.2 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
+input.code::placeholder { color: var(--text-2); opacity: .45; }
+.pick + h2 { margin-top: 30px; font-size: 20px; }
 .btn { margin-top: 16px; padding: 9px 20px; border: 0; border-radius: 980px; background: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 650; cursor: pointer; }
 .btn.quiet { background: var(--surface-2); color: var(--text); }
 .share { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; font-size: 14px; color: var(--text-2); }
@@ -212,9 +216,10 @@ const T = {
     help: [['Ask in the forum', 'Post this page’s address there. It holds nothing that identifies you or your device.'], ['Read the advisory', 'What is known about the attack, and what is not.'], ['How to run the script', 'The options, and how to read the full output.']],
     share: 'This address can be passed on: it holds the result, nothing about you.', copy: 'Copy the address', copied: 'Copied',
     fine: 'Community work, not a GL.iNet page. The script knows only the known traces, so a clean result does not prove that a device is clean.',
-    pickTitle: 'What did you see on your device?', pickLead: 'This page explains a result of the community script. Its address normally carries that result. Without one you can tick what you found yourself, for example with GL.iNet’s manual check.',
+    pickTitle: 'Explain a result of the script', pickLead: 'The community script prints a short code with every result: nine characters at the end of an address. This page explains it in plain words. Type the code, or tick below what you found yourself, for example with GL.iNet’s manual check.',
     pickDev: 'Which device?', pickGc: 'Is GoodCloud switched on?', pickWhat: 'What did you find?', pickGo: 'Explain this',
     pickItems: { pq: 'A running process “crond -i /tmp/.log”', cs: 'A connection to 170.39.226.219', pp: 'A file /tmp/f', mk: 'Files in /etc/glinet/.cache or /etc/config/.gl', bi: 'Lines with “monitord” or “ulogd” in /etc/init.d/urandom_seed' },
+    pickCode: 'Type the code from the script’s output: the nine characters at the end of the address', pickBad: 'That is not a valid code. Please check it against the script’s output, character by character.', pickOr: 'No code? Tick what you saw', rvSome: 'Other changes are listed for you to look at',
     pickNone: 'Tick nothing if you found none of these.', pickRun: 'Better: run the script. It checks far more than this list.',
     results: {
       c: ['NOTHING FOUND', 'Nothing known was found on this {dev}', 'The script found none of the traces it knows. That is good news, but not proof: it can only find what is known so far.',
@@ -302,9 +307,10 @@ const T = {
     help: [['Im Forum fragen', 'Poste dort die Adresse dieser Seite. Sie enthält nichts, was dich oder dein Gerät erkennbar macht.'], ['Den Sicherheitshinweis lesen', 'Was über den Angriff bekannt ist und was nicht.'], ['So benutzt du das Skript', 'Die Optionen, und wie man die volle Ausgabe liest.']],
     share: 'Diese Adresse kannst du weitergeben: Sie enthält das Ergebnis, nichts über dich.', copy: 'Adresse kopieren', copied: 'Kopiert',
     fine: 'Arbeit der Community, keine Seite von GL.iNet. Das Skript kennt nur die bekannten Spuren; ein sauberes Ergebnis beweist deshalb nicht, dass ein Gerät sauber ist.',
-    pickTitle: 'Was hast du auf deinem Gerät gesehen?', pickLead: 'Diese Seite erklärt ein Ergebnis des Community-Skripts. Normalerweise steckt dieses Ergebnis in ihrer Adresse. Ohne Ergebnis kannst du ankreuzen, was du selbst gefunden hast, zum Beispiel mit der Handprüfung von GL.iNet.',
+    pickTitle: 'Ein Ergebnis des Skripts erklären', pickLead: 'Das Community-Skript gibt zu jedem Ergebnis einen kurzen Code aus: neun Zeichen am Ende einer Adresse. Diese Seite erklärt ihn in einfachen Worten. Gib den Code ein oder kreuze unten an, was du selbst gefunden hast, zum Beispiel mit der Handprüfung von GL.iNet.',
     pickDev: 'Welches Gerät?', pickGc: 'Ist GoodCloud eingeschaltet?', pickWhat: 'Was hast du gefunden?', pickGo: 'Erklären',
     pickItems: { pq: 'Ein laufender Prozess „crond -i /tmp/.log“', cs: 'Eine Verbindung zu 170.39.226.219', pp: 'Eine Datei /tmp/f', mk: 'Dateien in /etc/glinet/.cache oder /etc/config/.gl', bi: 'Zeilen mit „monitord“ oder „ulogd“ in /etc/init.d/urandom_seed' },
+    pickCode: 'Gib den Code aus der Ausgabe des Skripts ein: die neun Zeichen am Ende der Adresse', pickBad: 'Das ist kein gültiger Code. Bitte vergleiche ihn Zeichen für Zeichen mit der Ausgabe des Skripts.', pickOr: 'Kein Code? Kreuze an, was du gesehen hast', rvSome: 'Weitere Änderungen stehen zur Durchsicht in der Liste',
     pickNone: 'Kreuze nichts an, wenn du nichts davon gefunden hast.', pickRun: 'Besser: Lass das Skript laufen. Es prüft weit mehr als diese Liste.',
     results: {
       c: ['NICHTS GEFUNDEN', 'Auf diesem {dev} wurde nichts Bekanntes gefunden', 'Das Skript hat keine der Spuren gefunden, die es kennt. Das ist eine gute Nachricht, aber kein Beweis: Es findet nur, was bisher bekannt ist.',
@@ -391,9 +397,10 @@ const T = {
     help: [['到论坛提问', '把本页的地址贴到论坛即可。里面没有任何能识别你或你的设备的信息。'], ['阅读安全公告', '目前已经确认的情况，以及尚不清楚的情况。'], ['如何运行脚本', '各个选项的用法，以及如何阅读完整输出。']],
     share: '这个地址可以转发给别人：里面只有检查结果，没有关于你的任何信息。', copy: '复制地址', copied: '已复制',
     fine: '这是社区的工作成果，不是 GL.iNet 官方页面。脚本只认识已知的痕迹，所以“未发现”并不能证明设备一定是干净的。',
-    pickTitle: '你在设备上看到了什么？', pickLead: '本页面用来解释社区脚本的检查结果，通常结果就包含在页面地址里。如果没有结果，你也可以勾选自己发现的情况，例如按照 GL.iNet 的手动检查方法查到的内容。',
+    pickTitle: '解释脚本的检查结果', pickLead: '社区脚本每次给出结果时都会附带一个简短的代码：地址末尾的九个字符。本页面用通俗的语言解释它。请输入代码，或者在下面勾选你自己发现的情况，例如按照 GL.iNet 的手动检查方法查到的内容。',
     pickDev: '是哪种设备？', pickGc: 'GoodCloud 是否开启？', pickWhat: '你发现了什么？', pickGo: '解释这个结果',
     pickItems: { pq: '有一个 “crond -i /tmp/.log” 进程在运行', cs: '有一条连到 170.39.226.219 的连接', pp: '存在文件 /tmp/f', mk: '/etc/glinet/.cache 或 /etc/config/.gl 里有文件', bi: '/etc/init.d/urandom_seed 里有包含 “monitord” 或 “ulogd” 的行' },
+    pickCode: '请输入脚本输出中的代码：地址末尾的九个字符', pickBad: '这不是有效的代码。请对照脚本输出逐个字符检查。', pickOr: '没有代码？请勾选你看到的情况', rvSome: '另外还列出了一些改动，供你自己查看',
     pickNone: '如果以上情况都没有，就什么都不要勾选。', pickRun: '更好的办法是运行脚本，它检查的内容远比这个列表多。',
     results: {
       c: ['未发现痕迹', '这台{dev}上没有发现已知痕迹', '脚本没有发现它所认识的任何痕迹。这是好消息，但不是证明：它只能发现目前已知的东西。',
@@ -471,14 +478,65 @@ let lang = 'en';
 try { lang = localStorage.getItem('csa-lang') || ''; } catch { lang = ''; }
 if (!T[lang]) { const want = (navigator.languages || [navigator.language || 'en']).map((l) => l.toLowerCase()); lang = (want.map((l) => (l.startsWith('zh') ? 'zh' : l.startsWith('de') ? 'de' : l.startsWith('en') ? 'en' : '')).find(Boolean)) || 'en'; }
 
-// The result in the address. Only known codes are taken; anything else is dropped, so a
-// made-up address can show nothing but the texts of this page.
-function read() {
-  const q = new URLSearchParams(location.hash.slice(1)), one = (k, ok, d) => (ok.includes(q.get(k)) ? q.get(k) : d);
+// The result in the address, as the script prints it: nine characters after "#", for
+// example csa.gl-i.net/#AA006011D. Capitals or not, with or without dashes. Eight
+// characters hold 40 bits, the ninth is a check character, so a slip of the finger gives
+// "not a valid code" and not the explanation of somebody else's result.
+//   bits  7  the script's version (the number after "2.")
+//         2  0 unknown device, 1 router, 2 KVM
+//        24  one per kind of finding, in the order of ORDER (two are spare)
+//         2  GoodCloud: 0 not known, 1 on, 2 off
+//         1  restarted since the attacks began
+//         2  --fix: 0 not run, 1 done, 2 incomplete
+//         2  other changes listed for review: 0 none, more than 0 some
+// The alphabet leaves out I, L, O and U; a typed I or L counts as 1, an O as 0.
+// The script holds the same order (RESULT_KINDS); the tests compare the two.
+const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const ORDER = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'ps', 'pp', 'cs', 'cm', 'fw', 'cc', 'it', 'bi', 'bf', 'bk', 'bh', 'bp', 'pe'];
+function clean(text) { return String(text).toUpperCase().replace(/[\s-]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0'); }
+function decode(text) {
+  const s = clean(text);
+  if (!/^[0-9A-HJKMNP-TV-Z]{9}$/.test(s)) return null;
+  const v = [...s].map((ch) => B32.indexOf(ch));
+  let sum = 0; for (let i = 0; i < 8; i++) sum += (i + 1) * v[i];
+  if (sum % 31 !== v[8]) return null;
+  const bits = v.slice(0, 8).map((x) => x.toString(2).padStart(5, '0')).join('');
+  let at = 0; const take = (n) => { const x = parseInt(bits.slice(at, at + n), 2); at += n; return x; };
+  const minor = take(7), p = ['u', 'r', 'k', 'u'][take(2)], kb = bits.slice(at, at + 24); at += 24;
+  const g = ['x', '1', '0', 'x'][take(2)], n = String(take(1)), f = ['0', '2', '3', '0'][take(2)], rv = take(2);
+  return { v: '2.' + minor, p, r: '', k: ORDER.filter((c, i) => kb[i] === '1'), b: '0', g, n, f, rv: rv ? -1 : 0 };
+}
+// The same the other way round, for what someone ticks by hand.
+function encode(c) {
+  let bits = Number(c.minor).toString(2).padStart(7, '0') + ({ r: '01', k: '10' }[c.p] || '00') + ORDER.map((x) => (c.k.includes(x) ? '1' : '0')).join('') + '00'
+    + ({ 1: '01', 0: '10' }[c.g] || '00') + (c.n === '1' ? '1' : '0') + ({ 2: '01', 3: '10' }[c.f] || '00') + (c.rv ? '01' : '00');
+  let out = '', sum = 0;
+  for (let i = 0; i < 8; i++) { const x = parseInt(bits.slice(i * 5, i * 5 + 5), 2); sum += (i + 1) * x; out += B32[x]; }
+  return out + B32[sum % 31];
+}
+
+// What the address holds: a code after "#" (or, typed without the "#", as the path), or
+// the longer form of scripts 2.39 and 2.40 (v=2.39&p=r&...). Only known codes are taken;
+// anything else is dropped, so a made-up address can show nothing but this page's texts.
+// "bad" says that something was there and was not a valid code.
+function parse(hash, path) {
+  const h = decodeURIComponent(String(hash || '').replace(/^#/, '')), tail = String(path || '').replace(/^.*\//, '');
+  if (!h.includes('=')) {
+    const text = h || tail, c = text ? decode(text) : null;
+    if (c) return c;
+    return { v: '', bad: /[0-9a-z]{4}/i.test(clean(text)) && !/^(csa-)?2026-01$/i.test(text) };
+  }
+  const q = new URLSearchParams(h), one = (k, ok, d) => (ok.includes(q.get(k)) ? q.get(k) : d);
   const v = /^\d{1,2}\.\d{1,3}$/.test(q.get('v') || '') ? q.get('v') : q.get('v') === 'hand' ? 'hand' : '';
-  const k = [...new Set((q.get('k') || '').split('.'))].filter((c) => NAMES[c] && !['none', 'rs', 'rv'].includes(c));
+  const k = [...new Set((q.get('k') || '').split('.'))].filter((c) => ORDER.includes(c));
   const rv = /^\d{1,3}$/.test(q.get('rv') || '') ? Number(q.get('rv')) : 0;
   return { v, p: one('p', ['r', 'k', 'u'], 'u'), r: one('r', ['m', 'a', 'c'], ''), k, b: one('b', ['1'], '0'), g: one('g', ['1', '0', 'x'], 'x'), n: one('n', ['1', '0'], '0'), f: one('f', ['2', '3'], '0'), rv };
+}
+function read() {
+  const c = parse(location.hash, location.pathname);
+  // a code typed without "#" came in as the path: put it behind "#", where it is not sent
+  if (c.v && !location.hash) { try { history.replaceState(null, '', '/#' + clean(location.pathname.replace(/^.*\//, ''))); } catch { /* stays as it is */ } }
+  return c;
 }
 // Which of the page's results the codes amount to.
 function classify(c) {
@@ -500,7 +558,8 @@ function render() {
   const cr = el('nav', null, 'crumbs'); cr.setAttribute('aria-label', 'Breadcrumb');
   [['https://gl-i.net/', 'Community Apps'], ['https://gl-i.net/security/', t.crumbs[0]], [ADVISORY, t.crumbs[1]], ['', t.crumbs[2]]].forEach(([href, name], i) => { if (i) cr.append(el('span', '/', 'sep')); const a = el(href ? 'a' : 'b', name); if (href) a.href = href; cr.append(a); });
   page.append(cr);
-  if (!c.v) return pick(t, page);
+  if (!c.v) return pick(t, page, c.bad);
+  if (c.v === '2.0') c.v = 'hand';
 
   const dv = t.dev[c.p], o = { ...(typeof dv === 'string' ? { dev: dv } : dv), v: c.v, cur: CURRENT }, cls = classify(c), res = t.results[cls.main];
   const hero = el('header', null, 'hero'); hero.dataset.tone = TONE[cls.main];
@@ -520,7 +579,7 @@ function render() {
   if (c.n === '1' && c.v !== 'hand') list.push('rs'); if (c.rv) list.push('rv');
   for (const k of list) {
     const d = t.kinds[k], card = el('div', null, 'card'), as = el('p', t.as + ' ', 'as');
-    as.append(el('code', NAMES[k])); card.append(el('h3', fill(d[0], { n: c.rv })), el('p', d[1])); if (c.v !== 'hand') card.append(as); found.append(card);
+    as.append(el('code', NAMES[k])); card.append(el('h3', k === 'rv' && c.rv < 0 ? t.rvSome : fill(d[0], { n: c.rv })), el('p', d[1])); if (c.v !== 'hand') card.append(as); found.append(card);
   }
   page.append(found);
 
@@ -544,8 +603,16 @@ function render() {
 }
 
 // Without a result in the address: tick what you saw yourself.
-function pick(t, page) {
+function pick(t, page, bad) {
   const hero = el('header', null, 'hero'); hero.dataset.tone = 'ok'; hero.append(el('h1', t.pickTitle), el('p', t.pickLead, 'lead')); page.append(hero);
+  // the code from the script, typed in: for a terminal where the address cannot be clicked
+  const cf = el('form', null, 'card pick'), lab = el('label', t.pickCode, 'codelabel'), inp = el('input'), cgo = el('button', t.pickGo, 'btn');
+  inp.type = 'text'; inp.name = 'code'; inp.autocapitalize = 'characters'; inp.autocomplete = 'off'; inp.spellcheck = false; inp.maxLength = 60; inp.placeholder = 'AA006011D'; inp.className = 'code'; cgo.type = 'submit';
+  lab.append(inp); cf.append(lab);
+  const err = el('p', t.pickBad, 'note bad'); err.hidden = !bad; cf.append(err, cgo);
+  cf.addEventListener('submit', (e) => { e.preventDefault(); const text = inp.value.replace(/^.*[#/]/, ''); if (decode(text)) location.hash = clean(text); else { err.hidden = false; inp.focus(); } });
+  page.append(cf);
+  page.append(el('h2', t.pickOr));
   const f = el('form', null, 'card pick'), group = (legend) => { const s = el('fieldset'); s.append(el('legend', legend)); f.append(s); return s; };
   const radio = (set, name, value, label, on) => { const l = el('label'), i = el('input'); i.type = 'radio'; i.name = name; i.value = value; i.checked = !!on; l.append(i, label); set.append(l); };
   const d = group(t.pickDev); radio(d, 'p', 'r', t.dev.r.dev || t.dev.r, true); radio(d, 'p', 'k', t.dev.k.dev || t.dev.k);
@@ -553,7 +620,7 @@ function pick(t, page) {
   const w = group(t.pickWhat); for (const [code, label] of Object.entries(t.pickItems)) { const l = el('label'), i = el('input'); i.type = 'checkbox'; i.name = 'k'; i.value = code; l.append(i, label); w.append(l); }
   w.append(el('p', t.pickNone, 'sub'));
   const go = el('button', t.pickGo, 'btn'); go.type = 'submit'; f.append(go);
-  f.addEventListener('submit', (e) => { e.preventDefault(); const fd = new FormData(f); location.hash = `v=hand&p=${fd.get('p')}&k=${fd.getAll('k').join('.')}&g=${fd.get('g')}`; });
+  f.addEventListener('submit', (e) => { e.preventDefault(); const fd = new FormData(f); location.hash = encode({ minor: 0, p: fd.get('p'), k: fd.getAll('k'), g: fd.get('g'), n: '0', f: '0', rv: 0 }); });
   page.append(f);
   const run = el('p', t.pickRun + ' ', 'note'), a = el('a', GUIDE.replace('https://', '')); a.href = GUIDE; run.append(a); page.append(run);
   page.append(el('p', t.fine, 'fine'));

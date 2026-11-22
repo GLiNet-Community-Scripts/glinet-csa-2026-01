@@ -327,36 +327,45 @@ script at it with `GL_TRIAGE_REPORT_URL=http://127.0.0.1:8787/`.
 
 ## The page that explains a result
 
-`src/result.html` is a page for people who cannot do much with the script's output. The
-script ends with an address like
+`src/result.html` is a page for people who cannot do much with the script's output. Under
+its verdict the script prints an address like
 
 ```
-https://csa.gl-i.net/2026-01/#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0
+https://csa.gl-i.net/#AA006011D
 ```
 
 and the page behind it says in plain words what was found, what that means and what to do,
-in English, German and Chinese. Without a result in the address it offers a short list to
-tick by hand.
+in English, German and Chinese. Over ssh the address often cannot be clicked and has to be
+typed, so the result is nine characters. Without a code the page offers a field to type
+one into and a short list to tick by hand.
 
-- The result is in the part of the address after `#`. A browser does not send that part,
-  so the worker serves the same page to everyone and learns nothing about a device. Do not
-  move the codes into the path.
-- The codes: `v` the script's version, `p` router (`r`), KVM (`k`) or unknown (`u`), `r` the
-  verdict (`m` malware or remote shell, `a` a command ran, `c` clean), `k` the kinds of
-  findings joined by dots, `b=1` the older backdoor, `g` GoodCloud on (`1`), off (`0`) or
-  not known (`x`), `n=1` restarted since the attacks began, `f` what `--fix` did (`2` done,
-  `3` incomplete), `rv` the number of review findings. Never a path, a name or an ID.
-- The table of finding codes is `RESULT_CODES` in the script and `NAMES` in the page. The
-  tests fail when the script knows a code the page does not, when a language lacks a text
-  another one has, or when a plan names a step without a text.
-- The page takes only codes it knows and shows only its own texts, so a made-up address
-  cannot put anything else on it.
+- The code stands after `#`. A browser does not send that part of an address, so the
+  worker serves the same page to everyone and learns nothing about a device. A code typed
+  without the `#` (`csa.gl-i.net/aa006011d`) works too; then it reaches the worker as the
+  path, and the page moves it behind the `#` at once.
+- Capitals do not matter, dashes and spaces are ignored. The alphabet has 32 characters
+  without I, L, O and U; a typed I or L is read as 1, an O as 0.
+- Eight characters hold 40 bits: 7 the script's version (the number after `2.`), 2 the
+  device (unknown, router, KVM), 24 one per kind of finding (22 used), 2 GoodCloud (not
+  known, on, off), 1 restarted since the attacks began, 2 what `--fix` did (not run, done,
+  incomplete), 2 whether other changes are listed for review. Never a path, a name or an
+  ID. The verdict is not in the code: it follows from the kinds of findings.
+- The ninth character is a check: the sum of the eight values, each times its position,
+  modulo 31. A single wrong character is caught in all but one rare case, two neighbours
+  typed the wrong way round always. The page then says that the code is not valid, and
+  does not explain somebody else's result.
+- The order of the kinds is `RESULT_KINDS` in the script and `ORDER` in the page, and it
+  may only grow at the end. The worker's tests fail when the two differ, when a language
+  lacks a text another one has, or when a plan names a step without a text; the script's
+  tests read every code they produce back with the page's own reader.
+- Scripts 2.39 and 2.40 printed a longer form, `csa.gl-i.net/2026-01/#v=2.39&p=r&...`.
+  It still works.
 - The worker puts in the version of the script it serves, and the page warns when a result
   comes from an older one.
 
-It is served at `/2026-01/` on whatever host the worker answers on, without a login.
-`/csa-2026-01/` and `/2026-01` lead there. For `csa.gl-i.net`, add the host to the routes
-in `wrangler.toml` and deploy:
+It is served without a login at `/` and at `/<nine characters>` on a host whose name begins
+with `csa.`, and at `/2026-01/` on every host. For `csa.gl-i.net`, add the host to the
+routes in `wrangler.toml` and deploy:
 
 ```toml
 routes = [
@@ -366,9 +375,8 @@ routes = [
 ]
 ```
 
-With `custom_domain = true` Cloudflare creates the DNS record and the certificate itself.
-The script must not print the address before the page answers there: deploy this first,
-open `https://csa.gl-i.net/2026-01/`, then publish the script.
+A new form of the address must be understood by the page before the script prints it:
+deploy the worker first, then publish the script.
 
 After a change to the page: `node build.mjs`, which also writes `src/result.js`.
 

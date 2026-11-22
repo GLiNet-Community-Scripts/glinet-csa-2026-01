@@ -210,6 +210,27 @@ if (process.argv[2] === 'serve') {
     // the script's own table of codes: each one must be known to the page
     const sh = readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8'), table = (/^RESULT_CODES='([^']+)'$/m.exec(sh) || [])[1];
     if (table) expect('every code the script can put into the address is known to the page', table.split(' ').every((x) => NAMES[x.split('=')[1]]) && new Set(table.split(' ').map((x) => x.split('=')[1])).size === table.split(' ').length);
+    // the nine-character code: read the page's own functions and try them
+    const src = RESULT.slice(RESULT.indexOf('const B32 = '), RESULT.indexOf('function read() {'));
+    const { decode, encode, parse, ORDER } = new Function(src + '; return { decode, encode, parse, ORDER };')();
+    const sample = { minor: 41, p: 'r', k: ['cc', 'fw'], g: '1', n: '0', f: '0', rv: 4 }, code = encode(sample), back = decode(code);
+    expect('a code is nine characters and comes back as the result it was made from', /^[0-9A-HJKMNP-TV-Z]{9}$/.test(code) && back.v === '2.41' && back.p === 'r' && back.k.join('.') === 'fw.cc' && back.g === '1' && back.n === '0' && back.f === '0' && back.rv === -1);
+    expect('capitals, dashes and spaces do not matter, and a typed O, I or L is read as 0 or 1', decode(code.toLowerCase()) !== null && decode(code.slice(0, 4) + '-' + code.slice(4) + ' ') !== null && decode(encode({ ...sample, minor: 32 }).replace(/0/g, 'o').replace(/1/g, 'l')) !== null);
+    const others = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; let caught = 0, tried = 0;
+    for (let i = 0; i < 9; i++) for (const ch of others) { if (ch === code[i]) continue; tried++; if (decode(code.slice(0, i) + ch + code.slice(i + 1)) === null) caught++; }
+    expect('a single wrong character is caught in at least 98 of 100 cases', caught / tried >= 0.98);
+    let swaps = 0, swapped = 0; for (let i = 0; i < 8; i++) { if (code[i] === code[i + 1]) continue; swaps++; if (decode(code.slice(0, i) + code[i + 1] + code[i] + code.slice(i + 2)) === null) swapped++; }
+    expect('two neighbouring characters typed the wrong way round are caught', swaps > 0 && swapped === swaps);
+    expect('every kind of finding has its place in the code, each once', ORDER.length === 22 && new Set(ORDER).size === 22 && ORDER.every((k) => NAMES[k]));
+    const all = decode(encode({ minor: 127, p: 'k', k: ORDER, g: '0', n: '1', f: '3', rv: 1 }));
+    expect('the largest code holds everything', all.v === '2.127' && all.p === 'k' && all.k.length === 22 && all.g === '0' && all.n === '1' && all.f === '3');
+    expect('the page reads a code after "#", a code typed as the path, and the long form of 2.39', parse('#' + code, '/').k.length === 2 && parse('', '/' + code.toLowerCase()).v === '2.41' && parse('#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0', '/2026-01/').k.join('.') === 'cc.fw');
+    expect('nothing in the address is the list to tick, a wrong code says so', parse('', '/').v === '' && !parse('', '/').bad && !parse('', '/2026-01/').bad && parse('#' + code.slice(0, 8) + (code[8] === 'A' ? 'B' : 'A'), '/').bad === true && parse('#%3Cscript%3Ealert(1)', '/').v === '');
+    const shKinds = (/^RESULT_KINDS='([^']+)'$/m.exec(readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8')) || [])[1];
+    if (shKinds) expect('the script puts the kinds of findings into the code in the same order as the page', shKinds === ORDER.join(' '));
+    const front = await worker.fetch(new Request('https://csa.example.org/'), env, { waitUntil() {} }), typed = await worker.fetch(new Request('https://csa.example.org/' + code), env, { waitUntil() {} });
+    expect('on the csa host the page is the front door, also for a code typed without "#"', front.status === 200 && (await front.text()).includes('const B32') && typed.status === 200 && (await call('GET', undefined, {}, '/' + code)).headers.get('content-type').startsWith('text/plain'));
+    console.log('sample code: ' + code);
     const page = await call('GET', undefined, {}, '/2026-01/');
     const html = await page.text();
     expect('the result page is served without a login, as HTML that nothing may frame or extend', page.status === 200 && page.headers.get('content-type').startsWith('text/html') && /frame-ancestors 'none'/.test(page.headers.get('content-security-policy')) && html.includes('const T = {'));
