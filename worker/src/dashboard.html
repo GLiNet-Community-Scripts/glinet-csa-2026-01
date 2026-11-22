@@ -11,7 +11,7 @@
   --bg: #f4f6f5; --surface: #fff; --surface-2: #edf1ef; --text: #17201c; --text-2: #5d6a64; --grid: rgba(16, 40, 30, .1);
   --accent: #16774c; --accent-soft: rgba(22, 119, 76, .11); --border: rgba(16, 40, 30, .12); --danger: #b42318; --danger-bg: rgba(217, 45, 32, .08);
   --warn: #9a5b00; --warn-bg: rgba(255, 159, 10, .14); --bar: #16774c;
-  --s1: #2a78d6; --s2: #eb6834; --term-bg: #13201a; --term-fg: #e4ede8; --shadow: 0 8px 28px rgba(10, 30, 20, .16);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #8a9a93; --term-bg: #13201a; --term-fg: #e4ede8; --shadow: 0 8px 28px rgba(10, 30, 20, .16);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -19,7 +19,7 @@
     --bg: #0a0c0b; --surface: #161a18; --surface-2: #212623; --text: #f1f4f2; --text-2: #9ba6a1; --grid: rgba(255, 255, 255, .1);
     --accent: #4cc38a; --accent-soft: rgba(76, 195, 138, .15); --border: rgba(255, 255, 255, .12); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .13);
     --warn: #ffb340; --warn-bg: rgba(255, 159, 10, .16); --bar: #3fae7a;
-    --s1: #3987e5; --s2: #d95926; --term-bg: #0c120f; --shadow: 0 8px 28px rgba(0, 0, 0, .5);
+    --s1: #3987e5; --s2: #d95926; --s3: #6f7f78; --term-bg: #0c120f; --shadow: 0 8px 28px rgba(0, 0, 0, .5);
     color-scheme: dark;
   }
 }
@@ -94,7 +94,7 @@ button, select, input { font: inherit; color: inherit; }
 .col { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; cursor: pointer; }
 .col.edge { flex: 0 0 26px; margin-inline: 8px; }
 .col i { display: block; width: 100%; max-width: 22px; min-height: 2px; }
-.col i.a { background: var(--s2); } .col i.b { background: var(--s1); }
+.col i.a { background: var(--s2); } .col i.b { background: var(--s1); } .col i.c { background: var(--s3); }
 .col i:last-child { border-radius: 3px 3px 0 0; }
 .col:hover i, .col:focus-visible i, .col.sel i { filter: brightness(1.2); }
 .col.sel { background: var(--accent-soft); border-radius: 4px 4px 0 0; }
@@ -279,7 +279,7 @@ tr.row.fresh td { background: var(--accent-soft); }
   <section class="card" style="margin-top:12px">
     <div class="chead">
       <h2>When it started</h2>
-      <ul class="legend" style="margin:0"><li><i style="background:var(--s1)"></i>Remote shell</li><li><i style="background:var(--s2)"></i>gl-helper malware</li></ul>
+      <ul class="legend" style="margin:0"><li><i style="background:var(--s1)"></i>Remote shell</li><li><i style="background:var(--s2)"></i>gl-helper malware</li><li><i style="background:var(--s3)"></i>Command only</li></ul>
       <span class="grow"></span>
       <div class="seg" id="zoom" role="group" aria-label="Time range of the chart"><button type="button" data-v="attack">Attack window</button><button type="button" data-v="all">All data</button></div>
     </div>
@@ -323,6 +323,12 @@ tr.row.fresh td { background: var(--accent-soft); }
     <div class="card"><h2>What the attacker ran and left</h2><p class="sub">Identical lines are grouped. Port numbers are replaced by “PORT” for grouping.</p><div class="stack" id="left" style="margin-top:10px"></div></div>
   </section>
 
+  <section class="card" style="margin-top:12px">
+    <h2>Unusual changes seen on several devices</h2>
+    <p class="sub" id="reviewSub">What the script listed for review, not known traces. Most of it is harmless and the owner’s own. Look for a change that many devices with traces share and clean ones do not. Click a row to see its reports.</p>
+    <div class="scroll" id="reviews"></div>
+  </section>
+
   <details class="card glossary"><summary>What each kind of evidence means</summary><dl id="glossaryList"></dl></details>
 
   <section class="card reports">
@@ -356,12 +362,18 @@ const KIND = {
   'keep-ref': 'Survives a firmware update', 'persistence': 'rc.local or crontab changed', 'process implant': 'Malware process running',
   'process remote-shell': 'Remote shell running', 'process quick-check': 'GL.iNet’s crond indicator running', 'process replaced-tool': 'Replaced tool running',
   'pipe': 'Remote shell’s pipe left behind', 'connection': 'Open connection to the attacker', 'fw-rule': 'Firewall rule left by the attack',
+  'cloud-command': 'Command from the cloud ran (trace survives a restart)', 'cron-ref': 'Running crontab starts the malware',
+  'rtty-server': 'Remote terminal set to the attacker’s server', 'ssh-key': 'SSH key added by the malware',
   'backdoor-init': 'Older backdoor: init script changed', 'backdoor-file': 'Older backdoor: its files', 'backdoor-keep': 'Older backdoor: survives an update',
   'backdoor-host': 'Older backdoor: server named', 'backdoor-proc': 'Older backdoor: running',
 };
 
 const BD = 'Not the attack of 20 November: an older backdoor that users of GL.iNet’s forum found, on some devices since 2025. ';
 const WHY = {
+  'cloud-command': '/etc/mp_ip_mapping_info is the state file the cloud client writes each time its SD-WAN handler runs. The attack came in through that handler, with a message that leaves the file empty. An empty file written since 20 November on a device with AstroWarp off shows that such a command ran. Unlike the firewall rule it is still there after a restart. It does not say what the command did: the one that was recovered only looked for the malware and reported back.',
+  'cron-ref': 'The crontab the firmware is running from (/tmp/gl_crontabs/root) has the malware’s watchdog line. It restarts the malware every three minutes.',
+  'rtty-server': '/etc/rtty_conf names one of the malware’s servers. rtty is the remote terminal service of GL.iNet’s cloud; set like this, the terminal of the device is offered to the attacker.',
+  'ssh-key': 'authorized_keys holds a key named gl-agent, which the malware’s installer can add. Whoever has the other half can log in as root.',
   'backdoor-init': BD + '/etc/init.d/urandom_seed (or another init script) has extra lines that copy the Lua interpreter to /usr/bin/monitord and run /bin/ulogd with it at every boot.',
   'backdoor-file': BD + '/bin/ulogd is its loader, compiled Lua that reports the device to a server imitating AdGuard or OpenWrt and fetches a second program. Its fingerprint differs from device to device. /usr/bin/monitord is a copy of the Lua interpreter under another name.',
   'backdoor-keep': BD + 'The list of files that a firmware update keeps was changed so that the backdoor survives an update with “keep settings”.',
@@ -392,7 +404,7 @@ const kindOf = (f) => { const w = f.split(' '); return w[0] === 'process' ? w[0]
 // Lines that every rc.local has: they come with the firmware and say nothing about the
 // attack. rc.local is sent in full, so these would lead the grouped list on every device.
 // They are left out there only; a single report still shows its rc.local as it was sent.
-const STOCK = new Set(['exit 0', '. /lib/functions/gl_util.sh', '#!/bin/sh', '#!/bin/sh /etc/rc.common']);
+const STOCK = new Set(['exit 0', '. /lib/functions/gl_util.sh', 'remount_ubifs', '#!/bin/sh', '#!/bin/sh /etc/rc.common']);
 const stock = (line) => { const t = line.trim(); return t === '' || t.startsWith('#') || STOCK.has(t); };
 
 // The firmware as people name it: "4.9.0", or "4.9.0 beta4" for a test build. Newer
@@ -412,9 +424,13 @@ const LAG = 10 * 60000;
 const lag = (f) => ts(f.ctime) - ts(f.mtime);
 const dur = (ms) => { if (!isFinite(ms)) return '–'; const m = Math.round(ms / 60000); return m < 1 ? 'under a minute' : m < 90 ? m + ' min' : m < 48 * 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : Math.round(m / 1440) + ' days'; };
 
+const NOT_HIJACK = /^applet-hijack \/usr\/sbin\/tailscaled?$/;
 const BD_FILE = /^\/(bin\/ulogd|usr\/bin\/monitord)$/;
 function shape(x) {
-  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', ...x.report };
+  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', review_items: [], goodcloud: '', cloud_client: '', astrowarp: '', state_file_size: null, ...x.report };
+  // script 2.16 and 2.17 took an updated Tailscale for a replaced system tool; not a trace
+  const fp = (f) => NOT_HIJACK.test(f);
+  if (r.findings.some(fp)) { r.ioc = Math.max(0, r.ioc - r.findings.filter(fp).length); r.findings = r.findings.filter((f) => !fp(f)); r.files = r.files.filter((f) => !/^\/usr\/sbin\/tailscaled?$/.test(f.path)); }
   r.id = x.id || x.received + JSON.stringify(x.report).length;
   r.recvIso = x.received;
   r.dev = r.device_id || '';
@@ -427,14 +443,21 @@ function shape(x) {
   r.isTest = r.model === 'unknown' && r.platform === 'unknown' && r.ioc === 0;
   r.kvm = r.platform.startsWith('glkvm');
   r.type = r.kvm ? 'KVM' : r.platform === 'openwrt' ? 'Router' : r.platform;
-  r.shell = r.kinds.some((k) => ['process remote-shell', 'pipe', 'connection', 'fw-rule'].includes(k));
-  r.implant = r.kinds.some((k) => ['marker', 'applet-hijack', 'persist-ref', 'keep-ref', 'process implant'].includes(k));
+  // three things that are not the same: a remote shell that was seen, malware on the
+  // device, and only the trace that a command from the cloud ran
+  r.shell = r.kinds.some((k) => ['process remote-shell', 'pipe', 'connection'].includes(k));
+  r.implant = r.kinds.some((k) => ['marker', 'applet-hijack', 'persist-ref', 'keep-ref', 'process implant', 'process quick-check', 'cron-ref', 'rtty-server', 'ssh-key'].includes(k));
+  r.cmd = !r.shell && !r.implant && r.kinds.some((k) => k === 'fw-rule' || k === 'cloud-command');
+  r.cls = r.implant ? 'malware' : r.shell ? 'shell' : r.cmd ? 'command' : r.bd ? 'backdoor' : r.ioc > 0 ? 'other' : 'clean';
   r.upSince = ts(r.checked_at) - r.uptime_s * 1000;
   r.restarted = r.upSince > ATTACK;
-  const times = [ts(r.shell_started), ...r.files.filter((f) => r.ioc === 0 || !BD_FILE.test(f.path)).map((f) => ts(f.mtime))].filter((n) => !isNaN(n));
+  // a file whose written time is much older than its change on the device brought that
+  // time along or had it set back (the installer can do that); then the change time counts
+  const ftime = (f) => (f.ctime && lag(f) > LAG ? ts(f.ctime) : ts(f.mtime));
+  const times = [ts(r.shell_started), r.cmd ? ts(r.state_file_time) : NaN, ...r.files.filter((f) => r.ioc === 0 || !BD_FILE.test(f.path)).map(ftime)].filter((n) => !isNaN(n));
   r.first = times.length ? Math.min(...times) : NaN;
   r.story = story(r);
-  r.hay = [r.model, r.platform, r.firmware, r.tool, r.findings.join(' '), r.shell_ports.join(' '), r.files.map((f) => f.path + ' ' + f.sha256).join(' '), r.commands.join(' '), r.fw_rules.join(' '), r.persistence.map((p) => p.path + ' ' + p.lines.join(' ')).join(' ')].join(' ').toLowerCase();
+  r.hay = [r.model, r.platform, r.firmware, r.tool, r.findings.join(' '), r.shell_ports.join(' '), r.files.map((f) => f.path + ' ' + f.sha256).join(' '), r.commands.join(' '), r.fw_rules.join(' '), r.review_items.map((i) => i.kind + ' ' + i.path + ' ' + i.sha256).join(' '), r.persistence.map((p) => p.path + ' ' + p.lines.join(' ')).join(' ')].join(' ').toLowerCase();
   return r;
 }
 function story(r) {
@@ -442,6 +465,7 @@ function story(r) {
   const s = [];
   if (r.bd) s.push(r.kinds.includes('backdoor-proc') ? 'Older backdoor (urandom_seed/ulogd) on the device and running.' : 'Older backdoor (urandom_seed/ulogd) on the device.');
   if (r.ioc === 0) return s.join(' ');
+  if (r.cmd) s.push(r.kinds.includes('fw-rule') ? 'A command from the cloud ran. No remote shell or malware found.' : 'A command from the cloud ran, seen after a restart. No remote shell or malware found.');
   if (r.kinds.includes('process remote-shell')) s.push(`Remote shell running${r.shell_ports.length ? ' on port ' + r.shell_ports.join(', ') : ''}.`);
   else if (r.kinds.includes('pipe')) s.push('Remote shell ran since the last restart, not running now.');
   if (r.kinds.includes('marker')) s.push(r.kinds.includes('process implant') ? 'gl-helper malware on the device and running.' : 'gl-helper malware files on the device.');
@@ -574,6 +598,33 @@ function binning(from, to) {
   for (const step of [HOUR, 3 * HOUR, 6 * HOUR, DAY, 7 * DAY, 30 * DAY]) if ((to - from) / step <= 72) return step;
   return 30 * DAY;
 }
+// What the scripts listed for review, across devices: one row per kind and path, with
+// the number of devices, how many of them have known traces, and how many different
+// files (fingerprints) stand behind the path.
+function reviews(base) {
+  const box = $('reviews'); box.replaceChildren();
+  const have = base.filter((r) => r.schema >= 6), m = new Map();
+  for (const r of have) for (const i of new Map(r.review_items.map((x) => [x.kind + ' ' + x.path, x])).values()) {
+    const k = i.kind + ' ' + i.path, g = m.get(k) || { kind: i.kind, path: i.path, n: 0, hit: 0, sha: new Set() };
+    g.n++; if (r.ioc > 0 || r.bd) g.hit++; if (i.sha256) g.sha.add(i.sha256); m.set(k, g);
+  }
+  const hits = have.filter((r) => r.ioc > 0 || r.bd).length, rows = [...m.values()].filter((g) => g.n >= 2).sort((a, b) => b.hit - a.hit || b.n - a.n).slice(0, 30);
+  $('reviewSub').dataset.n = have.length;
+  if (!have.length) { box.append(el('p', 'No report carries this yet. It comes with script 2.23 and later.', 'peak')); return; }
+  if (!rows.length) { box.append(el('p', `Nothing is shared by two devices yet (${have.length} reports with this data).`, 'peak')); return; }
+  const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Kind', ''], ['Path or program', ''], ['Devices', 'n'], ['With traces', 'n'], ['Different files', 'n']]) hd.append(el('th', t, c));
+  tb.append(hd);
+  for (const g of rows) {
+    const tr = el('tr'); tr.style.cursor = 'pointer';
+    const w = el('td', g.hit + ' of ' + g.n, 'n'); if (hits && g.hit >= 2 && g.hit / g.n > hits / have.length * 1.5) { w.append(' ', el('span', 'more often with traces', 'tag warn')); }
+    const d = el('td', g.sha.size || '–', 'n'); d.title = g.sha.size === 1 && g.n > 1 ? 'The same file on every device that sent a fingerprint.' : 'Number of different fingerprints behind this path.';
+    tr.append(el('td', g.kind), el('td', g.path || '(not sent)', 'mono'), el('td', g.n, 'n'), w, d);
+    tr.addEventListener('click', () => { const q = (g.kind + ' ' + g.path).toLowerCase(); F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
+    tb.append(tr);
+  }
+  box.append(tb, el('p', `${have.length} reports carry this data, ${hits} of them with traces. Shown: what at least two devices share, most traces first.`, 'peak'));
+}
+
 function chart(hit) {
   const pts = hit.filter((r) => !isNaN(r.first)), cols = $('cols'), xa = $('xaxis'), ya = $('yaxis');
   cols.replaceChildren(); xa.replaceChildren(); ya.replaceChildren();
@@ -586,16 +637,16 @@ function chart(hit) {
     step = binning(lo, hi + 1); from = Math.floor(lo / step) * step; to = (Math.floor(hi / step) + 1) * step;
     before = pts.filter((r) => r.first < from); after = pts.filter((r) => r.first >= to);
   }
-  const n = Math.round((to - from) / step), bins = Array.from({ length: n }, (_, i) => ({ t: from + i * step, a: 0, b: 0 }));
-  for (const r of pts) if (r.first >= from && r.first < to) bins[Math.floor((r.first - from) / step)][r.implant ? 'a' : 'b']++;
-  const edge = (rows) => ({ a: rows.filter((r) => r.implant).length, b: rows.filter((r) => !r.implant).length });
-  const eb = edge(before), ea = edge(after), max = Math.max(1, ...bins.map((b) => b.a + b.b), eb.a + eb.b, ea.a + ea.b);
+  const n = Math.round((to - from) / step), bins = Array.from({ length: n }, (_, i) => ({ t: from + i * step, a: 0, b: 0, c: 0 }));
+  for (const r of pts) if (r.first >= from && r.first < to) bins[Math.floor((r.first - from) / step)][r.implant ? 'a' : r.cmd ? 'c' : 'b']++;
+  const edge = (rows) => ({ a: rows.filter((r) => r.implant).length, b: rows.filter((r) => !r.implant && !r.cmd).length, c: rows.filter((r) => r.cmd).length });
+  const eb = edge(before), ea = edge(after), max = Math.max(1, ...bins.map((b) => b.a + b.b + b.c), eb.a + eb.b + eb.c, ea.a + ea.b + ea.c);
   const nice = max <= 4 ? 4 : Math.ceil(max / (max > 40 ? 20 : max > 10 ? 10 : 2)) * (max > 40 ? 20 : max > 10 ? 10 : 2);
   for (const [v, pos] of [[nice, 0], [nice / 2, 50], [0, 100]]) { const s = el('span', v); s.style.top = pos + '%'; ya.append(s); }
   const col = (b, range, label, cls) => {
     const c = el('div', null, 'col' + (cls ? ' ' + cls : '') + (F.bin && F.bin[0] === range[0] && F.bin[1] === range[1] ? ' sel' : ''));
-    for (const k of ['a', 'b']) if (b[k]) { const i = el('i', null, k); i.style.height = (b[k] / nice) * 100 + '%'; c.append(i); }
-    hover(c, `${label}\n${b.b} remote shell · ${b.a} gl-helper malware`);
+    for (const k of ['a', 'b', 'c']) if (b[k]) { const i = el('i', null, k); i.style.height = (b[k] / nice) * 100 + '%'; c.append(i); }
+    hover(c, `${label}\n${b.b} remote shell · ${b.a} gl-helper malware · ${b.c} command only`);
     c.addEventListener('click', () => { F.bin = F.bin && F.bin[0] === range[0] && F.bin[1] === range[1] ? null : range; page = 0; render(); });
     cols.append(c);
   };
@@ -619,7 +670,7 @@ function chart(hit) {
   const top = bins.reduce((a, b) => (b.a + b.b > a.a + a.b ? b : a));
   const stepName = step === HOUR ? 'hour' : step < DAY ? step / HOUR + ' hours' : step === DAY ? 'day' : step / DAY + ' days';
   $('chartSub').textContent = `First trace per device (start of the remote shell, or the time on the malware’s files). One column per ${stepName}, UTC. Click a column to filter.`;
-  $('peak').textContent = `Busiest ${stepName}: ${fmt(top.t)} – ${fmt(top.t + step)} with ${top.a + top.b} of ${pts.length} devices. ${hit.length - pts.length} of ${hit.length} reports have no start time.` + (before.length + after.length ? ` ${before.length} lie before and ${after.length} after the range shown.` : '');
+  $('peak').textContent = `Busiest ${stepName}: ${fmt(top.t)} – ${fmt(top.t + step)} with ${top.a + top.b + top.c} of ${pts.length} devices. ${hit.length - pts.length} of ${hit.length} reports have no start time.` + (before.length + after.length ? ` ${before.length} lie before and ${after.length} after the range shown.` : '');
 }
 
 // Reports that carry the same device id come from one device. With "One row per device"
@@ -760,13 +811,13 @@ function render() {
   const rows = pool.filter((r) => pass(r)), base = pool.filter((r) => pass(r, 'result')), isHit = (r) => (F.result === 'bd' ? r.bd : r.ioc > 0), hit = base.filter(isHit);
   facets.forEach((f) => f()); chips();
 
-  const shells = hit.filter((r) => r.shell), imps = hit.filter((r) => r.implant), both = hit.filter((r) => r.shell && r.implant).length, restarted = base.filter((r) => r.restarted);
+  const shells = hit.filter((r) => r.shell), imps = hit.filter((r) => r.implant), cmds = hit.filter((r) => r.cmd), both = hit.filter((r) => r.shell && r.implant).length, restarted = base.filter((r) => r.restarted);
   const k1 = kpi('Devices with traces', hit.length.toLocaleString('en'), 'of ' + base.length.toLocaleString('en') + ' reports', null, true), split = el('div', null, 'split'), lg = el('ul', null, 'legend');
-  for (const [name, n, c] of [['Remote shell', shells.length, 'var(--s1)'], ['gl-helper malware', imps.length, 'var(--s2)']]) {
+  for (const [name, n, c] of [['Remote shell', shells.length, 'var(--s1)'], ['gl-helper malware', imps.length, 'var(--s2)'], ['Command only', cmds.length, 'var(--s3)']]) {
     const s = el('i'); s.style.cssText = `flex:${Math.max(n, .001)};background:${c}`; hover(s, `${name}\n${n} devices`); split.append(s);
     const li = el('li'), sw = el('i'); sw.style.background = c; li.append(sw, name, el('b', n)); lg.append(li);
   }
-  k1.append(split, lg); if (both) k1.append(el('div', both + ' have both.', 'note'));
+  k1.append(split, lg); k1.append(el('div', (both ? both + ' have a shell and malware. ' : '') + '“Command only”: a command from the cloud ran, nothing else was found.', 'note'));
   $('kpis').replaceChildren(k1,
     kpi('Remote shell still running', shells.filter((r) => r.kinds.includes('process remote-shell')).length, 'of ' + shells.length, 'Checked while the attacker was connected.'),
     kpi('Comes back after a restart', hit.filter((r) => r.kinds.includes('persist-ref') || r.kinds.includes('keep-ref')).length, 'of ' + hit.length, 'An autostart entry starts the malware again.'),
@@ -776,7 +827,7 @@ function render() {
   chart(pool.filter((r) => pass(r, 'bin') && isHit(r)));
   rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && isHit(r)), FACET.model), 0, 'model');
   rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && isHit(r)), FACET.firmware), 0, 'firmware');
-  course(hit); ports(hit); matrix();
+  course(hit); ports(hit); matrix(); reviews(base);
   rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && isHit(r)), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
 
   const fm = new Map();
@@ -819,6 +870,7 @@ function render() {
     const res = el('td'); res.append(r.story); const tags = el('div', null, 'tags');
     if (r.shell) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s1)'; t.append(i, 'Remote shell'); tags.append(t); }
     if (r.implant) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s2)'; t.append(i, 'gl-helper malware'); tags.append(t); }
+    if (r.cmd) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s3)'; t.append(i, 'Command only'); hover(t, 'A command from the cloud ran on this device.\nNo remote shell and no malware were found.'); tags.append(t); }
     if (r.bd) tags.append(el('span', 'Older backdoor', 'tag warn'));
     if (r.ioc === 0 && !r.bd) tags.append(el('span', 'Clean', 'tag ok'));
     if (r.restarted) tags.append(el('span', 'Restarted since the attack', 'tag warn'));
@@ -850,7 +902,7 @@ function detail(r) {
   const tr = el('tr', null, 'detail'), td = el('td'), b = el('div', null, 'body'); td.colSpan = 7; tr.append(td); td.append(b);
   const sec = (title, node, full) => { const w = el('div', null, full ? 'full' : ''); w.append(el('h3', title), node); b.append(w); };
   const kv = el('dl', null, 'kv');
-  for (const [k, v] of [['Received', fmt(r.recv) + ' UTC'], ['Checked', fmt(ts(r.checked_at)) + ' UTC'], ['Device', `${r.model} · ${r.platform}`], ['Firmware', r.firmware], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Device ID', r.dev || 'none (older script, or not sent)'], ['Up since', fmt(r.upSince) + ' UTC' + (r.restarted ? ' (restarted since the attack)' : '')], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`]])
+  for (const [k, v] of [['Received', fmt(r.recv) + ' UTC'], ['Checked', fmt(ts(r.checked_at)) + ' UTC'], ['Device', `${r.model} · ${r.platform}`], ['Firmware', r.firmware], ['Script', r.tool + ' (format ' + r.schema + ')'], ['Device ID', r.dev || 'none (older script, or not sent)'], ['Up since', fmt(r.upSince) + ' UTC' + (r.restarted ? ' (restarted since the attack)' : '')], ['Counts', `${r.ioc} known traces · ${r.persist} persistence · ${r.review} to review`], ['GoodCloud at the check', r.goodcloud ? r.goodcloud + (r.cloud_client ? ' · client ' + r.cloud_client : '') : 'not reported (older script)'], ['AstroWarp', r.astrowarp || 'not reported (older script)'], ['State file size', r.state_file_size === null ? 'not reported (older script)' : r.state_file_size === -1 ? 'no such file' : r.state_file_size === 0 ? 'empty, as the attack leaves it' : r.state_file_size + ' B']])
     { const dt = el('dt', k); if (FIELD_WHY[k]) dt.append(info(FIELD_WHY[k])); kv.append(dt, el('dd', v)); }
   sec('Device and check', kv);
   const tl = el('dl', null, 'kv');
@@ -862,6 +914,7 @@ function detail(r) {
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
   if (r.odd.length) { const w = el('div'); for (const [k, v] of r.odd) w.append(el('pre', k + ':  ' + v)); sec('Only on this device', w, true); }
   if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); const fp = el('td', f.sha256.slice(0, 24) + '…', 'mono dim'); fp.title = f.sha256; row.append(el('td', f.path, 'mono'), fp, el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); const c = el('td', null, 'n'); if (f.ctime) { c.textContent = fmt(ts(f.ctime)); c.title = 'Changed on the device (ctime): the kernel sets it, touch and tar cannot set it back.'; if (lag(f) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(f)) + ' older than the change on the device. It came with the file (archive, copy) or was set back. The right-hand time is the one to trust.'; c.append(' ', g); } } row.append(c); t.append(row); } const hd = el('tr'); for (const [x, k] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Size', 'n'], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n']]) hd.append(el('th', x, k)); t.prepend(hd); sec('Files', t, true); }
+  if (r.review_items.length) { const t = el('table'), hd = el('tr'); for (const [x, k] of [['Kind', ''], ['Path or program', ''], ['Fingerprint (SHA-256)', '']]) hd.append(el('th', x, k)); t.append(hd); for (const i of r.review_items) { const row = el('tr'), fp = el('td', i.sha256 ? i.sha256.slice(0, 24) + '…' : '', 'mono dim'); fp.title = i.sha256; row.append(el('td', i.kind), el('td', i.path || '(not sent)', 'mono'), fp); t.append(row); } sec('Listed for review (not known traces)', t, true); }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
   if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
   if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);
@@ -884,8 +937,8 @@ $('prev').addEventListener('click', () => { page--; render(); }); $('next').addE
 for (const b of $('zoom').children) { b.setAttribute('aria-pressed', String(b.dataset.v === zoom)); b.addEventListener('click', () => { zoom = b.dataset.v; F.bin = null; for (const o of $('zoom').children) o.setAttribute('aria-pressed', String(o === b)); render(); }); }
 addEventListener('resize', () => { clearTimeout(qt); qt = setTimeout(render, 150); });
 $('csv').addEventListener('click', () => {
-  const cols = [['received_utc', (r) => fmt(r.recv)], ['device_id', (r) => r.dev], ['reports_from_device', (r) => r.reports], ['model', (r) => r.model], ['platform', (r) => r.platform], ['firmware', (r) => r.fw], ['firmware_as_reported', (r) => r.firmware], ['unusual', (r) => r.odd.map((o) => o[0]).join(' ')], ['script', (r) => r.tool], ['known_traces', (r) => r.ioc], ['persistence', (r) => r.persist], ['review', (r) => r.review],
-    ['remote_shell', (r) => r.shell], ['gl_helper', (r) => r.implant], ['first_trace_utc', (r) => fmt(r.first)], ['shell_ports', (r) => r.shell_ports.join(' ')], ['up_since_utc', (r) => fmt(r.upSince)], ['restarted_since_attack', (r) => r.restarted], ['findings', (r) => r.findings.join('; ')], ['file_hashes', (r) => r.files.map((f) => f.path + '=' + f.sha256).join('; ')]];
+  const cols = [['received_utc', (r) => fmt(r.recv)], ['device_id', (r) => r.dev], ['reports_from_device', (r) => r.reports], ['model', (r) => r.model], ['platform', (r) => r.platform], ['firmware', (r) => r.fw], ['firmware_as_reported', (r) => r.firmware], ['unusual', (r) => r.odd.map((o) => o[0]).join(' ')], ['script', (r) => r.tool], ['class', (r) => r.cls], ['known_traces', (r) => r.ioc], ['persistence', (r) => r.persist], ['review', (r) => r.review],
+    ['remote_shell', (r) => r.shell], ['gl_helper', (r) => r.implant], ['first_trace_utc', (r) => fmt(r.first)], ['shell_ports', (r) => r.shell_ports.join(' ')], ['up_since_utc', (r) => fmt(r.upSince)], ['restarted_since_attack', (r) => r.restarted], ['state_file_time_utc', (r) => r.state_file_time.replace(' UTC', '')], ['state_file_size', (r) => (r.state_file_size === null ? '' : r.state_file_size)], ['astrowarp', (r) => r.astrowarp], ['goodcloud', (r) => r.goodcloud], ['cloud_client', (r) => r.cloud_client], ['review_items', (r) => r.review_items.map((i) => i.kind + ' ' + i.path).join('; ')], ['findings', (r) => r.findings.join('; ')], ['file_hashes', (r) => r.files.map((f) => f.path + '=' + f.sha256).join('; ')]];
   // a leading = + - @ would be run as a formula by a spreadsheet
   const cell = (v) => { let s = String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
   const csv = [cols.map((c) => c[0]).join(','), ...current.map((r) => cols.map((c) => cell(c[1](r))).join(','))].join('\r\n');
