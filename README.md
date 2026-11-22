@@ -76,6 +76,15 @@ The vendor cleanup only runs when a marker file is present and only touches this
 This script also detects:
 
 - `/etc/glinet/.cache/watch.sh`, which users reported on KVMs, as a further marker file,
+  and autostart files that start it,
+- a link in a tool directory that the firmware does not have, for example a new
+  `/usr/bin/netstat` (`REVIEW`),
+- scripts in `/etc/udhcpc.user.d`, which the router runs on every DHCP event (`REVIEW`),
+- the addresses and the name one user recorded from a KVM that was taken over on
+  19 November (`65.20.71.131`, `66.245.219.252`, `gl-inet.top`) on a command line, in an
+  autostart file or as a connection (`REVIEW`, it is one report),
+- connections to the attacker's server that are attempted but not answered: the server
+  was suspended on 21 November, so a shell loop that still runs never gets through,
 - busybox/coreutils applets in the overlay that were replaced by a foreign regular file
   (for example `netstat`), unless a package (apk/opkg) installed the file,
 - running processes started from implant paths or from a replaced applet,
@@ -273,7 +282,9 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
 `4` error.
 
-The head of the report appears at once. While the checks run, a line shows which of the
+The head of the report appears at once. It includes whether GoodCloud is switched on
+now, with the version of its client; that is the setting at the time of the check, not
+during the attack, and it is not part of the anonymous report yet. While the checks run, a line shows which of the
 nine steps is in progress. The report groups its findings by label and ends with a summary and a verdict. The copy
 in the evidence archive is always plain text.
 
@@ -336,6 +347,11 @@ addresses, so the server does not store it either: it hashes it again with a sec
 only the server has, and keeps a short form of that. `--no-device-id` leaves the ID out.
 The ID makes the report pseudonymous rather than fully anonymous: two reports from the
 same device can be linked to each other, but not to you.
+
+To be exact about that hash: GL.iNet uses few address ranges, so whoever receives the ID
+as the script sends it could find the hardware address behind it by trying them all. The
+server could do that before it applies its own secret; it does not, and it does not keep
+the value it received. If that is not good enough for you, use `--no-device-id`.
 
 It does not contain the host name, IP or MAC addresses, or any other file. `REVIEW` findings are only counted.
 The receiving [worker](worker/) stores no IP address.
@@ -494,7 +510,8 @@ This is community work, and not one person's.
 - AdamK – The connection and process checks
 - [joska252](https://github.com/joska252) – Found that the archive contained password hashes and private keys, and that
   changed files of the base image's own packages were skipped, and that a named pipe could hang the script
-  ([#3](https://github.com/admonstrator/glinet-csa-2026-01/issues/3), [#4](https://github.com/admonstrator/glinet-csa-2026-01/issues/4), [#9](https://github.com/admonstrator/glinet-csa-2026-01/issues/9))
+  ([#3](https://github.com/admonstrator/glinet-csa-2026-01/issues/3), [#4](https://github.com/admonstrator/glinet-csa-2026-01/issues/4), [#9](https://github.com/admonstrator/glinet-csa-2026-01/issues/9)),
+  and read the script against the published sources ([#10](https://github.com/admonstrator/glinet-csa-2026-01/issues/10))
 - Everyone who sent an anonymous report or posted their output in the forum
 
 ---
