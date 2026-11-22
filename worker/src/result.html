@@ -7,87 +7,163 @@
 <meta name="referrer" content="no-referrer">
 <title>CSA-2026-01: your result</title>
 <style>
+/* The look of gl-i.net, the community website this page belongs to: its colours, its
+   disclaimer bar, navigation and footer. Copied here because this page is served by the
+   worker and loads nothing from anywhere. */
 :root {
   --bg: #f4f6f5; --surface: #fff; --surface-2: #edf1ef; --text: #17201c; --text-2: #5d6a64; --accent: #16774c; --accent-soft: rgba(22, 119, 76, .11);
-  --border: rgba(16, 40, 30, .12); --nav-bg: rgba(244, 246, 245, .82); --shadow: 0 1px 2px rgba(10, 30, 20, .04), 0 10px 30px rgba(10, 30, 20, .05);
-  --warn: #9a5b00; --warn-bar: #f5a524; --warn-bg: rgba(255, 159, 10, .13); --info-bg: rgba(0, 122, 255, .1); --danger: #b42318; --danger-bg: rgba(217, 45, 32, .08);
-  --term-bg: #13201a; --term-fg: #e4ede8; --on-accent: #fff;
-  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --brand: #1f4d3a; --border: rgba(16, 40, 30, .09); --nav-bg: rgba(244, 246, 245, .78);
+  --card-shadow: 0 1px 2px rgba(10, 30, 20, .04), 0 10px 30px rgba(10, 30, 20, .05);
+  --warn: #9a5b00; --warn-bar: #f5a524; --warn-bg: rgba(255, 159, 10, .13); --warn-line: rgba(154, 91, 0, .24);
+  --info-bg: rgba(0, 122, 255, .1); --danger: #b42318; --danger-bg: rgba(217, 45, 32, .08); --danger-line: rgba(180, 35, 24, .24); --ok-line: rgba(22, 119, 76, .22);
+  --bar-bg: #1f4d3a; --bar-fg: #f1f7f3; --bar-link: #b9f0d3; --term-bg: #13201a; --term-fg: #e4ede8; --on-accent: #fff;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1412; --surface: #18201c; --surface-2: #222b27; --text: #e9efec; --text-2: #9aa8a1; --accent: #4cc38a; --accent-soft: rgba(76, 195, 138, .15);
-    --border: rgba(255, 255, 255, .12); --nav-bg: rgba(15, 20, 18, .82); --shadow: 0 1px 2px rgba(0, 0, 0, .3);
-    --warn: #ffc266; --warn-bg: rgba(255, 179, 64, .14); --info-bg: rgba(64, 156, 255, .14); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .13); --on-accent: #06281a;
+    --bg: #0a0c0b; --surface: #161a18; --surface-2: #212623; --text: #f1f4f2; --text-2: #9ba6a1; --accent: #4cc38a; --accent-soft: rgba(76, 195, 138, .14);
+    --brand: #2c6b51; --border: rgba(255, 255, 255, .11); --nav-bg: rgba(10, 12, 11, .74); --card-shadow: none;
+    --warn: #ffb340; --warn-bar: #e59a22; --warn-bg: rgba(255, 159, 10, .15); --warn-line: rgba(255, 179, 64, .3);
+    --info-bg: rgba(10, 132, 255, .17); --danger: #ff8a7d; --danger-bg: rgba(255, 99, 85, .12); --danger-line: rgba(255, 120, 105, .3); --ok-line: rgba(76, 195, 138, .28);
+    --bar-bg: #173d2d; --term-bg: #0c120f; --on-accent: #04140c;
+    color-scheme: dark;
   }
 }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
-a { color: var(--accent); }
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-padding-top: 90px; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 17px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+.container { max-width: 1120px; margin: 0 auto; padding-inline: 24px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: -.02em; text-wrap: balance; }
+p { margin: 0; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 [hidden] { display: none !important; }
-.bar { position: sticky; top: 0; z-index: 5; background: var(--nav-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); }
-.bar .in { max-width: 860px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
-.bar a.home { font-size: 15px; font-weight: 700; color: var(--text); text-decoration: none; }
-.grow { flex: 1; }
+
+.disclaimer-bar { background: var(--bar-bg); color: var(--bar-fg); font-size: 13.5px; line-height: 1.4; text-align: center; padding: 8px 16px; }
+.disclaimer-bar b { font-weight: 650; }
+.disclaimer-bar a { color: var(--bar-link); font-weight: 600; white-space: nowrap; }
+
+.nav { position: sticky; top: 0; z-index: 20; background: var(--nav-bg); -webkit-backdrop-filter: saturate(180%) blur(18px); backdrop-filter: saturate(180%) blur(18px); border-bottom: 1px solid var(--border); }
+.nav-inner { display: flex; align-items: center; gap: 20px; height: 56px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 650; font-size: 16px; letter-spacing: -.01em; }
+.brand:hover { text-decoration: none; }
+.brand > span:last-child { white-space: nowrap; }
+.brand small { display: block; font-size: 11.5px; font-weight: 500; color: var(--text-2); letter-spacing: 0; margin-top: -2px; }
+.logo { width: 32px; height: 32px; border-radius: 9px; background: var(--brand); display: grid; place-items: center; flex: none; }
+.logo svg { width: 20px; height: 20px; }
+.nav-links { margin-left: auto; display: flex; align-items: center; gap: 22px; font-size: 14px; font-weight: 500; }
+.nav-links a { color: var(--text-2); white-space: nowrap; }
+.nav-links a:hover { color: var(--accent); text-decoration: none; }
 .lang { display: inline-flex; padding: 3px; border-radius: 980px; background: var(--surface-2); }
-.lang button { border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--text-2); padding: 4px 12px; border-radius: 980px; cursor: pointer; }
+.lang button { border: 0; background: none; font-size: 13px; font-weight: 600; color: var(--text-2); padding: 4px 11px; border-radius: 980px; cursor: pointer; white-space: nowrap; }
 .lang button[aria-pressed=true] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .1); }
-main { max-width: 860px; margin: 0 auto; padding: 18px 16px 60px; }
-.crumbs { font-size: 13.5px; color: var(--text-2); }
-.crumbs a { color: inherit; text-decoration: none; } .crumbs a:hover { text-decoration: underline; } .crumbs span { margin: 0 6px; opacity: .5; }
-.hero { margin-top: 14px; padding: 24px 26px; border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); border-left: 6px solid var(--tone); }
-.hero[data-tone=bad] { --tone: var(--danger); --tone-bg: var(--danger-bg); --tone-fg: var(--danger); }
-.hero[data-tone=warn] { --tone: var(--warn-bar); --tone-bg: var(--warn-bg); --tone-fg: var(--warn); }
-.hero[data-tone=ok] { --tone: var(--accent); --tone-bg: var(--accent-soft); --tone-fg: var(--accent); }
-.eyebrow { margin: 0; font-size: 13px; font-weight: 650; color: var(--text-2); }
-h1 { margin: 6px 0 0; font-size: 30px; line-height: 1.18; letter-spacing: -.01em; text-wrap: balance; }
-.lead { margin: 10px 0 0; font-size: 18px; }
-.verdict { display: inline-block; margin-top: 14px; padding: 3px 12px; border-radius: 980px; background: var(--tone-bg); color: var(--tone-fg); font-size: 13.5px; font-weight: 700; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+.container.sa-article { max-width: 928px; padding-top: 44px; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 14px; color: var(--text-2); }
+.crumbs a { color: var(--text-2); } .crumbs a:hover { color: var(--accent); } .crumbs .sep { opacity: .5; } .crumbs b { font-weight: 600; }
+
+.hero { margin-top: 18px; padding: 26px 28px 28px; border-radius: 20px; background: var(--surface); border: 1px solid var(--tone-line); box-shadow: var(--card-shadow); }
+.hero[data-tone=bad] { --tone-line: var(--danger-line); --tone-bg: var(--danger-bg); --tone-fg: var(--danger); }
+.hero[data-tone=warn] { --tone-line: var(--warn-line); --tone-bg: var(--warn-bg); --tone-fg: var(--warn); }
+.hero[data-tone=ok] { --tone-line: var(--ok-line); --tone-bg: var(--accent-soft); --tone-fg: var(--accent); }
+.eyebrow { font-size: 14px; font-weight: 600; color: var(--tone-fg, var(--text-2)); }
+h1 { margin-top: 8px; font-size: clamp(28px, 4.2vw, 40px); line-height: 1.12; letter-spacing: -.03em; }
+.lead { margin-top: 12px; font-size: 18px; line-height: 1.55; color: var(--text-2); }
+.verdict { display: inline-block; margin-top: 16px; padding: 3px 12px; border-radius: 980px; background: var(--tone-bg); color: var(--tone-fg); font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .chip { padding: 3px 11px; border-radius: 980px; background: var(--surface-2); font-size: 13.5px; color: var(--text-2); }
 .chip b { color: var(--text); font-weight: 650; }
-.note { margin: 12px 0 0; padding: 12px 16px; border-radius: 14px; background: var(--info-bg); font-size: 14.5px; line-height: 1.5; }
+.note { margin-top: 12px; padding: 12px 16px; border-radius: 14px; background: var(--info-bg); font-size: 14.5px; line-height: 1.5; }
 .note.warn { background: var(--warn-bg); } .note.bad { background: var(--danger-bg); }
 .note b { display: block; }
-h2 { margin: 30px 0 0; font-size: 21px; }
-.sub { margin: 4px 0 0; color: var(--text-2); font-size: 15px; }
-.found { display: grid; gap: 10px; margin-top: 12px; }
-.card { padding: 16px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
-.card h3 { margin: 0; font-size: 17px; }
-.card p { margin: 5px 0 0; font-size: 15.5px; }
-.card .as { margin-top: 9px; font-size: 12.5px; color: var(--text-2); }
-code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 2px 7px; border-radius: 6px; color: var(--text); overflow-wrap: anywhere; }
-.means p { margin: 0; font-size: 16px; } .means p + p { margin-top: 9px; }
-ol.steps { list-style: none; counter-reset: s; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-ol.steps > li { counter-increment: s; position: relative; padding: 16px 18px 16px 62px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
-ol.steps > li::before { content: counter(s); position: absolute; left: 18px; top: 16px; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 15px; display: grid; place-items: center; }
-ol.steps b.t { display: block; font-size: 17px; }
-ol.steps p { margin: 4px 0 0; font-size: 15.5px; }
-.cmd { margin-top: 10px; padding: 11px 14px; border-radius: 12px; background: var(--term-bg); color: var(--term-fg); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.help { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
-.help a { display: block; padding: 14px 16px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); text-decoration: none; color: var(--text); font-size: 15px; }
-.help a b { display: block; color: var(--accent); font-size: 15.5px; }
+h2 { margin-top: 44px; font-size: 24px; }
+.sub { margin-top: 6px; color: var(--text-2); font-size: 15px; }
+.found { display: grid; gap: 10px; margin-top: 14px; }
+.card { padding: 18px 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); }
+.card h3 { font-size: 17px; letter-spacing: -.01em; }
+.card p { margin-top: 5px; font-size: 15.5px; line-height: 1.55; }
+.card .as { margin-top: 10px; font-size: 12.5px; color: var(--text-2); }
+code { font-family: var(--font-mono); font-size: 12px; background: var(--surface-2); padding: 2px 7px; border-radius: 6px; color: var(--text); overflow-wrap: anywhere; }
+.means { margin-top: 14px; }
+.means p { margin: 0; font-size: 16px; line-height: 1.65; } .means p + p { margin-top: 10px; }
+ol.steps { list-style: none; counter-reset: s; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+ol.steps > li { counter-increment: s; position: relative; padding: 18px 20px 18px 62px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); }
+ol.steps > li::before { content: counter(s); position: absolute; left: 20px; top: 18px; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 14px; display: grid; place-items: center; }
+ol.steps b.t { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+ol.steps p { margin-top: 4px; font-size: 15.5px; line-height: 1.55; color: var(--text-2); }
+.cmd { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--term-bg); color: var(--term-fg); font: 12.5px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.help { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.help a { display: block; padding: 16px 18px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--card-shadow); color: var(--text-2); font-size: 14.5px; line-height: 1.5; }
+.help a:hover { text-decoration: none; border-color: var(--ok-line); }
+.help a b { display: block; color: var(--accent); font-size: 15.5px; font-weight: 650; }
 .pick { margin-top: 14px; }
-.pick fieldset { margin: 12px 0 0; padding: 0; border: 0; }
+.pick fieldset { margin: 14px 0 0; padding: 0; border: 0; } .pick fieldset:first-child { margin-top: 0; }
 .pick legend { padding: 0; font-weight: 650; font-size: 15.5px; }
 .pick label { display: flex; gap: 9px; align-items: baseline; margin-top: 7px; font-size: 15.5px; cursor: pointer; }
-.btn { margin-top: 14px; padding: 9px 18px; border: 0; border-radius: 980px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 15px; font-weight: 650; cursor: pointer; }
+.btn { margin-top: 16px; padding: 9px 20px; border: 0; border-radius: 980px; background: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 650; cursor: pointer; }
 .btn.quiet { background: var(--surface-2); color: var(--text); }
-.share { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 14px; color: var(--text-2); }
+.share { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; font-size: 14px; color: var(--text-2); }
 .share .btn { margin: 0; padding: 6px 14px; font-size: 14px; }
-.fine { margin-top: 22px; font-size: 13px; color: var(--text-2); }
-@media (max-width: 560px) { .hero { padding: 20px 18px; } h1 { font-size: 25px; } body { font-size: 16px; } ol.steps > li { padding-left: 54px; } .bar a.home { font-size: 14px; } .lang button { padding: 4px 9px; } }
+.fine { margin-top: 20px; font-size: 13px; color: var(--text-2); }
+
+.footer { margin-top: 96px; border-top: 1px solid var(--border); }
+.footer-inner { padding-block: 40px 48px; display: flex; flex-direction: column; gap: 32px; }
+.cols { display: flex; flex-wrap: wrap; gap: 32px 88px; }
+.col { display: flex; flex-direction: column; gap: 9px; font-size: 13.5px; }
+.col h4 { font-size: 13.5px; font-weight: 600; letter-spacing: 0; }
+.col a { color: var(--text-2); } .col a:hover { color: var(--accent); }
+.disclaimer { font-size: 13px; color: var(--text-2); max-width: 760px; }
+.bottom { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; font-size: 13px; color: var(--text-2); }
+
+@media (max-width: 900px) { .nav-links a:not(.keep) { display: none; } }
+@media (max-width: 700px) {
+  .container { padding-inline: 16px; }
+  .container.sa-article { padding-top: 28px; }
+  .brand small { display: none; }
+  .nav-inner { gap: 10px; } .nav-links { gap: 12px; }
+  .lang button { padding: 4px 8px; }
+  .hero { padding: 20px 18px 22px; }
+  ol.steps > li { padding-left: 56px; } ol.steps > li::before { left: 16px; }
+  h2 { margin-top: 36px; font-size: 22px; }
+}
+@media (max-width: 420px) { .nav-links a { display: none; } }
 </style>
 </head>
 <body>
-<div class="bar"><div class="in">
-  <a class="home" href="https://gl-i.net/">GL.iNet Community</a><span class="grow"></span>
-  <div class="lang" role="group" aria-label="Language">
-    <button type="button" data-lang="en">English</button><button type="button" data-lang="de">Deutsch</button><button type="button" data-lang="zh">简体中文</button>
+<p class="disclaimer-bar"><b data-t="bar0">Community project.</b> <span data-t="bar1">Not affiliated with, endorsed by or operated by GL.iNet. Looking for the manufacturer?</span> <a href="https://www.gl-inet.com">gl-inet.com ↗</a></p>
+<nav class="nav" aria-label="Main"><div class="container nav-inner">
+  <a class="brand" href="https://gl-i.net/"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 10.5a10.6 10.6 0 0 1 15 0"/><path d="M7.6 13.6a6.2 6.2 0 0 1 8.8 0"/><circle cx="12" cy="17.2" r="1.4" fill="#fff" stroke="none"/></svg></span><span>Community Apps<small data-t="brand">Unofficial · for GL.iNet routers</small></span></a>
+  <div class="nav-links">
+    <a class="keep" href="https://gl-i.net/security/csa-2026-01/" data-t="nav0">Security</a><a href="https://gl-i.net/#browse" data-t="nav1">Browse</a><a href="https://gl-i.net/#install" data-t="nav2">How to install</a><a href="https://gl-i.net/#about" data-t="nav3">About</a><a href="https://github.com/GLiNet-Community-Scripts">GitHub ↗</a>
+    <div class="lang" role="group" aria-label="Language"><button type="button" data-lang="en">English</button><button type="button" data-lang="de">Deutsch</button><button type="button" data-lang="zh">中文</button></div>
   </div>
-</div></div>
-<main id="page"><noscript>This page explains the result of the community script for CSA-2026-01. It needs JavaScript to read the codes in its address. The advisory is at https://gl-i.net/security/csa-2026-01/</noscript></main>
+</div></nav>
+
+<main id="page" class="container sa-article"><noscript>This page explains the result of the community script for CSA-2026-01. It needs JavaScript to read the codes in its address. The advisory is at https://gl-i.net/security/csa-2026-01/</noscript></main>
+
+<footer class="footer"><div class="container footer-inner">
+  <div class="cols">
+    <nav class="col" aria-label="Community">
+      <h4 data-t="f0">Community</h4>
+      <a href="https://github.com/GLiNet-Community-Scripts" data-t="f1">GitHub organization</a>
+      <a href="https://github.com/GLiNet-Community-Scripts/Issues/issues" data-t="f2">Issues and requests</a>
+      <a href="https://gl-i.net/security/" data-t="f3">Security advisories</a>
+      <a href="https://github.com/admonstrator/glinet-csa-2026-01" data-t="f4">Source of the script and of this page</a>
+    </nav>
+    <nav class="col" aria-label="Official GL.iNet resources">
+      <h4 data-t="f5">Official GL.iNet resources</h4>
+      <a href="https://www.gl-inet.com" data-t="f6">GL.iNet website</a>
+      <a href="https://docs.gl-inet.com" data-t="f7">GL.iNet documentation</a>
+      <a href="https://dl.gl-inet.com" data-t="f8">Firmware downloads</a>
+      <a href="https://forum.gl-inet.com" data-t="f9">GL.iNet forum</a>
+    </nav>
+  </div>
+  <p class="disclaimer" data-t="f10">gl-i.net is an independent, community-run site. It is not affiliated with, endorsed by or operated by GL.iNet, and it is not an official GL.iNet product, store or support channel. GL.iNet is a trademark of its owner and is used here only to describe which devices this page is about.</p>
+  <div class="bottom"><p data-t="f11">This page explains a result. It checks nothing and stores nothing.</p><p data-t="f12">No cookies · No tracking · No external fonts</p></div>
+</div></footer>
 
 <script>
 // The version of the script that is served right now; the worker puts it in. Empty when
@@ -117,6 +193,10 @@ const TONE = { c: 'ok', cr: 'ok', a: 'bad', i: 'bad', s: 'bad', m: 'bad', b: 'ba
 const T = {
   en: {
     title: 'CSA-2026-01: your result',
+    chrome: { bar0: 'Community project.', bar1: 'Not affiliated with, endorsed by or operated by GL.iNet. Looking for the manufacturer?', brand: 'Unofficial · for GL.iNet routers', nav0: 'Security', nav1: 'Browse', nav2: 'How to install', nav3: 'About',
+      f0: 'Community', f1: 'GitHub organization', f2: 'Issues and requests', f3: 'Security advisories', f4: 'Source of the script and of this page', f5: 'Official GL.iNet resources', f6: 'GL.iNet website', f7: 'GL.iNet documentation', f8: 'Firmware downloads', f9: 'GL.iNet forum',
+      f10: 'gl-i.net is an independent, community-run site. It is not affiliated with, endorsed by or operated by GL.iNet, and it is not an official GL.iNet product, store or support channel. GL.iNet is a trademark of its owner and is used here only to describe which devices this page is about.',
+      f11: 'This page explains a result. It checks nothing and stores nothing.', f12: 'No cookies · No tracking · No external fonts' },
     crumbs: ['Security advisories', 'CSA-2026-01', 'Your result'],
     eyebrow: 'Your result · community script {v} · {dev}', eyebrowHand: 'What you ticked · {dev}',
     dev: { r: 'router', k: 'KVM device', u: 'device' },
@@ -202,6 +282,10 @@ const T = {
   },
   de: {
     title: 'CSA-2026-01: dein Ergebnis',
+    chrome: { bar0: 'Community-Projekt.', bar1: 'Nicht mit GL.iNet verbunden, nicht von GL.iNet unterstützt oder betrieben. Suchst du den Hersteller?', brand: 'Inoffiziell · für GL.iNet-Router', nav0: 'Sicherheit', nav1: 'Stöbern', nav2: 'So installierst du', nav3: 'Über uns',
+      f0: 'Community', f1: 'GitHub-Organisation', f2: 'Fehler und Wünsche', f3: 'Sicherheitshinweise', f4: 'Quelltext des Skripts und dieser Seite', f5: 'Offizielle Seiten von GL.iNet', f6: 'Website von GL.iNet', f7: 'Dokumentation von GL.iNet', f8: 'Firmware-Downloads', f9: 'Forum von GL.iNet',
+      f10: 'gl-i.net ist eine unabhängige, von der Community betriebene Seite. Sie ist nicht mit GL.iNet verbunden, wird nicht von GL.iNet unterstützt oder betrieben und ist kein offizielles Produkt, kein Shop und kein Support-Kanal von GL.iNet. GL.iNet ist eine Marke ihres Inhabers und wird hier nur verwendet, um zu beschreiben, um welche Geräte es auf dieser Seite geht.',
+      f11: 'Diese Seite erklärt ein Ergebnis. Sie prüft nichts und speichert nichts.', f12: 'Keine Cookies · Kein Tracking · Keine externen Schriften' },
     crumbs: ['Sicherheitshinweise', 'CSA-2026-01', 'Dein Ergebnis'],
     eyebrow: 'Dein Ergebnis · Community-Skript {v} · {dev}', eyebrowHand: 'Was du angekreuzt hast · {dev}',
     // German needs the article with the word: "der Router" but "das Gerät"
@@ -288,6 +372,10 @@ const T = {
   },
   zh: {
     title: 'CSA-2026-01：你的检查结果',
+    chrome: { bar0: '社区项目。', bar1: '与 GL.iNet 没有隶属关系，未获其认可，也不由其运营。要找厂商官网？', brand: '非官方 · 适用于 GL.iNet 路由器', nav0: '安全', nav1: '浏览', nav2: '安装方法', nav3: '关于',
+      f0: '社区', f1: 'GitHub 组织', f2: '问题与建议', f3: '安全公告', f4: '脚本和本页面的源代码', f5: 'GL.iNet 官方资源', f6: 'GL.iNet 官网', f7: 'GL.iNet 文档', f8: '固件下载', f9: 'GL.iNet 论坛',
+      f10: 'gl-i.net 是一个独立的、由社区运营的网站。它与 GL.iNet 没有隶属关系，未获其认可，也不由其运营，不是 GL.iNet 的官方产品、商店或支持渠道。GL.iNet 是其所有者的商标，这里使用它只是为了说明本页面涉及哪些设备。',
+      f11: '本页面只解释检查结果，不检查任何设备，也不保存任何内容。', f12: '无 Cookie · 无跟踪 · 无外部字体' },
     crumbs: ['安全公告', 'CSA-2026-01', '你的检查结果'],
     eyebrow: '你的检查结果 · 社区脚本 {v} · {dev}', eyebrowHand: '你勾选的情况 · {dev}',
     dev: { r: '路由器', k: 'KVM 设备', u: '设备' },
@@ -407,9 +495,10 @@ function render() {
   const t = T[lang], c = read(), page = document.getElementById('page');
   document.documentElement.lang = lang === 'zh' ? 'zh-Hans' : lang; document.title = t.title;
   for (const b of document.querySelectorAll('.lang button')) b.setAttribute('aria-pressed', String(b.dataset.lang === lang));
+  for (const n of document.querySelectorAll('[data-t]')) n.textContent = t.chrome[n.dataset.t];
   page.replaceChildren();
   const cr = el('nav', null, 'crumbs'); cr.setAttribute('aria-label', 'Breadcrumb');
-  [['https://gl-i.net/security/', t.crumbs[0]], [ADVISORY, t.crumbs[1]], ['', t.crumbs[2]]].forEach(([href, name], i) => { if (i) cr.append(el('span', '/')); const a = el(href ? 'a' : 'b', name); if (href) a.href = href; cr.append(a); });
+  [['https://gl-i.net/', 'Community Apps'], ['https://gl-i.net/security/', t.crumbs[0]], [ADVISORY, t.crumbs[1]], ['', t.crumbs[2]]].forEach(([href, name], i) => { if (i) cr.append(el('span', '/', 'sep')); const a = el(href ? 'a' : 'b', name); if (href) a.href = href; cr.append(a); });
   page.append(cr);
   if (!c.v) return pick(t, page);
 
