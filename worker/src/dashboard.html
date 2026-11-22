@@ -213,6 +213,13 @@ tr.row.fresh td { background: var(--accent-soft); }
 .kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
 .kpis2 .kpi { padding: 12px 14px; background: var(--surface-2); border: 0; }
 .kpis2 .kpi .value { font-size: 24px; }
+.kpis2.wide { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.rank.plain li { cursor: default; } .rank.plain li:hover .name { color: inherit; }
+.rank .num small { margin-left: 6px; font-weight: 400; color: var(--text-2); }
+.rank li.few > * { opacity: .55; }
+.cols3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 28px; margin-top: 6px; }
+.cols3 h3 { margin: 10px 0 0; font-size: 12.5px; color: var(--text-2); }
+tr.few td { color: var(--text-2); } tr.few td b { font-weight: 600; }
 /* the attack course: events along a horizontal rail, with room for each */
 .courseBox { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px 28px; align-items: center; margin-top: 6px; }
 .course { margin: 26px 0 6px; padding: 0; list-style: none; display: flex; align-items: flex-start; }
@@ -363,6 +370,13 @@ tr.row.fresh td { background: var(--accent-soft); }
   </section>
 
   <section class="card" style="margin-top:12px">
+    <h2>Is it still going on</h2>
+    <p class="sub">The newest signs of the attack in this selection. New attacks would move the first two; the last two show whether the shells of 20 November are still being fed. Times are UTC.</p>
+    <div class="grid kpis2 wide" id="ongoing"></div>
+    <p class="peak" id="ongoingNote"></p>
+  </section>
+
+  <section class="card" style="margin-top:12px">
     <h2>How an attack ran</h2>
     <p class="sub" id="courseSub"></p>
     <div class="courseBox">
@@ -390,7 +404,8 @@ tr.row.fresh td { background: var(--accent-soft); }
     <div class="card"><h2>Devices</h2><p class="sub">Click a bar to filter.</p><ul class="rank" id="devices"></ul><p class="more" id="devicesMore"></p></div>
     <div class="card"><h2>Firmware</h2><p class="sub">The version, with beta or rc where the device reports one. Build number and date are in each report.</p><ul class="rank" id="firmwares"></ul><p class="more" id="firmwaresMore"></p></div>
     <div class="card"><h2>Evidence</h2><p class="sub">Devices per kind of trace. One device can have several.</p><ul class="rank" id="kinds"></ul></div>
-    <div class="card" data-w="half"><h2>Traces by cloud setting</h2><p class="sub">Share of devices with traces, by what was switched on. The setting at the time of the check, which many changed after the attack. “Bound” means linked to a GoodCloud account.</p><div class="scroll" id="cloudSet"></div></div>
+    <div class="card" data-w="half"><h2>Share hit by firmware series</h2><p class="sub">Routers with traces out of all routers that reported, per release series. Test builds count with their series.</p><ul class="rank plain" id="series"></ul><p class="peak dim" id="seriesNote"></p></div>
+    <div class="card" data-w="half"><h2>Traces by cloud setting</h2><p class="sub">Share of devices with traces, by what was switched on. The setting at the time of the check, which many changed after the attack. “Bound” means linked to a GoodCloud account. Remote SSH and web access count as on only while GoodCloud is on: the stored setting is “on” by default on many firmware versions.</p><div class="scroll" id="cloudSet"></div></div>
   </section>
 
   <section class="grid two">
@@ -402,6 +417,13 @@ tr.row.fresh td { background: var(--accent-soft); }
     <h2>Unusual changes seen on several devices</h2>
     <p class="sub" id="reviewSub">What the script listed for review, not known traces. Most of it is harmless and the owner’s own. Look for a change that many devices with traces share and clean ones do not. Click a row to see which devices sent it and which files stand behind it. Mark what you have looked at as probably safe, here or in a single report, and it is hidden for everyone; a new file at the same path brings it back. The marks build up a list of what is known to be harmless.</p>
     <div class="scroll" id="reviews"></div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <h2>Older backdoor</h2>
+    <p class="sub">urandom_seed / ulogd: not the attack of 20 November, and counted apart from it. Which devices carry it and when its loader was written.</p>
+    <p class="peak" id="bdFacts"></p>
+    <div class="cols3" id="bdBox"></div>
   </section>
 
   <section class="card glossary" data-shut="1"><h2>What each kind of evidence means</h2><dl id="glossaryList"></dl></section>
@@ -517,6 +539,9 @@ function shape(x) {
   if (r.platform === 'openwrt' && r.astrowarp !== 'on' && (r.state_file_size === null || r.state_file_size === 0) && ts(r.state_file_time) >= ATTACK_FROM && !r.findings.some((f) => f.startsWith('cloud-command'))) {
     r.findings = [...r.findings, 'cloud-command /etc/mp_ip_mapping_info']; r.ioc += 1; r.derived = true;
   }
+  // Remote SSH and web access are stored settings, "on" by default on many firmware
+  // versions, and only in use while GoodCloud is on. With GoodCloud off they count as off.
+  if (r.goodcloud === 'off') { if (r.rtty_ssh === 'on') r.rtty_ssh = 'off'; if (r.rtty_web === 'on') r.rtty_web = 'off'; }
   r.id = x.id || x.received + JSON.stringify(x.report).length;
   r.recvIso = x.received;
   r.dev = r.device_id || '';
@@ -716,14 +741,15 @@ async function setLabel(g, verdict, note) {
 function cloudSettings(base) {
   const box = $('cloudSet'); box.replaceChildren();
   const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Setting', ''], ['With traces', 'n'], ['Older backdoor', 'n']]) hd.append(el('th', t, c));
-  tb.append(hd); let any = false;
+  tb.append(hd); let any = false, thin = false;
   for (const [name, key] of [['GoodCloud', 'goodcloud'], ['Bound to an account', 'cloud_bound'], ['Remote SSH', 'rtty_ssh'], ['Remote web access', 'rtty_web'], ['AstroWarp', 'astrowarp']]) for (const v of ['on', 'off']) {
     const rows = base.filter((r) => r[key] === v); if (!rows.length) continue; any = true;
     const h = rows.filter((r) => r.ioc > 0).length, bd = rows.filter((r) => r.bd).length, tr = el('tr'), w = el('td', null, 'n');
     w.append(el('b', Math.round(h / rows.length * 100) + '%'), el('small', ` ${h} of ${rows.length}`, 'dim'));
-    tr.append(el('td', name + ': ' + v), w, el('td', bd || '–', 'n')); tb.append(tr);
+    tr.append(el('td', name + ': ' + v), w, el('td', bd || '–', 'n')); if (rows.length < 20) { tr.className = 'few'; thin = true; } tb.append(tr);
   }
-  if (any) box.append(tb); else box.append(el('p', 'No report says yet. GoodCloud and AstroWarp come with script 2.23, the binding and remote access with 2.28.', 'peak'));
+  if (any) { box.append(tb); if (thin) box.append(el('p', 'Rows in grey rest on fewer than 20 devices: too few to read anything into.', 'peak dim')); }
+  else box.append(el('p', 'No report says yet. GoodCloud and AstroWarp come with script 2.23, the binding and remote access with 2.28.', 'peak'));
 }
 function revGroups(rows) {
   const m = new Map();
@@ -887,6 +913,57 @@ function course(hit) {
   $('courseSub').textContent = marks.length ? 'The middle value of each time across the devices in this selection, from left to right. Times are UTC.' : 'No report with times in this selection (needs script 2.2 or newer).';
   $('courseStats').replaceChildren(kpi('Attacker active for', dur(active), null, 'From the start of the shell to the last data through it.'), kpi('Found after', dur(found), null, 'From the first trace to the check that reported it.'));
 }
+// Bars that only show a number, not a filter: [name, bar length 0..1, number, small text, thin]
+function bars(node, list, empty) {
+  node.replaceChildren();
+  for (const [name, w, num, small, few] of list) {
+    const li = el('li', null, few ? 'few' : ''), t = el('span', null, 'track'), bar = el('i'), n = el('span', num, 'num');
+    bar.style.width = Math.max(0, Math.min(1, w)) * 100 + '%'; if (!w) bar.style.minWidth = '0'; t.append(bar); if (small) n.append(el('small', small));
+    li.append(el('span', name, 'name'), t, n); node.append(li);
+  }
+  if (!list.length) node.append(el('li', empty || 'Nothing to show.', 'dim'));
+}
+// The newest signs of the attack. A shell writes what the other end sends into its pipe,
+// so a pipe written shortly before the check means data still arrives; two reports from
+// one device give the time between two writes.
+function ongoing(base, hit) {
+  const newest = Math.max(...all.map((r) => r.recv)), max = (a) => (a.length ? Math.max(...a) : NaN), ago = (t) => (isFinite(t) ? dur(newest - t) + ' before the newest report' : '');
+  const cmd = base.filter((r) => r.kinds.includes('cloud-command')).map((r) => ts(r.state_file_time)).filter(isFinite), lastCmd = max(cmd);
+  const sh = hit.map((r) => ts(r.shell_started)).filter(isFinite), lastSh = max(sh);
+  const run = hit.filter((r) => r.kinds.includes('process remote-shell')), fed = run.filter((r) => { const d = ts(r.checked_at) - ts(r.pipe_time); return d > -5 * 60000 && d < 10 * 60000; }), lastFed = max(fed.map((r) => ts(r.checked_at)));
+  // the beat: over every report, also the folded ones, the gaps between pipe times of one device
+  const byDev = new Map(); for (const r of all) if (r.dev && isFinite(ts(r.pipe_time))) (byDev.get(r.dev) || byDev.set(r.dev, new Set()).get(r.dev)).add(ts(r.pipe_time));
+  const gaps = []; for (const [d, set] of byDev) { const t = [...set].sort((a, b) => a - b); for (let i = 1; i < t.length; i++) { const g = Math.round((t[i] - t[i - 1]) / 1000); if (g > 0 && g < 3600) gaps.push([d, g]); } }
+  const beat = count(gaps, (g) => g[1])[0], on = beat ? new Set(gaps.filter((g) => Math.abs(g[1] - beat[0]) <= 5 || Math.abs(g[1] % beat[0]) <= 5).map((g) => g[0])).size : 0;
+  $('ongoing').replaceChildren(
+    kpi('Last command from the cloud', fmt(lastCmd), null, cmd.length ? `${ago(lastCmd)}. Newest state file of ${cmd.length} devices.` : 'No report with the state file in this selection.'),
+    kpi('Last remote shell started', fmt(lastSh), null, sh.length ? `${ago(lastSh)}. Of ${sh.length} shells with a start time.` : 'No report with a shell start in this selection.'),
+    kpi('Shells that still got data', fed.length, 'of ' + run.length + ' running', fed.length ? `Their pipe was written less than 10 minutes before the check. Last such check: ${fmt(lastFed)}.` : 'No running shell with a recent write to its pipe.'),
+    kpi('Data arrives every', beat && on >= 3 ? beat[0] + ' s' : '–', beat && on >= 3 ? `on ${on} devices` : '', beat && on >= 3 ? 'The time between two writes to the pipe, on devices that reported more than once. A steady beat means the other end still sends.' : 'Needs three devices with a running shell that reported more than once.'));
+  $('ongoingNote').textContent = isFinite(lastCmd) && fed.length ? 'No newer command does not mean it is over: the shells opened on 20 November stay open until the device restarts.' : '';
+}
+// Routers by release series: the share with traces. "4.11: 0 of 250" is the kind of line
+// the grid of models hides.
+function series(base) {
+  const m = new Map();
+  for (const r of base) { if (r.type !== 'Router') continue; const k = (/^(\d+\.\d+)/.exec(r.fw) || [])[1]; if (!k) continue; const g = m.get(k) || m.set(k, [0, 0]).get(k); g[0]++; if (r.ioc > 0) g[1]++; }
+  bars($('series'), [...m].sort((a, b) => verKey(a[0]).localeCompare(verKey(b[0]))).map(([k, [n, h]]) => [k, h / n, Math.round(h / n * 100) + '%', `${h} of ${n}`, n < 10]), 'No router in this selection.');
+  $('seriesNote').textContent = m.size ? 'A device counts with the firmware of its report with the most traces. Grey: fewer than 10 routers.' : '';
+}
+// The older backdoor: where it sits and when its loader was written (the time on
+// /bin/ulogd; where the change time is much later, that one).
+function backdoor(base) {
+  const rows = base.filter((r) => r.bd), box = $('bdBox'); box.replaceChildren();
+  if (!rows.length) { $('bdFacts').textContent = 'No report with the older backdoor in this selection.'; return; }
+  const loaders = rows.flatMap((r) => r.files.filter((f) => f.path === '/bin/ulogd')), sizes = count(loaders.filter((f) => f.size), (f) => f.size), hashes = new Set(loaders.map((f) => f.sha256)).size;
+  const run = rows.filter((r) => r.kinds.includes('backdoor-proc')).length, also = rows.filter((r) => r.ioc > 0).length, keep = rows.filter((r) => r.kinds.includes('backdoor-keep')).length;
+  $('bdFacts').textContent = `${rows.length} devices. Running on ${run}, kept across firmware updates on ${keep}, ${also} also show the attack of 20 November.` + (loaders.length ? ` ${hashes} different loaders on ${loaders.length} devices` + (sizes.length ? `, in ${sizes.length} size${sizes.length === 1 ? '' : 's'} (${sizes.map((x) => Number(x[0]).toLocaleString('en') + ' bytes: ' + x[1]).join(', ')}).` : '.') : '');
+  const col = (title, pairs) => { const d = el('div'), ul = el('ul', null, 'rank plain'), mx = Math.max(1, ...pairs.map((x) => x[1])); bars(ul, pairs.map(([k, n]) => [k, n / mx, n])); d.append(el('h3', title), ul); box.append(d); };
+  col('By model', count(rows, (r) => r.model).slice(0, 8));
+  col('By firmware', count(rows, (r) => r.fw).slice(0, 8));
+  const when = (f) => (f.ctime && lag(f) > LAG ? ts(f.ctime) : ts(f.mtime));
+  col('Loader written in', count(loaders.filter((f) => isFinite(when(f))), (f) => new Date(when(f)).toISOString().slice(0, 7)).sort((a, b) => a[0].localeCompare(b[0])));
+}
 // One tick per shell port. If later shells got higher ports, the server handed them out in
 // order and the span is a floor for how many connections it took; otherwise it says nothing.
 function ports(hit) {
@@ -992,7 +1069,7 @@ function render() {
   chart(pool.filter((r) => pass(r, 'bin') && isHit(r)));
   rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && isHit(r)), FACET.model), 0, 'model');
   rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && isHit(r)), FACET.firmware), 0, 'firmware');
-  course(hit); ports(hit); matrix(); reviews(base); cloudSettings(base);
+  course(hit); ports(hit); matrix(); reviews(base); cloudSettings(base); ongoing(base, hit); series(base); backdoor(base);
   rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && isHit(r)), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
 
   const fm = new Map();
@@ -1003,7 +1080,18 @@ function render() {
   if (fm.size) {
     const tb = el('table'), hd = el('tr'); for (const [t, c] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Typical time (UTC)', 'n'], ['Devices', 'n'], ['Old time', 'n']]) hd.append(el('th', t, c));
     tb.append(hd);
-    for (const g of [...fm.values()].sort((a, b) => a.path.localeCompare(b.path) || b.n - a.n).slice(0, 12)) {
+    // a path where every device has its own file (the older backdoor's loader) is one line
+    const perPath = new Map(); for (const g of fm.values()) (perPath.get(g.path) || perPath.set(g.path, []).get(g.path)).push(g);
+    const list = [];
+    for (const [path, gs] of perPath) {
+      if (gs.length >= 4 && gs.every((g) => g.n === 1)) { const t = gs.map((g) => g.first).filter(isFinite).sort((a, b) => a - b); list.push({ path, own: gs.length, from: t[0], to: t[t.length - 1] }); } else list.push(...gs);
+    }
+    for (const g of list.sort((a, b) => a.path.localeCompare(b.path) || (b.n || 0) - (a.n || 0)).slice(0, 14)) {
+      if (g.own) {
+        const tr = el('tr'), a = el('td', g.path, 'mono'); a.style.cursor = 'pointer'; a.addEventListener('click', () => { F.q = g.path; $('q').value = g.path; page = 0; render(); });
+        const day = (t) => (isFinite(t) ? new Date(t).toISOString().slice(0, 10) : '–');
+        tr.append(a, el('td', `${g.own} different files, one per device`, 'dim'), el('td', day(g.from) === day(g.to) ? day(g.from) : day(g.from) + ' – ' + day(g.to), 'n'), el('td', g.own, 'n'), el('td', '–', 'n')); tb.append(tr); continue;
+      }
       const tr = el('tr'), h = el('td', g.sha256.slice(0, 10) + '…', 'mono dim'); h.title = g.sha256; h.style.cursor = 'pointer';
       h.addEventListener('click', () => { F.q = g.sha256; $('q').value = g.sha256; page = 0; render(); });
       tr.append(el('td', g.path, 'mono'), h, el('td', fmt(g.first), 'n'), el('td', g.n, 'n')); const o = el('td', g.known ? (g.old || 0) + ' of ' + g.known : '–', 'n'); o.title = g.known ? 'Devices where the written time is more than 10 minutes older than the change on the device (ctime): the time came with the file or was set back. Counted over reports that carry a ctime (script 2.13 and later).' : 'No report with a ctime yet (script 2.13 and later).'; tr.append(o); tb.append(tr);
