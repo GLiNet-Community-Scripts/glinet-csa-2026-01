@@ -194,11 +194,26 @@ jobs:
           git checkout -B "$TEST_BRANCH" "origin/${BASE_BRANCH}"
           git commit --allow-empty -m "chore(sync): pipeline self-test (empty commit)"
           git push origin "$TEST_BRANCH"
-          URL=$(gh pr create \
-            --base "$BASE_BRANCH" \
-            --head "$TEST_BRANCH" \
-            --title "chore(sync): pipeline self-test ${GITHUB_RUN_ID}" \
-            --body "Empty commit from the sync workflow self-test: verifies a PR can be opened and merged with the workflow token. No file changes.")
+
+          echo "--- diagnostics ---"
+          gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions' || true
+          gh api "repos/${GITHUB_REPOSITORY}/actions/permissions/workflow" || true
+
+          set +e
+          RESP=$(gh api -X POST "repos/${GITHUB_REPOSITORY}/pulls" \
+            -f title="chore(sync): pipeline self-test ${GITHUB_RUN_ID}" \
+            -f head="$TEST_BRANCH" \
+            -f base="$BASE_BRANCH" \
+            -f body="Empty commit from the sync workflow self-test." 2>&1)
+          RC=$?
+          set -e
+          echo "REST create rc=${RC}"
+          echo "REST create response: ${RESP}"
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::Pull request creation denied: ${RESP}"
+            exit 1
+          fi
+          URL=$(echo "$RESP" | jq -r '.html_url')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Self-test PR: $URL"
           for attempt in 1 2 3 4 5; do
