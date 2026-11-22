@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.39
+VERSION=2.40
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 16:06 UTC'
+RELEASED='2026-11-22 16:15 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1404,6 +1404,9 @@ report_body() {
 		say "   ${GRN}${B}Verdict: no gl-helper indicators found${N}"
 		restart_note
 	fi
+	# directly under the verdict, not at the end: whoever stops the run at the question
+	# about the report has seen it by then
+	result_link 0
 }
 
 # ---------------------------------------------------------------- archive
@@ -2057,7 +2060,8 @@ cloud_advice() {
 	say "   ${D}kept switched it back on.${N}"
 }
 
-# The result as an address. The page behind it explains in plain words, in English, German
+# The result as an address, printed under the verdict (and under the verdict after a
+# clean-up). The page behind it explains in plain words, in English, German
 # and Chinese, what was found and what to do; the output above is written for people who
 # know these devices. The address carries the result as short codes after "#", a part a
 # browser does not send: the script's version, router or KVM, the verdict, the kinds of
@@ -2096,14 +2100,14 @@ result_link() {
 	fi
 	f=; case $1 in 2) f='&f=2' ;; 3) [ "$MODE" = fix ] && f='&f=3' ;; esac
 	[ "${rv:-0}" -gt 0 ] 2>/dev/null && rv="&rv=$rv" || rv=
-	section "Your result in plain words"
+	say ""
+	say "   ${B}This result in plain words, with what to do (English, German, Chinese):${N}"
 	say "   ${B}${RESULT_URL}#v=$VERSION&p=$p&r=$r&k=$k$b&g=$g&n=$n$f$rv${N}"
-	say "   ${D}Open this address in a browser, on any device. The page explains what was found and${N}"
-	say "   ${D}what to do, in English, German and Chinese. The address holds only short codes for this${N}"
-	say "   ${D}result, nothing about you or the device, and opening it sends nothing from here.${N}"
+	say "   ${D}Open the address in a browser, on any device. It holds only short codes for this result,${N}"
+	say "   ${D}nothing about you or the device, and opening it sends nothing from here.${N}"
 }
 
-finish() { cloud_advice; offer_report; result_link "$1"; exit "$1"; }
+finish() { cloud_advice; offer_report; exit "$1"; }
 
 # ---------------------------------------------------------------- main
 report_head
@@ -2138,19 +2142,22 @@ fix)
 	if [ "$(count_gl)" -gt 0 ]; then
 		grep "^IOC${TAB}" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
 		say "   ${RED}Verdict: remediation INCOMPLETE${N}"
+		result_link 3
 		recommend
 		finish 3
 	fi
 	if [ "$(count_bd)" -gt 0 ]; then
 		grep "^IOC${TAB}backdoor-" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
 		say "   ${RED}Verdict: gl-helper indicators removed, the older backdoor is STILL THERE${N}"
+		result_link 3
 		recommend
 		finish 3
 	fi
-	if [ "$FIXRC" != 0 ]; then say "   ${YEL}Verdict: IOCs gone, but some steps reported errors${N}"; recommend; finish 3; fi
+	if [ "$FIXRC" != 0 ]; then say "   ${YEL}Verdict: IOCs gone, but some steps reported errors${N}"; result_link 3; recommend; finish 3; fi
 	say "   ${GRN}${B}Verdict: no gl-helper indicators left${N}"
 	[ "$(count_cmd)" -gt 0 ] && say "   ${D}The state file /etc/mp_ip_mapping_info was left in place: it only shows that the command ran.${N}"
 	grep -q "^IOC${TAB}rtty-server${TAB}" "$FIND" && say "   ${YEL}/etc/rtty_conf still names the attacker's server and was not changed. A factory reset or reflash puts it right.${N}"
+	result_link 2
 	recommend
 	finish 2
 	;;

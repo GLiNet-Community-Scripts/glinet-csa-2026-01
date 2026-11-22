@@ -585,7 +585,8 @@ expect "pipe, changed rc.local and a backdoor server: kinds without paths, b=1, 
 GL_TRIAGE_RESULT_URL=https://example.org/x/ run "$D" "$OWL" --fix >"$D/fix.txt"
 grep 'example.org' "$D/fix.txt"
 expect "after --fix the address still names what was found, and says what the fix did" 'grep "https://example.org/x/#v=" "$D/fix.txt" | grep "[=.]pp" | grep -qE "&f=[23]"'
-expect "the address is the last thing the script prints" 'tail -n 4 "$D/check.txt" | grep -q "csa.gl-i.net/2026-01/#v="'
+expect "the address stands right under the verdict, before the GoodCloud advice and the report" 'grep -A8 "Verdict:" "$D/check.txt" | grep -q "csa.gl-i.net/2026-01/#v=" && [ "$(grep -n "csa.gl-i.net/2026-01/#v=" "$D/check.txt" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^== GoodCloud" "$D/check.txt" | head -n 1 | cut -d: -f1)" ]'
+expect "with --fix it is given again under the verdict after the clean-up" '[ "$(grep -c "https://example.org/x/#v=" "$D/fix.txt")" = 2 ] && grep "https://example.org/x/#v=" "$D/fix.txt" | head -n 1 | grep -qv "&f="'
 umount "$D/m"
 
 echo "=== a copy of this script on the device is not a trace"

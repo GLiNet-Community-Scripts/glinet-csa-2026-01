@@ -336,13 +336,19 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 
 ## 🗣️ The Result in Plain Words
 
-The output is written for people who know these devices. For everyone else every run ends
-with an address (since 2.39):
+The output is written for people who know these devices. For everyone else the script
+prints an address directly under the verdict (since 2.39; under the verdict since 2.40, so
+that it is seen before the question about the report):
 
 ```
-== Your result in plain words
-   https://csa.gl-i.net/2026-01/#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0
+   Verdict: ATTACKED - a command sent through GoodCloud ran on this device
+
+   This result in plain words, with what to do (English, German, Chinese):
+   https://csa.gl-i.net/2026-01/#v=2.40&p=r&r=a&k=cc.fw&g=1&n=0
 ```
+
+With `--fix` it is printed again under the verdict after the clean-up, and then also says
+what the clean-up did.
 
 The page behind it explains what was found, what that means and what to do, in English,
 German and Chinese. The address carries the result as short codes after `#`: the script's
