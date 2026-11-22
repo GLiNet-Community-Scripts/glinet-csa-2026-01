@@ -160,11 +160,21 @@ jobs:
             echo "_Opened by \`.github/workflows/sync-fork.yml\` and merged automatically._"
           } > pr-body.md
 
-          URL=$(gh pr create \
-            --base "$BASE_BRANCH" \
-            --head "$SYNC_BRANCH" \
-            --title "chore(sync): merge upstream $(date -u '+%Y-%m-%d %H:%M') UTC" \
-            --body-file pr-body.md)
+          # REST, not `gh pr create`: the Actions token is refused on the GraphQL
+          # createPullRequest mutation but is permitted on POST /repos/{owner}/{repo}/pulls.
+          set +e
+          RESP=$(gh api -X POST "repos/${GITHUB_REPOSITORY}/pulls" \
+            -f title="chore(sync): merge upstream $(date -u '+%Y-%m-%d %H:%M') UTC" \
+            -f head="$SYNC_BRANCH" \
+            -f base="$BASE_BRANCH" \
+            -f body="$(cat pr-body.md)" 2>&1)
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::Could not open pull request: ${RESP}"
+            exit 1
+          fi
+          URL=$(echo "$RESP" | jq -r '.html_url')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Opened PR: $URL"
 
@@ -196,9 +206,6 @@ jobs:
           git push origin "$TEST_BRANCH"
 
           echo "--- diagnostics ---"
-          gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions' || true
-          gh api "repos/${GITHUB_REPOSITORY}/actions/permissions/workflow" || true
-
           set +e
           RESP=$(gh api -X POST "repos/${GITHUB_REPOSITORY}/pulls" \
             -f title="chore(sync): pipeline self-test ${GITHUB_RUN_ID}" \
