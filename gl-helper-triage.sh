@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.24
+VERSION=2.25
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -620,11 +620,11 @@ check_review() {
 		done
 	fi
 	# accounts
-	rd "$(r etc/passwd)" | awk -F: '$3 == 0 && $1 != "root" {print $1}' | while IFS= read -r a; do
+	rd "$(r etc/passwd)" | awk -F: '$3 == 0 && $1 != "root" {print "name=" $1 " uid=" $3 " shell=" $7 " pw=" ($2 == "" ? "empty" : "set")}' | while IFS= read -r a; do
 		add REVIEW uid0-account "/etc/passwd" "second uid 0 account: $a"
 	done
 	if [ -n "$LOWER" ] && [ -f "$(l etc/passwd)" ] && safe "$(r etc/passwd)"; then
-		awk -F: 'NR==FNR {seen[$1]=1; next} !($1 in seen) {print $1 " (shell " $7 ")"}' \
+		awk -F: 'NR==FNR {seen[$1]=1; next} !($1 in seen) {print "name=" $1 " uid=" $3 " shell=" $7 " pw=" ($2 == "" ? "empty" : "set")}' \
 			"$(l etc/passwd)" "$(r etc/passwd)" 2>/dev/null | while IFS= read -r a; do
 			add REVIEW new-account "/etc/passwd" "account not in base image: $a"
 		done
@@ -1555,12 +1555,16 @@ build_report() {
 	# and account names. For a file its fingerprint, which shows whether two devices have
 	# the same file or only the same path, and its two times (schema 7): when it was written
 	# and when the kernel last changed its entry, which cannot be set back. A process is sent as its kind alone, a
-	# connection as the program that holds it, a deleted program as its path.
+	# connection as the program that holds it, a deleted program as its path. An account
+	# that the firmware does not have goes with its name, number and shell, and whether its
+	# password field is empty: the same odd account on many devices is a pattern, and a
+	# forum user found one (glcloud, uid 2, empty password) that nobody can explain yet.
 	: >"$TMP/revlines"
 	revs=$(awk -F '\t' '$1=="REVIEW" {
 			p = $3; pid = ""
 			if ($2 == "process") p = ""
 			else if ($2 == "connection") { sub(/^[0-9]*\//, "", p) }
+			else if ($2 == "new-account" || $2 == "uid0-account") { a = $4; sub(/^[^:]*: /, "", a); p = "/etc/passwd " a }
 			else if ($2 == "deleted-exe") { pid = $3; p = ""; if (match($4, /exe=.*/)) p = substr($4, RSTART + 4) }
 			print $2 "\t" p "\t" pid
 		}' "$FIND" | sort -u | head -n 40 |

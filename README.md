@@ -353,7 +353,9 @@ and path, at most 40, and for a file its SHA-256 and its two times (written, and
 changed on the device; since 2.24). A program that runs from a deleted file is
 fingerprinted from the copy the kernel still holds. Not the description, which can hold
 addresses, command lines and account names: a process is sent as its kind alone, a
-connection as the name of the program that holds it. These are not known traces. They
+connection as the name of the program that holds it. An account that the firmware does
+not have is sent with its name, number and shell and whether its password field is empty
+(since 2.25), never a password or hash. These are not known traces. They
 are sent so that a pattern across devices can be seen early: the older backdoor stood in
 people's `REVIEW` lists for a day before anyone named it. The paths are shown before the
 question, because a path of your own can say something about you. Their combination is
