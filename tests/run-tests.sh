@@ -571,22 +571,36 @@ run "$D" "$OWL" --check >"$D/check.txt"
 expect "WireGuard server config written seconds after the loader is noted" 'grep -A1 "REVIEW  *backdoor-wg  */etc/config/wireguard_server" "$D/check.txt" | grep -q "written 11 s after"'
 umount "$D/m"
 
-echo "=== the address of the result page carries the result as short codes"
+echo "=== the address of the result page carries the result as a nine-character code"
+# Every code is read back with the page's own reader (worker/src/result.html), so the
+# script and the page cannot drift apart. Needs node; without it these are skipped.
+readcode() { # the code in a file of script output, line $2 of those that carry one -> "v p k g n f rv"
+	node -e 'const fs = require("fs"), h = fs.readFileSync(process.argv[1], "utf8"), src = h.slice(h.indexOf("const B32 = "), h.indexOf("function read() {"));
+		const { decode } = new Function(src + "; return { decode };")(), c = decode(process.argv[2]);
+		console.log(c ? `v=${c.v} p=${c.p} k=${c.k.join(".")} g=${c.g} n=${c.n} f=${c.f} rv=${c.rv}` : "invalid");' \
+		"$(dirname "$T")/worker/src/result.html" "$(grep -o "$3/#[0-9A-Z]*" "$1" | sed -n "${2}p" | sed 's/.*#//')"
+}
 D=$(mkscen link "$OWL")
 mnt "$D" "$OWL"
 run "$D" "$OWL" --check >"$D/check.txt"
-grep 'csa.gl-i.net' "$D/check.txt"
-expect "clean: verdict c, no kinds, GoodCloud not known, a router" 'grep -q "https://csa.gl-i.net/2026-01/#v=[0-9.]*&p=r&r=c&k=&g=x&n=0$" "$D/check.txt"'
+grep -B1 'csa.gl-i.net/#' "$D/check.txt"
+expect "the address is short: the host, a # and nine characters without I, L, O or U" 'grep -qE "^   https://csa\.gl-i\.net/#[0-9A-HJKMNP-TV-Z]{9}$" "$D/check.txt"'
 mkdir -p "$D/m/tmp" "$D/m/etc/config"; mkfifo "$D/m/tmp/f"; printf '#!/bin/sh\nmy-own-thing\n' >"$D/m/etc/rc.local"
 printf "config cloud\n\toption enable '1'\n" >"$D/m/etc/config/gl-cloud"; printf 'x http://up.adguardns.org/\n' >"$D/m/etc/config/other"
-run "$D" "$OWL" --check >"$D/check.txt"
-grep 'csa.gl-i.net' "$D/check.txt"
-expect "pipe, changed rc.local and a backdoor server: kinds without paths, b=1, GoodCloud on" 'grep -qE "#v=[0-9.]+&p=r&r=m&k=[a-z.]+&b=1&g=1&n=0(&rv=[0-9]+)?$" "$D/check.txt" && grep "csa.gl-i.net" "$D/check.txt" | grep -q "[=.]pp" && grep "csa.gl-i.net" "$D/check.txt" | grep -q "[=.]pe" && grep "csa.gl-i.net" "$D/check.txt" | grep -q "[=.]bh" && ! grep "csa.gl-i.net" "$D/check.txt" | grep -q "rc.local\|adguard\|tmp/f"'
+run "$D" "$OWL" --check >"$D/check2.txt"
 GL_TRIAGE_RESULT_URL=https://example.org/x/ run "$D" "$OWL" --fix >"$D/fix.txt"
-grep 'example.org' "$D/fix.txt"
-expect "after --fix the address still names what was found, and says what the fix did" 'grep "https://example.org/x/#v=" "$D/fix.txt" | grep "[=.]pp" | grep -qE "&f=[23]"'
-expect "the address stands right under the verdict, before the GoodCloud advice and the report" 'grep -A8 "Verdict:" "$D/check.txt" | grep -q "csa.gl-i.net/2026-01/#v=" && [ "$(grep -n "csa.gl-i.net/2026-01/#v=" "$D/check.txt" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^== GoodCloud" "$D/check.txt" | head -n 1 | cut -d: -f1)" ]'
-expect "with --fix it is given again under the verdict after the clean-up" '[ "$(grep -c "https://example.org/x/#v=" "$D/fix.txt")" = 2 ] && grep "https://example.org/x/#v=" "$D/fix.txt" | head -n 1 | grep -qv "&f="'
+if command -v node >/dev/null 2>&1; then
+	V=$(sed -n 's/^VERSION=//p' "$T")
+	expect "clean: this version, a router, no findings, GoodCloud not known" '[ "$(readcode "$D/check.txt" 1 csa.gl-i.net)" = "v=$V p=r k= g=x n=0 f=0 rv=0" ]'
+	readcode "$D/check2.txt" 1 csa.gl-i.net
+	expect "pipe, changed rc.local and a backdoor server: their kinds, GoodCloud on" '[ "$(readcode "$D/check2.txt" 1 csa.gl-i.net)" = "v=$V p=r k=pp.bh.pe g=1 n=0 f=0 rv=0" ]'
+	expect "after --fix the second address still names what was found, and says the fix is incomplete" '[ "$(readcode "$D/fix.txt" 1 example.org/x)" = "v=$V p=r k=pp.bh.pe g=1 n=0 f=0 rv=0" ] && [ "$(readcode "$D/fix.txt" 2 example.org/x)" = "v=$V p=r k=pp.bh.pe g=1 n=0 f=3 rv=0" ]'
+else
+	echo "  SKIP: reading the codes back needs node"
+fi
+expect "the address stands right under the verdict, before the GoodCloud advice and the report" 'grep -A8 "Verdict:" "$D/check.txt" | grep -q "csa.gl-i.net/#" && [ "$(grep -n "csa.gl-i.net/#" "$D/check.txt" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^== GoodCloud" "$D/check.txt" | head -n 1 | cut -d: -f1)" ]'
+expect "with --fix it is given again under the verdict after the clean-up" '[ "$(grep -c "https://example.org/x/#" "$D/fix.txt")" = 2 ]'
+expect "nothing of a path or a name is in the address" '! grep "csa.gl-i.net/#" "$D/check2.txt" | grep -qi "rc.local\|adguard\|tmp"'
 umount "$D/m"
 
 echo "=== a copy of this script on the device is not a trace"

@@ -337,26 +337,30 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 ## 🗣️ The Result in Plain Words
 
 The output is written for people who know these devices. For everyone else the script
-prints an address directly under the verdict (since 2.39; under the verdict since 2.40, so
-that it is seen before the question about the report):
+prints an address directly under the verdict:
 
 ```
    Verdict: ATTACKED - a command sent through GoodCloud ran on this device
 
    This result in plain words, with what to do (English, German, Chinese):
-   https://csa.gl-i.net/2026-01/#v=2.40&p=r&r=a&k=cc.fw&g=1&n=0
+   https://csa.gl-i.net/#AA006011D
 ```
 
-With `--fix` it is printed again under the verdict after the clean-up, and then also says
-what the clean-up did.
-
 The page behind it explains what was found, what that means and what to do, in English,
-German and Chinese. The address carries the result as short codes after `#`: the script's
-version, router or KVM, the verdict, the kinds of findings, whether GoodCloud is on,
-whether the device was restarted since the attacks began, what `--fix` did and how many
-review findings there are. No path, no name, no ID. A browser does not send the part after
-`#`, so opening the address sends nothing about the device, and it can be posted in a
-forum as it is. The page does not check anything; it explains the codes it is given.
+German and Chinese. Over ssh the address often cannot be clicked, so it is short enough to
+type: nine characters, capitals or not. They hold the script's version, router or KVM, the
+kinds of findings, whether GoodCloud is on, whether the device was restarted since the
+attacks began, what `--fix` did and whether other changes are listed for review. No path,
+no name, no ID. The ninth character is a check, so a mistyped code is refused instead of
+explaining another result.
+
+The code stands after `#`, a part of an address that a browser does not send: opening it
+sends nothing about the device, and it can be posted in a forum as it is. The page does
+not check anything; it explains the code it is given. With `--fix` the address is printed
+again under the verdict after the clean-up, and then also says what the clean-up did.
+
+Since 2.39; under the verdict since 2.40; nine characters since 2.41. The longer addresses
+of 2.39 and 2.40 still work.
 
 ## 🎛️ Modes
 
