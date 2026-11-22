@@ -46,7 +46,7 @@
 VERSION=2.37
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 12:59 UTC'
+RELEASED='2026-11-22 13:04 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -251,6 +251,15 @@ progress() {
 	fi
 }
 progress_end() { [ "$TTY" = 1 ] && printf '\r\033[K' >&3; return 0; }
+# The same while the evidence archive is built: hashing and copying the overlay can take a
+# minute on a full device, and the screen stayed empty meanwhile.
+working() {
+	if [ "$TTY" = 1 ]; then
+		printf '\r\033[K   %sArchive: %s ...%s' "$D" "$1" "$N" >&3
+	else
+		say "   ${D}archive: $1${N}"
+	fi
+}
 umask 077
 
 TMP=${TMPDIR:-/tmp}/.gl-triage.$$
@@ -1446,6 +1455,7 @@ ARCHIVE=
 collect() {
 	local E list f pid size avail base_shadow
 	E=$TMP/evidence
+	working "details of the device and the report"
 	mkdir -p "$E/meta" "$E/overlay" "$E/files" "$E/proc" "$E/net" "$E/logs" "$E/etc"
 	cp "$FIND" "$E/findings.tsv"
 	palette 0
@@ -1474,6 +1484,7 @@ collect() {
 		df -k >"$E/meta/df.txt" 2>/dev/null
 	fi
 
+	working "fingerprints of every changed file (this can take a while)"
 	# Overlay upper: listing with hashes always, complete copy if small and /tmp has room.
 	if [ -n "$UPPER" ]; then
 		find "$UPPER" -xdev -exec stat -c '%A %U:%G %s %y %N' {} + >"$E/overlay/upper-listing.txt" 2>/dev/null ||
@@ -1489,6 +1500,7 @@ collect() {
 			echo "upper layer is ${size:-?} KiB (free in work dir: ${avail:-?} KiB): only finding paths copied" >"$E/overlay/README.txt"
 		fi
 	fi
+	working "copies of the files that were found"
 	# Always copy the finding paths (merged view) and key files.
 	list=$TMP/copylist
 	awk -F '\t' '$3 ~ /^\// {print substr($3,2)}' "$FIND" >"$list"
@@ -1499,6 +1511,7 @@ collect() {
 		exists "$(r "$f")" || continue
 		tar -C "${ROOT%/}/" -cf - "./$f" 2>/dev/null | tar -C "$E/files/merged" -xf - 2>/dev/null
 	done
+	working "processes, network and logs"
 	# shadow: whether a hash changed, never the hash itself
 	if safe "$(r etc/shadow)" && [ -r "$(r etc/shadow)" ]; then
 		base_shadow=/dev/null
@@ -1533,10 +1546,13 @@ collect() {
 		done
 	fi
 
+	working "taking passwords and keys out of the copies"
 	scrub "$E"
 	(cd "$E" && find . -type f -exec sha256sum {} + >"$TMP/manifest") && mv "$TMP/manifest" "$E/MANIFEST.sha256"
 
+	working "packing"
 	if [ "$STDOUT" = 1 ]; then
+		progress_end
 		tar -C "$TMP" -czf - evidence || die "writing archive to stdout failed"
 		say "   Evidence archive written to stdout."
 		return 0
@@ -1546,6 +1562,7 @@ collect() {
 	tar -C "$TMP" -czf "$ARCHIVE" evidence || { rm -f "$ARCHIVE"; die "writing $ARCHIVE failed"; }
 	tar -tzf "$ARCHIVE" >/dev/null 2>&1 || die "archive verification failed: $ARCHIVE"
 	(cd "$OUTDIR" && sha256sum "${ARCHIVE##*/}" >"${ARCHIVE##*/}.sha256")
+	progress_end
 	section "Evidence archive"
 	kv File "${B}$ARCHIVE${N}"
 	kv sha256 "$(cut -d ' ' -f1 "$ARCHIVE.sha256")"

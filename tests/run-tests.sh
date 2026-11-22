@@ -166,6 +166,7 @@ run "$D" "$KVM_LOWER" --fix >"$D/fix.txt"; rc=$?
 expect "fix on clean device changes nothing, exit 0" '[ $rc = 0 ] && grep -q "nothing to remediate" "$D/fix.txt" && [ -z "$(ls -A "$D/u")" ]'
 run "$D" "$KVM_LOWER" --archive --stdout >"$D/stdout.tar.gz" 2>"$D/stdout.log"; rc=$?
 expect "--archive --stdout gives valid tar.gz, log on stderr" '[ $rc = 0 ] && tar -tzf "$D/stdout.tar.gz" | grep -q evidence/report.txt && grep -q "Verdict" "$D/stdout.log"'
+expect "the archive's progress is shown, on stderr and not in the archive stream" 'grep -q "archive: fingerprints of every changed file" "$D/stdout.log" && grep -q "archive: packing" "$D/stdout.log"'
 umount "$D/m"
 else
 	echo "=== 3./4. KVM: skipped (set KVM_LOWER)"
