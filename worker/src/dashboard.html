@@ -415,13 +415,15 @@ const el = (tag, text, cls) => { const e = document.createElement(tag); if (text
 const ts = (s) => (s ? Date.parse(s.replace(' UTC', 'Z').replace(' ', 'T')) : NaN);
 // every time on the page: full date and time to the minute, UTC
 const fmt = (ms) => (ms == null || !isFinite(ms) ? '–' : new Date(ms).toISOString().slice(0, 16).replace('T', ' '));
-const HOUR = 3600e3, DAY = 24 * HOUR, ATTACK = Date.parse('2026-11-20T00:00:00Z'), WIN = [Date.parse('2026-11-19T12:00:00Z'), Date.parse('2026-11-22T00:00:00Z')];
+const HOUR = 3600e3, DAY = 24 * HOUR, ATTACK = Date.parse('2026-11-20T00:00:00Z'), // the chart's window: from before the attack to the end of today, because by reports devices are still being hit
+  WIN = [Date.parse('2026-11-19T12:00:00Z'), Math.max(Date.parse('2026-11-22T00:00:00Z'), Math.ceil(Date.now() / (24 * 3600e3)) * 24 * 3600e3)];
 
 const KIND = {
   'marker': 'Malware files on the device', 'applet-hijack': 'System tool replaced', 'persist-ref': 'Autostart entry starts the malware',
   'keep-ref': 'Survives a firmware update', 'persistence': 'rc.local or crontab changed', 'process implant': 'Malware process running',
   'process remote-shell': 'Remote shell running', 'process quick-check': 'GL.iNet’s crond indicator running', 'process replaced-tool': 'Replaced tool running',
   'pipe': 'Remote shell’s pipe left behind', 'connection': 'Open connection to the attacker', 'fw-rule': 'Firewall rule left by the attack',
+  'installer-trace': 'Installer was at work (netstat link)', 'lua-bytecode': 'Compiled Lua in the overlay',
   'cloud-command': 'Command from the cloud ran (trace survives a restart)', 'cron-ref': 'Running crontab starts the malware',
   'rtty-server': 'Remote terminal set to the attacker’s server', 'ssh-key': 'SSH key added by the malware',
   'backdoor-init': 'Older backdoor: init script changed', 'backdoor-file': 'Older backdoor: its files', 'backdoor-keep': 'Older backdoor: survives an update',
@@ -430,6 +432,7 @@ const KIND = {
 
 const BD = 'Not the attack of 20 November: an older backdoor that users of GL.iNet’s forum found, on some devices since 2025. ';
 const WHY = {
+  'installer-trace': 'A netstat link to busybox that was made on or after 20 November. The reports show it on KVMs, always made on the evening of the attack, on some next to the malware’s files and on others with nothing else left. The malware’s installer was at work on the device; its files may have been removed since.',
   'cloud-command': '/etc/mp_ip_mapping_info is the state file the cloud client writes each time its SD-WAN handler runs. The attack came in through that handler, with a message that leaves the file empty. An empty file written since 20 November on a device with AstroWarp off shows that such a command ran. Unlike the firewall rule it is still there after a restart. It does not say what the command did: the one that was recovered only looked for the malware and reported back.',
   'cron-ref': 'The crontab the firmware is running from (/tmp/gl_crontabs/root) has the malware’s watchdog line. It restarts the malware every three minutes.',
   'rtty-server': '/etc/rtty_conf names one of the malware’s servers. rtty is the remote terminal service of GL.iNet’s cloud; set like this, the terminal of the device is offered to the attacker.',
@@ -515,7 +518,7 @@ function shape(x) {
   // device, and only the trace that a command from the cloud ran
   r.shell = r.kinds.some((k) => ['process remote-shell', 'pipe', 'connection'].includes(k));
   r.implant = r.kinds.some((k) => ['marker', 'applet-hijack', 'persist-ref', 'keep-ref', 'process implant', 'process quick-check', 'cron-ref', 'rtty-server', 'ssh-key'].includes(k));
-  r.cmd = !r.shell && !r.implant && r.kinds.some((k) => k === 'fw-rule' || k === 'cloud-command');
+  r.cmd = !r.shell && !r.implant && r.kinds.some((k) => k === 'fw-rule' || k === 'cloud-command' || k === 'installer-trace');
   r.cls = r.implant ? 'malware' : r.shell ? 'shell' : r.cmd ? 'command' : r.bd ? 'backdoor' : r.ioc > 0 ? 'other' : 'clean';
   r.upSince = ts(r.checked_at) - r.uptime_s * 1000;
   r.restarted = r.upSince > ATTACK;
@@ -533,7 +536,8 @@ function story(r) {
   const s = [];
   if (r.bd) s.push(r.kinds.includes('backdoor-proc') ? 'Older backdoor (urandom_seed/ulogd) on the device and running.' : 'Older backdoor (urandom_seed/ulogd) on the device.');
   if (r.ioc === 0) return s.join(' ');
-  if (r.cmd) s.push(r.kinds.includes('fw-rule') ? 'A command from the cloud ran. No remote shell or malware found.' : 'A command from the cloud ran, seen after a restart. No remote shell or malware found.');
+  if (r.cmd && r.kinds.includes('installer-trace')) s.push('The malware’s installer was at work (netstat link made during the attack). Its files are not there now.');
+  else if (r.cmd) s.push(r.kinds.includes('fw-rule') ? 'A command from the cloud ran. No remote shell or malware found.' : 'A command from the cloud ran, seen after a restart. No remote shell or malware found.');
   if (r.kinds.includes('process remote-shell')) s.push(`Remote shell running${r.shell_ports.length ? ' on port ' + r.shell_ports.join(', ') : ''}.`);
   else if (r.kinds.includes('pipe')) s.push('Remote shell ran since the last restart, not running now.');
   if (r.kinds.includes('marker')) s.push(r.kinds.includes('process implant') ? 'gl-helper malware on the device and running.' : 'gl-helper malware files on the device.');
