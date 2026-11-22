@@ -1,8 +1,8 @@
 name: T1
 on:
   push:
-jobs:
+permissions:\n  contents: read\njobs:
   a:
     runs-on: ubuntu-latest
     steps:
-      - run: echo hello
+      - run: echo hello\n

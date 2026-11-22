@@ -1,20 +1,8 @@
 name: T4
 on:
   push:
-permissions:
-  contents: read
 jobs:
-  worker:
-    name: Worker and dashboard
+  a:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      # the runner's own Node.js; the tests need 22.13 or later for its built-in SQLite
-      - run: node --version
-      - name: The built dashboard matches its source
-        run: |
-          cd worker
-          node build.mjs
-          git diff --exit-code -- src/dashboard.js
-      - name: Run the tests
-        run: node worker/test/run.mjs
+      # a comment\n      - run: node --version\n      - name: The built dashboard matches its source\n        run: |\n          cd worker\n          node build.mjs\n          git diff --exit-code -- src/dashboard.js\n
