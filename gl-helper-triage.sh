@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.16
+VERSION=2.17
 
 # watch.sh: reported for KVMs, run every three minutes by a second cron daemon
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/glinet/.cache/watch.sh etc/config/.gl/gl-helper etc/config/.gl/gb"
@@ -57,6 +57,15 @@ IOC_RE='gl-helper|/\.gl/|/\.cache/gb'
 FW_PATHS="etc/config/firewall etc/firewall.user etc/firewall.d etc/nftables.d usr/share/nftables.d"
 # The command users found started with this rule (see SHELL_RE below): it is what is left
 # in the firewall after that command ran.
+# The handler behind that rule ends each run by writing its state file,
+# /etc/mp_ip_mapping_info. It writes one line per entry that has a MAC address; the
+# attack's message has none, so the file is empty. The rule is gone after a restart or
+# when the cloud client stops, the file stays. An empty file written since the attack
+# began, on a device that does not use AstroWarp, therefore shows that such a message
+# ran, also after a restart. Worked out by a forum user from the memory of the cloud
+# client on a GL-BE9300; the one message recovered there only listed the malware's
+# folders and sent the listing to the attacker's server, it installed nothing.
+ATTACK_FROM='2026-11-20 00:00:00 UTC'
 FW_RULE_RE='^-A SDWAN_IP_MAPPING .*-d 127\.0\.0\.1(/32)? .*--to-destination 127\.0\.0\.1'
 # Running processes. PROC_RE is GL.iNet's own quick check for routers (forum, 2026-11-21):
 # "ps | grep tmp" shows "crond -i /tmp/.log". SHELL_RE is a remote root shell that users
@@ -705,6 +714,15 @@ check_exes() {
 # since the last boot, and its time is the last data that went through it.
 # /etc/mp_ip_mapping_info is the state file of the cloud handler (SD-WAN IP mapping) that
 # the reported command came through; the handler rewrites it each time it runs.
+# Is AstroWarp (SD-WAN) switched on? "option enable '1'" in the global section of
+# /etc/config/mptun, which is what the firmware's own check reads.
+astrowarp_on() {
+	[ -f "$(r etc/config/mptun)" ] || return 1
+	awk '/^[[:space:]]*config[[:space:]]/ { g = ($0 ~ /global/) }
+		g && /^[[:space:]]*option[[:space:]]+enable[[:space:]]/ { v = $0; gsub(/.*enable[[:space:]]+|[\047"]/, "", v); if (v == "1") f = 1 }
+		END { exit !f }' "$(r etc/config/mptun)" 2>/dev/null
+}
+
 check_tmp() {
 	local f
 	exists "$(r tmp/.log)" && add REVIEW tmp-file /tmp/.log "path from GL.iNet's quick check (crond -i /tmp/.log) exists"
@@ -712,7 +730,14 @@ check_tmp() {
 	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(file_time "$f")"
 	f=$(r etc/mp_ip_mapping_info)
 	if [ -f "$f" ]; then
-		add REVIEW state-file /etc/mp_ip_mapping_info "written $(file_time "$f"), $(cat "$f" 2>/dev/null | wc -c | tr -d ' ') bytes: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
+		local t n aw
+		t=$(file_time "$f") n=$(cat "$f" 2>/dev/null | wc -c | tr -d ' ')
+		aw=off; astrowarp_on && aw=on
+		if [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
+			add IOC cloud-command /etc/mp_ip_mapping_info "written $t, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
+		else
+			add REVIEW state-file /etc/mp_ip_mapping_info "written $t, $n bytes, AstroWarp $aw: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
+		fi
 	fi
 	return 0
 }
@@ -833,7 +858,12 @@ detect() {
 
 count() { grep -c "^$1${TAB}" "$FIND"; }
 # IOC findings of the incident of 2026-11-20 (--fix handles these) and of the older backdoor
-count_gl() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/' "$FIND" | wc -l | tr -d ' '; }
+count_gl() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command"' "$FIND" | wc -l | tr -d ' '; }
+# Traces that only say "a crafted command from the cloud ran": the rule it leaves in the
+# firewall and the handler's empty state file. And everything else of this incident:
+# malware files, autostart entries, a remote shell.
+count_cmd() { awk -F '\t' '$1=="IOC" && ($2=="cloud-command" || $2=="fw-rule")' "$FIND" | wc -l | tr -d ' '; }
+count_hard() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command" && $2 != "fw-rule"' "$FIND" | wc -l | tr -d ' '; }
 count_bd() { awk -F '\t' '$1=="IOC" && $2 ~ /^backdoor-/' "$FIND" | wc -l | tr -d ' '; }
 
 level_color() {
@@ -914,19 +944,26 @@ report_body() {
 	fi
 	section "Result"
 	say "   Summary: $(tally IOC) $(tally PERSIST) $(tally REVIEW) $(tally INFO)"
-	[ "$(count_gl)" -gt 0 ] && say "   ${RED}IOC${N}      a known trace of the implant. --fix removes it."
+	[ "$(count_hard)" -gt 0 ] && say "   ${RED}IOC${N}      a known trace of the malware or of a remote shell. --fix removes it."
+	[ "$(count_cmd)" -gt 0 ] && say "   ${RED}IOC${N}      cloud-command, fw-rule: a crafted command from the cloud ran on this device."
 	[ "$(count_bd)" -gt 0 ] && say "   ${RED}IOC${N}      backdoor-*: a trace of the older backdoor. --fix does NOT remove it, see below."
 	[ "$(count PERSIST)" -gt 0 ] && say "   ${YEL}PERSIST${N}  a changed rc.local or root crontab. --fix resets it only when an IOC was found."
 	[ "$(count REVIEW)" -gt 0 ] && say "   ${CYA}REVIEW${N}   an unusual change, not proof of an infection. Check whether it is yours. Never modified."
 	[ "$(count INFO)" -gt 0 ] && say "   ${D}INFO     context, for example files installed by a package.${N}"
 	say ""
-	if [ "$(count_gl)" -gt 0 ] && [ "$(count_bd)" -gt 0 ]; then
+	if [ "$(count_hard)" -gt 0 ] && [ "$(count_bd)" -gt 0 ]; then
 		say "   ${RED}Verdict: INFECTED - gl-helper indicators and the older backdoor (urandom_seed/ulogd) found${N}"
 	elif [ "$(count_bd)" -gt 0 ]; then
 		say "   ${RED}Verdict: INFECTED - older backdoor (urandom_seed/ulogd) found${N}"
 		say "   ${D}Not the incident of 2026-11-20: no gl-helper indicators found.${N}"
-	elif [ "$n_ioc" -gt 0 ]; then
+		[ "$(count_cmd)" -gt 0 ] && say "   ${D}A crafted command from the cloud also ran on this device (cloud-command / fw-rule).${N}"
+	elif [ "$(count_hard)" -gt 0 ]; then
 		say "   ${RED}Verdict: INFECTED - gl-helper indicators found${N}"
+	elif [ "$(count_cmd)" -gt 0 ]; then
+		say "   ${RED}Verdict: ATTACKED - a command sent through GoodCloud ran on this device${N}"
+		say "   ${D}No malware files and no remote shell were found. The one such command that was recovered${N}"
+		say "   ${D}only looked for the malware and reported back; others opened a remote shell. What ran${N}"
+		say "   ${D}here cannot be told from the device, least of all after a restart.${N}"
 	else
 		say "   ${GRN}${B}Verdict: no gl-helper indicators found${N}"
 	fi
@@ -1107,6 +1144,8 @@ fix() {
 		say ""
 		if [ "$(count_bd)" -gt 0 ]; then
 			say "   ${YEL}Nothing was changed. --fix does not remove the older backdoor: reflash the firmware.${N}"
+		elif [ "$(count_cmd)" -gt 0 ]; then
+			say "   Nothing to remove: the state file only shows that the command ran. It was left in place."
 		else
 			say "   No IOC found, nothing to remediate. REVIEW items were not touched."
 		fi
@@ -1183,6 +1222,10 @@ fix() {
 recommend() {
 	section "Next steps"
 	say "   - Copy the evidence archive off the device and keep it."
+	if [ "$(count_cmd)" -gt 0 ] && [ "$(count_hard)" = 0 ]; then
+		say "   - A command from the attacker ran here as root. It could read every key and password on"
+		say "     the device, so the steps below apply even though nothing was installed."
+	fi
 	if [ "$(count_bd)" -gt 0 ]; then
 		say "   ${B}- The older backdoor: reflash the firmware with \"keep settings\" OFF. It survives an${N}"
 		say "   ${B}  update that keeps settings. Do not restore a backup taken from this device.${N}"
@@ -1431,7 +1474,7 @@ fix)
 	{ [ -n "$ARCHIVE" ] && [ -s "$ARCHIVE" ]; } || die "no verified archive, refusing to change anything"
 	if [ "$(count_gl)" = 0 ]; then
 		fix
-		[ "$(count_bd)" -gt 0 ] && { recommend; finish 1; }
+		{ [ "$(count_bd)" -gt 0 ] || [ "$(count_cmd)" -gt 0 ]; } && { recommend; finish 1; }
 		finish 0
 	fi
 	fix
@@ -1453,6 +1496,7 @@ fix)
 	fi
 	if [ "$FIXRC" != 0 ]; then say "   ${YEL}Verdict: IOCs gone, but some steps reported errors${N}"; recommend; finish 3; fi
 	say "   ${GRN}${B}Verdict: no gl-helper indicators left${N}"
+	[ "$(count_cmd)" -gt 0 ] && say "   ${D}The state file /etc/mp_ip_mapping_info was left in place: it only shows that the command ran.${N}"
 	recommend
 	finish 2
 	;;

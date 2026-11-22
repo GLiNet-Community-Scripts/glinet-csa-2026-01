@@ -111,8 +111,21 @@ and says to treat a router with such a shell as compromised. The script reports 
   restart, so it shows that the shell ran since the last boot. Its time is the last data
   that went through it. `--fix` removes it after the archive is written.
 
-`/etc/mp_ip_mapping_info`, the state file that the cloud handler rewrites each time it
-runs, is listed as `REVIEW` with its time. It is normal on a router that uses AstroWarp.
+`/etc/mp_ip_mapping_info` is the state file that the cloud handler writes at the end of
+each run, one line per entry that has a MAC address. The attack's message has none, so
+it leaves the file empty. The firewall rule is gone after a restart or when the cloud
+client stops; the file stays. So the script reports as `IOC` (`cloud-command`) a state
+file that is empty, was written on or after 20 November 2026 and sits on a device where
+AstroWarp is switched off. In every other case the file is `REVIEW` with its time and
+size, because it is normal on a router that uses AstroWarp.
+
+This trace and the firewall rule only show that a crafted command ran. With nothing
+else found, the verdict is `ATTACKED`, not `INFECTED`: a forum user recovered one such
+message from the memory of the cloud client on a GL-BE9300, and it only listed the
+malware's folders and sent the listing to the attacker's server. Other devices got a
+remote shell through the same handler. What ran on a given device cannot be told
+afterwards, so the advice on keys and passwords is the same. `--fix` has nothing to
+remove for it and leaves the file in place.
 
 The same post adds two wider checks, which the script runs as well and reports as
 `REVIEW`: processes that look like `nc`, `netcat`, `socat`, `/bin/sh -i` or `mkfifo`, and

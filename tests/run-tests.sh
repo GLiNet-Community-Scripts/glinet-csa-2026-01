@@ -191,14 +191,14 @@ D=$(mkscen fw "$OWL"); U=$D/u
 mkdir -p "$U/etc/config" "$U/etc/nftables.d"
 printf "config defaults\n\toption input 'REJECT'\n\nconfig redirect\n\toption name 'evil'\n\toption dest_ip '10.9.9.9'\n" >"$U/etc/config/firewall"
 printf '# comment\nchain x { tcp dport 22 accept }\n' >"$U/etc/nftables.d/10-x.nft"
-: >"$U/etc/mp_ip_mapping_info"
+printf 'aa:bb:cc:dd:ee:ff 10.0.0.2 192.168.8.2\n' >"$U/etc/mp_ip_mapping_info"
 mnt "$D" "$OWL"
 run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
 sed -n '/== Firewall/,/== Result/p' "$D/check.txt"
 expect "changed firewall config = REVIEW with 3 new lines, exit 0" '[ $rc = 0 ] && grep -q "REVIEW  *fw-config  *\/etc\/config\/firewall" "$D/check.txt" && grep -q "3 lines that are not in it" "$D/check.txt"'
 expect "new lines are listed, unchanged ones are not" 'grep -q "option dest_ip .10.9.9.9." "$D/check.txt" && ! grep -q "option input" "$D/check.txt"'
 expect "new nftables include = REVIEW, comment not listed" 'grep -q "REVIEW  *fw-config  *\/etc\/nftables.d\/10-x.nft" "$D/check.txt" && grep -q "tcp dport 22 accept" "$D/check.txt" && ! grep -q "# comment" "$D/check.txt"'
-expect "state file of the cloud handler = REVIEW with its time" 'grep -A1 "REVIEW  *state-file  *\/etc\/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 20.* UTC, 0 bytes"'
+expect "state file with entries = REVIEW with its time" 'grep -A1 "REVIEW  *state-file  *\/etc\/mp_ip_mapping_info" "$D/check.txt" | grep -q "written 20.* UTC, 39 bytes, AstroWarp off"'
 run "$D" "$OWL" --archive >/dev/null
 expect "firewall config is in the archive" 'tar -tzf "$(ls "$D"/out/*.tar.gz)" | grep -q "files/merged/etc/config/firewall"'
 umount "$D/m"
@@ -347,6 +347,26 @@ expect "shadow summary is written when the base image has no shadow file" 'grep 
 expect "the device itself is untouched" 'grep -q SECRETSSHKEY "$D/m/root/.ssh/id_rsa" && grep -q SECRETHASH "$D/m/etc/shadow" && grep -q SECRETWGKEY "$D/m/etc/config/wireguard"'
 rm -rf "$D/x" "$D"/out/*; run "$D" "$OWL" --archive --with-secrets >/dev/null; mkdir "$D/x"; tar -xzf "$(ls "$D"/out/*.tar.gz)" -C "$D/x"
 expect "--with-secrets keeps keys, never the password hash" 'grep -rq SECRETSSHKEY "$D/x" && grep -rq SECRETWGKEY "$D/x" && ! grep -rq SECRETHASH "$D/x"'
+umount "$D/m"
+
+echo "=== the handler's empty state file: a command ran, also after a restart"
+D=$(mkscen cmd "$OWL"); U=$D/u
+mkdir -p "$U/etc/config"; : >"$U/etc/mp_ip_mapping_info"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "empty, written since the attack, AstroWarp off = IOC, verdict ATTACKED, exit 1" '[ $rc = 1 ] && grep -q "IOC  *cloud-command  */etc/mp_ip_mapping_info" "$D/check.txt" && grep -q "Verdict: ATTACKED" "$D/check.txt" && ! grep -q "Verdict: INFECTED" "$D/check.txt"'
+run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
+expect "--fix has nothing to remove, leaves the file, exit 1" '[ $rc = 1 ] && grep -q "Nothing to remove" "$D/fix.txt" && [ -f "$D/m/etc/mp_ip_mapping_info" ]'
+touch -d '2026-10-01 12:00:00 UTC' "$D/m/etc/mp_ip_mapping_info"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "empty but written before the attack = REVIEW, exit 0" '[ $rc = 0 ] && grep -q "REVIEW  *state-file" "$D/check.txt"'
+touch "$D/m/etc/mp_ip_mapping_info"; printf "config mptun 'global'\n\toption enable '1'\n" >"$D/m/etc/config/mptun"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "empty and recent, but AstroWarp is on = REVIEW, exit 0" '[ $rc = 0 ] && grep -q "REVIEW  *state-file.*" "$D/check.txt" && grep -q "AstroWarp on" "$D/check.txt"'
+printf "config mptun 'global'\n\toption enable '0'\n\nconfig other 'x'\n\toption enable '1'\n" >"$D/m/etc/config/mptun"
+mkdir -p "$D/m/etc/config/.gl"; echo payload >"$D/m/etc/config/.gl/gl-helper"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "with malware files as well the verdict is INFECTED, and enable in another section does not count" '[ $rc = 1 ] && grep -q "Verdict: INFECTED - gl-helper" "$D/check.txt" && grep -q "IOC  *cloud-command" "$D/check.txt"'
 umount "$D/m"
 
 echo; echo "RESULT: $pass passed, $fail failed"
