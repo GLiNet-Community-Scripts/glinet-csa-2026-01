@@ -480,7 +480,13 @@ expect "a script in udhcpc.user.d = REVIEW" 'grep -q "REVIEW  *new  */etc/udhcpc
 expect "an init script that starts watch.sh = IOC persist-ref" 'grep -q "IOC  *persist-ref  */etc/init.d/S99w" "$D/check.txt"'
 expect "an autostart file with a server of the malware = IOC persist-ref" 'grep -A1 "IOC  *persist-ref  */etc/hotplug.d/iface/99-x" "$D/check.txt" | grep -q "66.245.219.252"'
 expect "the loader is recognised by its function names" 'grep -A1 "IOC  *backdoor-file  */bin/ulogd" "$D/check.txt" | grep -q "compiled Lua.*function names of the analysed loader"'
-expect "GoodCloud state, client version, binding and remote access are printed" 'grep -q "GoodCloud now  *on (gl-sdk4-cloud 1.2.3-4), bound to an account: on, remote SSH: on, remote web: off" "$D/check.txt"'
+expect "GoodCloud state, client version, binding and remote access are printed" 'grep -q "GoodCloud now  *on (gl-sdk4-cloud 1.2.3-4), bound to an account: on" "$D/check.txt" && grep -q "Remote access  *SSH: on, web: off (through GoodCloud)" "$D/check.txt"'
+umount "$D/m"
+sed -i "s/option enable '1'/option enable '0'/" "$U/etc/config/gl-cloud"
+mnt "$D" "$OWO"
+run "$D" "$OWO" --check >"$D/check-off.txt"
+expect "with GoodCloud off, remote access reads as not in use (issue 12)" 'grep -q "Remote access  *not in use, GoodCloud is off (stored settings: SSH on, web off)" "$D/check-off.txt"'
+sed -i "s/option enable '0'/option enable '1'/" "$U/etc/config/gl-cloud"
 expect "with GoodCloud on, the run ends with the advice to switch it off and the command" 'grep -q "Switch GoodCloud and AstroWarp off now" "$D/check.txt" && grep -q "GoodCloud is ON on this device" "$D/check.txt" && grep -q "uci set .gl-cloud.@cloud\[0\].enable=0." "$D/check.txt" && grep -q "gl-cloud disable" "$D/check.txt"'
 expect "the account's address is not printed anywhere" '! grep -q "someone@example" "$D/check.txt"'
 expect "compiled Lua elsewhere in the overlay: the loader by its names is IOC, other bytecode REVIEW" 'grep -q "IOC  *backdoor-file  */usr/lib/hidden-loader" "$D/check.txt" && grep -q "REVIEW  *lua-bytecode  */usr/lib/other.luac" "$D/check.txt" && ! grep -q "lua-bytecode.*plain.txt" "$D/check.txt"'

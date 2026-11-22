@@ -51,6 +51,16 @@ button, select, input { font: inherit; color: inherit; }
 .board > .card { flex: 1 1 100%; margin-top: 0 !important; }
 .board > .card[data-w=third] { flex: 1 1 300px; } .board > .card[data-w=half] { flex: 1 1 440px; }
 .board > .card.closed { flex: 1 1 100%; }
+/* a width someone set by hand: a fixed share of the row, also when the card is folded */
+.board > .card { position: relative; }
+.board > .card[data-size=third] { flex: 0 1 calc(33.333% - 8px); } .board > .card[data-size=half] { flex: 0 1 calc(50% - 6px); }
+.board > .card[data-size=twothirds] { flex: 0 1 calc(66.667% - 4px); } .board > .card[data-size=full] { flex: 0 1 100%; }
+@media (max-width: 760px) { .board > .card[data-size] { flex: 1 1 100%; } .sizer { display: none; } }
+.sizer { position: absolute; top: 10px; bottom: 10px; right: -7px; width: 14px; cursor: ew-resize; touch-action: none; z-index: 2; }
+.sizer::after { content: ''; position: absolute; top: 50%; left: 5px; width: 4px; height: 36px; margin-top: -18px; border-radius: 4px; background: var(--text-2); opacity: 0; transition: opacity .12s; }
+.board > .card:hover > .sizer::after, .sizer:focus-visible::after { opacity: .35; } .sizer:hover::after, .board > .card.sizing > .sizer::after { opacity: .9; background: var(--accent); }
+.board > .card.sizing { outline: 2px dashed var(--accent); outline-offset: -2px; user-select: none; }
+.layoutRow select { font: inherit; font-size: 12px; padding: 1px 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: inherit; }
 .board > .card.dragging { opacity: .45; outline: 2px dashed var(--accent); outline-offset: -2px; }
 .grip { flex: none; width: 18px; height: 24px; margin-right: 2px; border-radius: 5px; cursor: grab; color: var(--text-2); opacity: .45; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; user-select: none; }
 .grip:hover { opacity: 1; background: var(--surface-2); } .grip:active { cursor: grabbing; }
@@ -213,6 +223,13 @@ tr.row.fresh td { background: var(--accent-soft); }
 .kpis2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
 .kpis2 .kpi { padding: 12px 14px; background: var(--surface-2); border: 0; }
 .kpis2 .kpi .value { font-size: 24px; }
+.kpis2.wide { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.rank.plain li { cursor: default; } .rank.plain li:hover .name { color: inherit; }
+.rank .num small { margin-left: 6px; font-weight: 400; color: var(--text-2); }
+.rank li.few > * { opacity: .55; }
+.cols3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 28px; margin-top: 6px; }
+.cols3 h3 { margin: 10px 0 0; font-size: 12.5px; color: var(--text-2); }
+tr.few td { color: var(--text-2); } tr.few td b { font-weight: 600; }
 /* the attack course: events along a horizontal rail, with room for each */
 .courseBox { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px 28px; align-items: center; margin-top: 6px; }
 .course { margin: 26px 0 6px; padding: 0; list-style: none; display: flex; align-items: flex-start; }
@@ -325,6 +342,9 @@ tr.row.fresh td { background: var(--accent-soft); }
     <div class="chead"><h2>Marked as probably safe</h2><p class="sub tnum" id="safeCount"></p></div>
     <p class="sub">Every finding someone on the team has marked, with who did it, when and why. These are hidden on the dashboard unless asked for. Click a finding to see which devices sent it.</p>
     <div class="scroll" id="safeList" style="margin-top:8px"></div>
+    <h3 style="margin:18px 0 0;font-size:14px">Known release files</h3>
+    <p class="sub" id="knownSub"></p>
+    <div class="scroll" id="knownList" style="margin-top:8px"></div>
   </section>
 
   <section class="filters" aria-label="Filters">
@@ -363,6 +383,13 @@ tr.row.fresh td { background: var(--accent-soft); }
   </section>
 
   <section class="card" style="margin-top:12px">
+    <h2>Is it still going on</h2>
+    <p class="sub">The newest signs of the attack in this selection. New attacks would move the first two; the last two show whether the shells of 20 November are still being fed. Times are UTC.</p>
+    <div class="grid kpis2 wide" id="ongoing"></div>
+    <p class="peak" id="ongoingNote"></p>
+  </section>
+
+  <section class="card" style="margin-top:12px">
     <h2>How an attack ran</h2>
     <p class="sub" id="courseSub"></p>
     <div class="courseBox">
@@ -390,7 +417,8 @@ tr.row.fresh td { background: var(--accent-soft); }
     <div class="card"><h2>Devices</h2><p class="sub">Click a bar to filter.</p><ul class="rank" id="devices"></ul><p class="more" id="devicesMore"></p></div>
     <div class="card"><h2>Firmware</h2><p class="sub">The version, with beta or rc where the device reports one. Build number and date are in each report.</p><ul class="rank" id="firmwares"></ul><p class="more" id="firmwaresMore"></p></div>
     <div class="card"><h2>Evidence</h2><p class="sub">Devices per kind of trace. One device can have several.</p><ul class="rank" id="kinds"></ul></div>
-    <div class="card" data-w="half"><h2>Traces by cloud setting</h2><p class="sub">Share of devices with traces, by what was switched on. The setting at the time of the check, which many changed after the attack. “Bound” means linked to a GoodCloud account.</p><div class="scroll" id="cloudSet"></div></div>
+    <div class="card" data-w="half"><h2>Share hit by firmware series</h2><p class="sub">Routers with traces out of all routers that reported, per release series. Test builds count with their series.</p><ul class="rank plain" id="series"></ul><p class="peak dim" id="seriesNote"></p></div>
+    <div class="card" data-w="half"><h2>Traces by cloud setting</h2><p class="sub">Share of devices with traces, by what was switched on. The setting at the time of the check, which many changed after the attack. “Bound” means linked to a GoodCloud account. Remote SSH and web access count as on only while GoodCloud is on: the stored setting is “on” by default on many firmware versions.</p><div class="scroll" id="cloudSet"></div></div>
   </section>
 
   <section class="grid two">
@@ -402,6 +430,13 @@ tr.row.fresh td { background: var(--accent-soft); }
     <h2>Unusual changes seen on several devices</h2>
     <p class="sub" id="reviewSub">What the script listed for review, not known traces. Most of it is harmless and the owner’s own. Look for a change that many devices with traces share and clean ones do not. Click a row to see which devices sent it and which files stand behind it. Mark what you have looked at as probably safe, here or in a single report, and it is hidden for everyone; a new file at the same path brings it back. The marks build up a list of what is known to be harmless.</p>
     <div class="scroll" id="reviews"></div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <h2>Older backdoor</h2>
+    <p class="sub">urandom_seed / ulogd: not the attack of 20 November, and counted apart from it. Which devices carry it and when its loader was written.</p>
+    <p class="peak" id="bdFacts"></p>
+    <div class="cols3" id="bdBox"></div>
   </section>
 
   <section class="card glossary" data-shut="1"><h2>What each kind of evidence means</h2><dl id="glossaryList"></dl></section>
@@ -518,6 +553,9 @@ function shape(x) {
   if (r.platform === 'openwrt' && r.astrowarp !== 'on' && (r.state_file_size === null || r.state_file_size === 0) && ts(r.state_file_time) >= ATTACK_FROM && !r.findings.some((f) => f.startsWith('cloud-command'))) {
     r.findings = [...r.findings, 'cloud-command /etc/mp_ip_mapping_info']; r.ioc += 1; r.derived = true;
   }
+  // Remote SSH and web access are stored settings, "on" by default on many firmware
+  // versions, and only in use while GoodCloud is on. With GoodCloud off they count as off.
+  if (r.goodcloud === 'off') { if (r.rtty_ssh === 'on') r.rtty_ssh = 'off'; if (r.rtty_web === 'on') r.rtty_web = 'off'; }
   r.id = x.id || x.received + JSON.stringify(x.report).length;
   r.recvIso = x.received;
   r.dev = r.device_id || '';
@@ -700,7 +738,12 @@ function binning(from, to) {
 // A label remembers the fingerprints it was given for: a new file at a path that was
 // called safe is shown again, because that is exactly what a replaced file looks like.
 let LABELS = {}, showSafe = false, labelErr = '', relabel = false;
-const labelState = (g) => { const l = LABELS[g.kind + ' ' + g.path]; if (!l) return ''; return [...g.sha].every((h) => l.hashes.includes(h)) ? 'safe' : 'new'; };
+// Fingerprints of known release files: the community's Tailscale and AdGuard Home builds,
+// from the checksums of their releases (tools/known-hashes.sh). A finding whose every
+// file is one of these needs no mark: it is "known" and hidden like a marked one.
+const KNOWN = /*KNOWN_HASHES*/{};
+const labelState = (g) => { const l = LABELS[g.kind + ' ' + g.path], hs = [...g.sha]; if (!l) return hs.length && hs.every((h) => KNOWN[h]) ? 'known' : ''; return hs.every((h) => l.hashes.includes(h) || KNOWN[h]) ? 'safe' : 'new'; };
+const hiddenState = (st) => st === 'safe' || st === 'known';
 async function setLabel(g, verdict, note) {
   labelErr = '';
   try {
@@ -717,14 +760,15 @@ async function setLabel(g, verdict, note) {
 function cloudSettings(base) {
   const box = $('cloudSet'); box.replaceChildren();
   const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Setting', ''], ['With traces', 'n'], ['Older backdoor', 'n']]) hd.append(el('th', t, c));
-  tb.append(hd); let any = false;
+  tb.append(hd); let any = false, thin = false;
   for (const [name, key] of [['GoodCloud', 'goodcloud'], ['Bound to an account', 'cloud_bound'], ['Remote SSH', 'rtty_ssh'], ['Remote web access', 'rtty_web'], ['AstroWarp', 'astrowarp']]) for (const v of ['on', 'off']) {
     const rows = base.filter((r) => r[key] === v); if (!rows.length) continue; any = true;
     const h = rows.filter((r) => r.ioc > 0).length, bd = rows.filter((r) => r.bd).length, tr = el('tr'), w = el('td', null, 'n');
     w.append(el('b', Math.round(h / rows.length * 100) + '%'), el('small', ` ${h} of ${rows.length}`, 'dim'));
-    tr.append(el('td', name + ': ' + v), w, el('td', bd || '–', 'n')); tb.append(tr);
+    tr.append(el('td', name + ': ' + v), w, el('td', bd || '–', 'n')); if (rows.length < 20) { tr.className = 'few'; thin = true; } tb.append(tr);
   }
-  if (any) box.append(tb); else box.append(el('p', 'No report says yet. GoodCloud and AstroWarp come with script 2.23, the binding and remote access with 2.28.', 'peak'));
+  if (any) { box.append(tb); if (thin) box.append(el('p', 'Rows in grey rest on fewer than 20 devices: too few to read anything into.', 'peak dim')); }
+  else box.append(el('p', 'No report says yet. GoodCloud and AstroWarp come with script 2.23, the binding and remote access with 2.28.', 'peak'));
 }
 function revGroups(rows) {
   const m = new Map();
@@ -739,7 +783,8 @@ function revGroups(rows) {
 let REVALL = new Map(), showOnce = false;
 // the button that marks or unmarks a finding; used in the block and in each report
 function markButton(g, cell) {
-  const st = labelState(g), lab = LABELS[g.kind + ' ' + g.path], b = el('button', st === 'safe' ? 'Remove mark' : st === 'new' ? 'Mark this file too' : 'Probably safe', 'btn sm'); b.type = 'button';
+  if (labelState(g) === 'known') return el('span', 'no mark needed', 'dim');
+  const st = labelState(g), lab = LABELS[g.kind + ' ' + g.path], b = el('button', st === 'safe' && lab ? 'Remove mark' : st === 'new' ? 'Mark this file too' : 'Probably safe', 'btn sm'); b.type = 'button';
   b.addEventListener('click', (e) => {
     e.stopPropagation();
     if (st === 'safe') return setLabel(g, '', '');
@@ -755,6 +800,7 @@ function markButton(g, cell) {
 }
 function markTag(g) {
   const st = labelState(g), lab = LABELS[g.kind + ' ' + g.path]; if (!st) return null;
+  if (st === 'known') { const t = el('span', 'known release file', 'tag ok'); t.style.marginLeft = '8px'; t.title = 'Every file reported here matches the checksums of a release:\n' + [...new Set([...g.sha].map((h) => KNOWN[h]))].slice(0, 8).join('\n'); return t; }
   const t = el('span', st === 'safe' ? 'probably safe' : 'new file at a path marked safe', 'tag ' + (st === 'safe' ? 'ok' : 'warn')); t.style.marginLeft = '8px';
   t.title = (lab.note ? lab.note + '\n' : '') + 'Marked by ' + lab.by + ' on ' + lab.at.slice(0, 16).replace('T', ' ') + ' UTC' + (st === 'new' ? '\nSince then a file with another fingerprint was reported at this path.' : '');
   return t;
@@ -764,12 +810,12 @@ function reviews(base) {
   const have = base.filter((r) => r.schema >= 6), m = revGroups(have);
   REVALL = revGroups(all.filter((r) => r.schema >= 6));
   const hits = have.filter((r) => r.ioc > 0 || r.bd).length, onceN = [...m.values()].filter((g) => g.n < 2).length, shared = [...m.values()].filter((g) => showOnce || g.n >= 2).sort((a, b) => b.hit - a.hit || b.n - a.n);
-  const full = (g) => REVALL.get(g.kind + ' ' + g.path) || g, safeN = shared.filter((g) => labelState(full(g)) === 'safe').length, rows = shared.filter((g) => showSafe || labelState(full(g)) !== 'safe').slice(0, 40);
+  const full = (g) => REVALL.get(g.kind + ' ' + g.path) || g, safeN = shared.filter((g) => hiddenState(labelState(full(g)))).length, rows = shared.filter((g) => showSafe || !hiddenState(labelState(full(g)))).slice(0, 40);
   if (labelErr) box.append(el('p', labelErr, 'peak err'));
   if (!have.length) { box.append(el('p', 'No report carries this yet. It comes with script 2.23 and later.', 'peak')); return; }
   if (onceN) { const t = el('button', showOnce ? `Only what at least two devices share` : `Also show the ${onceN} seen on one device`, 'btn'); t.type = 'button'; t.style.margin = '0 8px 8px 0'; t.addEventListener('click', () => { showOnce = !showOnce; render(); }); box.append(t); }
-  if (safeN) { const t = el('button', showSafe ? `Hide the ${safeN} marked as probably safe` : `Show the ${safeN} marked as probably safe`, 'btn'); t.type = 'button'; t.style.marginBottom = '8px'; t.addEventListener('click', () => { showSafe = !showSafe; render(); }); box.append(t); }
-  if (!rows.length) { box.append(el('p', 'Everything that at least two devices share is marked as probably safe.', 'peak')); return; }
+  if (safeN) { const t = el('button', showSafe ? `Hide the ${safeN} marked as probably safe or known` : `Show the ${safeN} marked as probably safe or known`, 'btn'); t.type = 'button'; t.style.marginBottom = '8px'; t.addEventListener('click', () => { showSafe = !showSafe; render(); }); box.append(t); }
+  if (!rows.length) { box.append(el('p', 'Everything that at least two devices share is marked as probably safe or is a known release file.', 'peak')); return; }
   const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Kind', ''], ['Path or program', ''], ['Devices', 'n'], ['With traces', 'n'], ['Different files', 'n'], ['Changed on the devices (UTC)', 'n'], ['', 'n']]) hd.append(el('th', t, c));
   tb.append(hd);
   for (const g of rows) {
@@ -888,6 +934,57 @@ function course(hit) {
   $('courseSub').textContent = marks.length ? 'The middle value of each time across the devices in this selection, from left to right. Times are UTC.' : 'No report with times in this selection (needs script 2.2 or newer).';
   $('courseStats').replaceChildren(kpi('Attacker active for', dur(active), null, 'From the start of the shell to the last data through it.'), kpi('Found after', dur(found), null, 'From the first trace to the check that reported it.'));
 }
+// Bars that only show a number, not a filter: [name, bar length 0..1, number, small text, thin]
+function bars(node, list, empty) {
+  node.replaceChildren();
+  for (const [name, w, num, small, few] of list) {
+    const li = el('li', null, few ? 'few' : ''), t = el('span', null, 'track'), bar = el('i'), n = el('span', num, 'num');
+    bar.style.width = Math.max(0, Math.min(1, w)) * 100 + '%'; if (!w) bar.style.minWidth = '0'; t.append(bar); if (small) n.append(el('small', small));
+    li.append(el('span', name, 'name'), t, n); node.append(li);
+  }
+  if (!list.length) node.append(el('li', empty || 'Nothing to show.', 'dim'));
+}
+// The newest signs of the attack. A shell writes what the other end sends into its pipe,
+// so a pipe written shortly before the check means data still arrives; two reports from
+// one device give the time between two writes.
+function ongoing(base, hit) {
+  const newest = Math.max(...all.map((r) => r.recv)), max = (a) => (a.length ? Math.max(...a) : NaN), ago = (t) => (isFinite(t) ? dur(newest - t) + ' before the newest report' : '');
+  const cmd = base.filter((r) => r.kinds.includes('cloud-command')).map((r) => ts(r.state_file_time)).filter(isFinite), lastCmd = max(cmd);
+  const sh = hit.map((r) => ts(r.shell_started)).filter(isFinite), lastSh = max(sh);
+  const run = hit.filter((r) => r.kinds.includes('process remote-shell')), fed = run.filter((r) => { const d = ts(r.checked_at) - ts(r.pipe_time); return d > -5 * 60000 && d < 10 * 60000; }), lastFed = max(fed.map((r) => ts(r.checked_at)));
+  // the beat: over every report, also the folded ones, the gaps between pipe times of one device
+  const byDev = new Map(); for (const r of all) if (r.dev && isFinite(ts(r.pipe_time))) (byDev.get(r.dev) || byDev.set(r.dev, new Set()).get(r.dev)).add(ts(r.pipe_time));
+  const gaps = []; for (const [d, set] of byDev) { const t = [...set].sort((a, b) => a - b); for (let i = 1; i < t.length; i++) { const g = Math.round((t[i] - t[i - 1]) / 1000); if (g > 0 && g < 3600) gaps.push([d, g]); } }
+  const beat = count(gaps, (g) => g[1])[0], on = beat ? new Set(gaps.filter((g) => Math.abs(g[1] - beat[0]) <= 5 || Math.abs(g[1] % beat[0]) <= 5).map((g) => g[0])).size : 0;
+  $('ongoing').replaceChildren(
+    kpi('Last command from the cloud', fmt(lastCmd), null, cmd.length ? `${ago(lastCmd)}. Newest state file of ${cmd.length} devices.` : 'No report with the state file in this selection.'),
+    kpi('Last remote shell started', fmt(lastSh), null, sh.length ? `${ago(lastSh)}. Of ${sh.length} shells with a start time.` : 'No report with a shell start in this selection.'),
+    kpi('Shells that still got data', fed.length, 'of ' + run.length + ' running', fed.length ? `Their pipe was written less than 10 minutes before the check. Last such check: ${fmt(lastFed)}.` : 'No running shell with a recent write to its pipe.'),
+    kpi('Data arrives every', beat && on >= 3 ? beat[0] + ' s' : '–', beat && on >= 3 ? `on ${on} devices` : '', beat && on >= 3 ? 'The time between two writes to the pipe, on devices that reported more than once. A steady beat means the other end still sends.' : 'Needs three devices with a running shell that reported more than once.'));
+  $('ongoingNote').textContent = isFinite(lastCmd) && fed.length ? 'No newer command does not mean it is over: the shells opened on 20 November stay open until the device restarts.' : '';
+}
+// Routers by release series: the share with traces. "4.11: 0 of 250" is the kind of line
+// the grid of models hides.
+function series(base) {
+  const m = new Map();
+  for (const r of base) { if (r.type !== 'Router') continue; const k = (/^(\d+\.\d+)/.exec(r.fw) || [])[1]; if (!k) continue; const g = m.get(k) || m.set(k, [0, 0]).get(k); g[0]++; if (r.ioc > 0) g[1]++; }
+  bars($('series'), [...m].sort((a, b) => verKey(a[0]).localeCompare(verKey(b[0]))).map(([k, [n, h]]) => [k, h / n, Math.round(h / n * 100) + '%', `${h} of ${n}`, n < 10]), 'No router in this selection.');
+  $('seriesNote').textContent = m.size ? 'A device counts with the firmware of its report with the most traces. Grey: fewer than 10 routers.' : '';
+}
+// The older backdoor: where it sits and when its loader was written (the time on
+// /bin/ulogd; where the change time is much later, that one).
+function backdoor(base) {
+  const rows = base.filter((r) => r.bd), box = $('bdBox'); box.replaceChildren();
+  if (!rows.length) { $('bdFacts').textContent = 'No report with the older backdoor in this selection.'; return; }
+  const loaders = rows.flatMap((r) => r.files.filter((f) => f.path === '/bin/ulogd')), sizes = count(loaders.filter((f) => f.size), (f) => f.size), hashes = new Set(loaders.map((f) => f.sha256)).size;
+  const run = rows.filter((r) => r.kinds.includes('backdoor-proc')).length, also = rows.filter((r) => r.ioc > 0).length, keep = rows.filter((r) => r.kinds.includes('backdoor-keep')).length;
+  $('bdFacts').textContent = `${rows.length} devices. Running on ${run}, kept across firmware updates on ${keep}, ${also} also show the attack of 20 November.` + (loaders.length ? ` ${hashes} different loaders on ${loaders.length} devices` + (sizes.length ? `, in ${sizes.length} size${sizes.length === 1 ? '' : 's'} (${sizes.map((x) => Number(x[0]).toLocaleString('en') + ' bytes: ' + x[1]).join(', ')}).` : '.') : '');
+  const col = (title, pairs) => { const d = el('div'), ul = el('ul', null, 'rank plain'), mx = Math.max(1, ...pairs.map((x) => x[1])); bars(ul, pairs.map(([k, n]) => [k, n / mx, n])); d.append(el('h3', title), ul); box.append(d); };
+  col('By model', count(rows, (r) => r.model).slice(0, 8));
+  col('By firmware', count(rows, (r) => r.fw).slice(0, 8));
+  const when = (f) => (f.ctime && lag(f) > LAG ? ts(f.ctime) : ts(f.mtime));
+  col('Loader written in', count(loaders.filter((f) => isFinite(when(f))), (f) => new Date(when(f)).toISOString().slice(0, 7)).sort((a, b) => a[0].localeCompare(b[0])));
+}
 // One tick per shell port. If later shells got higher ports, the server handed them out in
 // order and the span is a floor for how many connections it took; otherwise it says nothing.
 function ports(hit) {
@@ -993,7 +1090,7 @@ function render() {
   chart(pool.filter((r) => pass(r, 'bin') && isHit(r)));
   rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && isHit(r)), FACET.model), 0, 'model');
   rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && isHit(r)), FACET.firmware), 0, 'firmware');
-  course(hit); ports(hit); matrix(); reviews(base); cloudSettings(base);
+  course(hit); ports(hit); matrix(); reviews(base); cloudSettings(base); ongoing(base, hit); series(base); backdoor(base);
   rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && isHit(r)), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
 
   const fm = new Map();
@@ -1004,7 +1101,18 @@ function render() {
   if (fm.size) {
     const tb = el('table'), hd = el('tr'); for (const [t, c] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Typical time (UTC)', 'n'], ['Devices', 'n'], ['Old time', 'n']]) hd.append(el('th', t, c));
     tb.append(hd);
-    for (const g of [...fm.values()].sort((a, b) => a.path.localeCompare(b.path) || b.n - a.n).slice(0, 12)) {
+    // a path where every device has its own file (the older backdoor's loader) is one line
+    const perPath = new Map(); for (const g of fm.values()) (perPath.get(g.path) || perPath.set(g.path, []).get(g.path)).push(g);
+    const list = [];
+    for (const [path, gs] of perPath) {
+      if (gs.length >= 4 && gs.every((g) => g.n === 1)) { const t = gs.map((g) => g.first).filter(isFinite).sort((a, b) => a - b); list.push({ path, own: gs.length, from: t[0], to: t[t.length - 1] }); } else list.push(...gs);
+    }
+    for (const g of list.sort((a, b) => a.path.localeCompare(b.path) || (b.n || 0) - (a.n || 0)).slice(0, 14)) {
+      if (g.own) {
+        const tr = el('tr'), a = el('td', g.path, 'mono'); a.style.cursor = 'pointer'; a.addEventListener('click', () => { F.q = g.path; $('q').value = g.path; page = 0; render(); });
+        const day = (t) => (isFinite(t) ? new Date(t).toISOString().slice(0, 10) : '–');
+        tr.append(a, el('td', `${g.own} different files, one per device`, 'dim'), el('td', day(g.from) === day(g.to) ? day(g.from) : day(g.from) + ' – ' + day(g.to), 'n'), el('td', g.own, 'n'), el('td', '–', 'n')); tb.append(tr); continue;
+      }
       const tr = el('tr'), h = el('td', g.sha256.slice(0, 10) + '…', 'mono dim'); h.title = g.sha256; h.style.cursor = 'pointer';
       h.addEventListener('click', () => { F.q = g.sha256; $('q').value = g.sha256; page = 0; render(); });
       tr.append(el('td', g.path, 'mono'), h, el('td', fmt(g.first), 'n'), el('td', g.n, 'n')); const o = el('td', g.known ? (g.old || 0) + ' of ' + g.known : '–', 'n'); o.title = g.known ? 'Devices where the written time is more than 10 minutes older than the change on the device (ctime): the time came with the file or was set back. Counted over reports that carry a ctime (script 2.13 and later).' : 'No report with a ctime yet (script 2.13 and later).'; tr.append(o); tb.append(tr);
@@ -1080,7 +1188,7 @@ function detail(r) {
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
   if (r.odd.length) { const w = el('div'); for (const [k, v] of r.odd) w.append(el('pre', k + ':  ' + v)); sec('Only on this device', w, true); }
   if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); const fp = el('td', f.sha256.slice(0, 24) + '…', 'mono dim'); fp.title = f.sha256; row.append(el('td', f.path, 'mono'), fp, el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); const c = el('td', null, 'n'); if (f.ctime) { c.textContent = fmt(ts(f.ctime)); c.title = 'Changed on the device (ctime): the kernel sets it, touch and tar cannot set it back.'; if (lag(f) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(f)) + ' older than the change on the device. It came with the file (archive, copy) or was set back. The right-hand time is the one to trust.'; c.append(' ', g); } } row.append(c); t.append(row); } const hd = el('tr'); for (const [x, k] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Size', 'n'], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n']]) hd.append(el('th', x, k)); t.prepend(hd); sec('Files', t, true); }
-  if (r.review_items.length) { const t = el('table'), hd = el('tr'); for (const [x, k] of [['Kind', ''], ['Path or program', ''], ['Fingerprint (SHA-256)', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['', 'n']]) hd.append(el('th', x, k)); t.append(hd); for (const i of r.review_items) { const row = el('tr'), fp = el('td', i.sha256 ? i.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = i.sha256; const c = el('td', i.ctime ? fmt(ts(i.ctime)) : '', 'n'); if (i.mtime && i.ctime && lag(i) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(i)) + ' older than the change on the device.'; c.append(' ', g); } const g = REVALL.get(i.kind + ' ' + i.path) || { kind: i.kind, path: i.path, sha: new Set(i.sha256 ? [i.sha256] : []) }, pc = el('td', null, 'mono'), pl = el('span', i.path || '(not sent)', 'linkish'), mt = markTag(g), act = el('td', null, 'n'); pl.title = 'See which devices sent this and which files stand behind it'; pl.addEventListener('click', (e) => { e.stopPropagation(); openItem(i.kind + ' ' + i.path); }); pc.append(pl); if (mt) pc.append(mt); act.append(markButton(g, act)); row.append(el('td', i.kind), pc, fp, el('td', i.mtime ? fmt(ts(i.mtime)) : '', 'n'), c, act); t.append(row); } sec('Listed for review (not known traces)', t, true); }
+  if (r.review_items.length) { const t = el('table'), hd = el('tr'); for (const [x, k] of [['Kind', ''], ['Path or program', ''], ['Fingerprint (SHA-256)', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['', 'n']]) hd.append(el('th', x, k)); t.append(hd); for (const i of r.review_items) { const row = el('tr'), fp = el('td', i.sha256 ? i.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = i.sha256; if (KNOWN[i.sha256]) { const k = el('span', KNOWN[i.sha256], 'tag ok'); k.style.marginLeft = '6px'; k.title = 'Matches the checksum of this release file.'; fp.append(k); } const c = el('td', i.ctime ? fmt(ts(i.ctime)) : '', 'n'); if (i.mtime && i.ctime && lag(i) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(i)) + ' older than the change on the device.'; c.append(' ', g); } const g = REVALL.get(i.kind + ' ' + i.path) || { kind: i.kind, path: i.path, sha: new Set(i.sha256 ? [i.sha256] : []) }, pc = el('td', null, 'mono'), pl = el('span', i.path || '(not sent)', 'linkish'), mt = markTag(g), act = el('td', null, 'n'); pl.title = 'See which devices sent this and which files stand behind it'; pl.addEventListener('click', (e) => { e.stopPropagation(); openItem(i.kind + ' ' + i.path); }); pc.append(pl); if (mt) pc.append(mt); act.append(markButton(g, act)); row.append(el('td', i.kind), pc, fp, el('td', i.mtime ? fmt(ts(i.mtime)) : '', 'n'), c, act); t.append(row); } sec('Listed for review (not known traces)', t, true); }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
   if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
   if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);
@@ -1143,18 +1251,21 @@ const board = el('div', null, 'board');
   for (const g of document.querySelectorAll('main > section.grid:not(.kpis)')) if (!g.children.length) g.remove();
 }
 const DEFAULT_ORDER = [...board.children].map((c) => c.dataset.key);
-let layout = { order: [], hidden: [] };
-try { const l = JSON.parse(localStorage.getItem('csa-layout') || '{}'); layout = { order: Array.isArray(l.order) ? l.order : [], hidden: Array.isArray(l.hidden) ? l.hidden : [] }; } catch { /* no storage: the default layout */ }
+let layout = { order: [], hidden: [], sizes: {} };
+try { const l = JSON.parse(localStorage.getItem('csa-layout') || '{}'); layout = { order: Array.isArray(l.order) ? l.order : [], hidden: Array.isArray(l.hidden) ? l.hidden : [], sizes: l.sizes && typeof l.sizes === 'object' ? l.sizes : {} }; } catch { /* no storage: the default layout */ }
 const cardOf = (key) => [...board.children].find((c) => c.dataset.key === key);
 function saveLayout() {
   layout.order = [...board.children].map((c) => c.dataset.key);
   try { localStorage.setItem('csa-layout', JSON.stringify(layout)); } catch { /* for this visit only */ }
 }
+// widths a card can take; "auto" is the width it has by itself
+const SIZES = [['auto', 'Auto'], ['third', '1/3'], ['half', '1/2'], ['twothirds', '2/3'], ['full', 'Full']];
+function setSize(c, v) { if (SIZES.some((s) => s[0] === v) && v !== 'auto') c.dataset.size = v; else delete c.dataset.size; }
 function applyLayout() {
   // known cards in the saved order; a card that is new since then keeps its default place
   const rank = (k) => { const i = layout.order.indexOf(k); return i < 0 ? DEFAULT_ORDER.indexOf(k) + .5 : i; };
   for (const c of [...board.children].sort((x, y) => rank(x.dataset.key) - rank(y.dataset.key))) board.append(c);
-  for (const c of board.children) c.hidden = layout.hidden.includes(c.dataset.key);
+  for (const c of board.children) { c.hidden = layout.hidden.includes(c.dataset.key); setSize(c, layout.sizes[c.dataset.key]); }
   layoutMenu();
 }
 function layoutMenu() {
@@ -1167,12 +1278,15 @@ function layoutMenu() {
     cb.addEventListener('change', () => { layout.hidden = cb.checked ? layout.hidden.filter((k) => k !== c.dataset.key) : [...layout.hidden, c.dataset.key]; c.hidden = !cb.checked; saveLayout(); render(); });
     up.addEventListener('click', () => { board.insertBefore(c, cards[i - 1]); saveLayout(); layoutMenu(); render(); });
     down.addEventListener('click', () => { board.insertBefore(cards[i + 1], c); saveLayout(); layoutMenu(); render(); });
-    lab.append(cb, el('span', c.dataset.key)); row.append(lab, up, down); pop.append(row);
+    const sel = el('select'); sel.setAttribute('aria-label', 'Width of “' + c.dataset.key + '”');
+    for (const [v, t] of SIZES) { const o = el('option', t); o.value = v; sel.append(o); } sel.value = layout.sizes[c.dataset.key] || 'auto';
+    sel.addEventListener('change', () => { if (sel.value === 'auto') delete layout.sizes[c.dataset.key]; else layout.sizes[c.dataset.key] = sel.value; setSize(c, sel.value); saveLayout(); render(); });
+    lab.append(cb, el('span', c.dataset.key)); row.append(lab, sel, up, down); pop.append(row);
   });
   const reset = el('button', 'Reset layout', 'btn sm'); reset.type = 'button'; reset.style.margin = '8px 4px 2px';
-  reset.addEventListener('click', () => { layout = { order: [], hidden: [] }; try { localStorage.removeItem('csa-layout'); } catch { /* nothing stored */ } applyLayout(); render(); });
-  pop.append(reset, el('p', 'Drag a card by the dots next to its title, or use the arrows here.', 'more'));
-  $('layoutMenu').classList.toggle('on', layout.hidden.length > 0 || layout.order.some((k, i) => DEFAULT_ORDER.filter((d) => layout.order.includes(d))[i] !== k));
+  reset.addEventListener('click', () => { layout = { order: [], hidden: [], sizes: {} }; try { localStorage.removeItem('csa-layout'); } catch { /* nothing stored */ } applyLayout(); render(); });
+  pop.append(reset, el('p', 'Drag a card by the dots next to its title to move it, and by its right edge to change its width. Or use the arrows and the width list here.', 'more'));
+  $('layoutMenu').classList.toggle('on', layout.hidden.length > 0 || Object.keys(layout.sizes).length > 0 || layout.order.some((k, i) => DEFAULT_ORDER.filter((d) => layout.order.includes(d))[i] !== k));
 }
 // dragging: the dots in a card's title are the handle
 let dragging = null;
@@ -1181,6 +1295,20 @@ for (const c of board.children) {
   grip.draggable = true; grip.title = 'Drag to move this card'; grip.setAttribute('aria-hidden', 'true'); h.prepend(grip);
   grip.addEventListener('dragstart', (e) => { dragging = c; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.dataset.key); try { e.dataTransfer.setDragImage(c, 24, 24); } catch { /* the browser's own image */ } setTimeout(() => c.classList.add('dragging')); });
   grip.addEventListener('dragend', () => { c.classList.remove('dragging'); dragging = null; saveLayout(); layoutMenu(); render(); });
+}
+// resizing: the right edge of a card. The width snaps to a third, a half, two thirds or the
+// full row, whichever is nearest to where the edge is dragged.
+for (const c of board.children) {
+  const z = el('span', null, 'sizer'); z.title = 'Drag to change the width of this card'; z.setAttribute('aria-hidden', 'true'); c.append(z);
+  const snap = (x) => { const f = (x - c.getBoundingClientRect().left) / board.clientWidth; return f < 0.42 ? 'third' : f < 0.585 ? 'half' : f < 0.83 ? 'twothirds' : 'full'; };
+  z.addEventListener('pointerdown', (e) => {
+    if (e.button) return; e.preventDefault(); z.setPointerCapture(e.pointerId); c.classList.add('sizing');
+    const move = (m) => setSize(c, snap(m.clientX));
+    const up = (m) => { z.removeEventListener('pointermove', move); z.removeEventListener('pointerup', up); z.removeEventListener('pointercancel', up); c.classList.remove('sizing'); layout.sizes[c.dataset.key] = c.dataset.size || snap(m.clientX); setSize(c, layout.sizes[c.dataset.key]); saveLayout(); layoutMenu(); render(); };
+    z.addEventListener('pointermove', move); z.addEventListener('pointerup', up); z.addEventListener('pointercancel', up);
+  });
+  // a double click gives the card its own width back
+  z.addEventListener('dblclick', () => { delete layout.sizes[c.dataset.key]; setSize(c); saveLayout(); layoutMenu(); render(); });
 }
 board.addEventListener('dragover', (e) => {
   if (!dragging) return;
@@ -1236,10 +1364,10 @@ function itemView() {
   const table = (box, heads, lines) => { box.replaceChildren(); if (!lines.length) { box.append(el('p', 'Nothing to show.', 'peak')); return; } const tb = el('table'), hd = el('tr'); for (const [t, c] of heads) hd.append(el('th', t, c)); tb.append(hd); for (const l of lines) tb.append(l); box.append(tb); };
   // fingerprints
   const byHash = new Map(); for (const x of rows) { const k = x.it.sha256 || ''; (byHash.get(k) || byHash.set(k, []).get(k)).push(x); }
-  table($('itemHashes'), [['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n'], ['Models', ''], ['Changed on device (UTC)', 'n'], ['Covered by the mark', '']], [...byHash].sort((a, b) => b[1].length - a[1].length).map(([h, xs]) => {
+  table($('itemHashes'), [['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n'], ['Models', ''], ['Changed on device (UTC)', 'n'], ['Known or covered by the mark', '']], [...byHash].sort((a, b) => b[1].length - a[1].length).map(([h, xs]) => {
     const tr = el('tr'), c = xs.map((x) => ts(x.it.ctime)).filter((n) => !isNaN(n)).sort((a, b) => a - b), hc = el('td', h || '(no fingerprint)', 'hashcell');
     if (h) { hc.classList.add('linkish'); hc.title = 'Search all reports for this fingerprint'; hc.addEventListener('click', () => { view = 'main'; F.q = h; $('q').value = h; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); }); }
-    const cov = el('td'); if (h) cov.append(el('span', lab && lab.hashes.includes(h) ? 'yes' : lab ? 'no: new since the mark' : 'not marked', 'tag ' + (lab && lab.hashes.includes(h) ? 'ok' : lab ? 'warn' : '')));
+    const cov = el('td'); if (h && KNOWN[h]) cov.append(el('span', 'known: ' + KNOWN[h], 'tag ok')); else if (h) cov.append(el('span', lab && lab.hashes.includes(h) ? 'yes' : lab ? 'no: new since the mark' : 'not marked', 'tag ' + (lab && lab.hashes.includes(h) ? 'ok' : lab ? 'warn' : '')));
     tr.append(hc, el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', count(xs.map((x) => x.r), (r) => r.model).slice(0, 4).map(([m, n]) => m + ' ×' + n).join(', ')), el('td', c.length ? (fmt(c[0]).slice(0, 10) === fmt(c[c.length - 1]).slice(0, 10) ? fmt(c[0]).slice(0, 10) : fmt(c[0]).slice(0, 10) + ' – ' + fmt(c[c.length - 1]).slice(0, 10)) : '–', 'n'), cov);
     return tr;
   }));
@@ -1261,7 +1389,22 @@ function itemView() {
     return tr;
   }));
 }
+// which known release files the reports hold, and on how many devices
+function knownList() {
+  const box = $('knownList'); box.replaceChildren();
+  const m = new Map(); for (const r of pool) { const seen = new Set(); for (const i of [...r.review_items, ...r.files]) if (KNOWN[i.sha256] && !seen.has(i.sha256)) { seen.add(i.sha256); const g = m.get(i.sha256) || m.set(i.sha256, { n: 0, hit: 0, paths: new Set() }).get(i.sha256); g.n++; if (r.ioc > 0 || r.bd) g.hit++; g.paths.add(i.path.split(' ')[0]); } }
+  $('knownSub').textContent = `Hidden without a mark: files whose fingerprint is in the release checksums of the community’s Tailscale and AdGuard Home builds. The list holds ${Object.keys(KNOWN).length} fingerprints; ${m.size} of them are in the loaded reports. Another file at the same path is still listed for review.`;
+  if (!m.size) return;
+  const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Release file', ''], ['Path on the device', ''], ['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n']]) hd.append(el('th', t, c));
+  tb.append(hd);
+  for (const [h, g] of [...m].sort((a, b) => b[1].n - a[1].n || KNOWN[a[0]].localeCompare(KNOWN[b[0]]))) {
+    const tr = el('tr'), hc = el('td', h.slice(0, 16) + '…', 'mono dim linkish'); hc.title = h; hc.addEventListener('click', () => { view = 'main'; F.q = h; $('q').value = h; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
+    tr.append(el('td', KNOWN[h]), el('td', [...g.paths].join(', '), 'mono'), hc, el('td', g.n, 'n'), el('td', g.hit + ' of ' + g.n, 'n')); tb.append(tr);
+  }
+  box.append(tb);
+}
 function safeList() {
+  knownList();
   const box = $('safeList'); box.replaceChildren();
   const rows = Object.entries(LABELS).sort((a, b) => (a[1].at < b[1].at ? 1 : -1));
   $('safeCount').textContent = rows.length + (rows.length === 1 ? ' finding' : ' findings');

@@ -82,7 +82,7 @@ const FIELDS_V7 = { ...FIELDS_V6, review_items: list(40, isFileOf({ kind: str(24
 // unknown each; the account itself is never sent.
 const FIELDS_V8 = { ...FIELDS_V7, cloud_bound: onoff, rtty_ssh: onoff, rtty_web: onoff };
 
-// Since script 2.34 (schema 9): a note of the sender's own, given with --note, for people
+// Since script 2.35 (schema 9): a note of the sender's own, given with --note, for people
 // who report many devices: where a report comes from, before or after a clean-up, a
 // repeat. Empty without one. Plain text; the dashboard shows it as text.
 // Also the time the cloud handler's state file was created, its first call: the file's

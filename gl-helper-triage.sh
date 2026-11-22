@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.34
+VERSION=2.35
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 10:11 UTC'
+RELEASED='2026-11-22 10:32 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1195,7 +1195,16 @@ report_head() {
 	kv Overlay "${UPPER:-unknown}"
 	kv "Base image" "${LOWER:-none}"
 	kv "Trusted tools" "$TRUSTED"
-	kv "GoodCloud now" "$(goodcloud_state), bound to an account: $(cloud_bound), remote SSH: $(cloud_opt "$(r etc/config/rtty)" ssh_en), remote web: $(cloud_opt "$(r etc/config/rtty)" web_en)"
+	# The two remote access options are stored settings, and "on" is what the firmware
+	# sets by itself on many versions. They only matter while GoodCloud is on; with it off
+	# the admin panel shows them as off, and so does this line (issue 12).
+	local gc ssh web
+	gc=$(goodcloud_state); ssh=$(cloud_opt "$(r etc/config/rtty)" ssh_en); web=$(cloud_opt "$(r etc/config/rtty)" web_en)
+	kv "GoodCloud now" "$gc, bound to an account: $(cloud_bound)"
+	case ${gc%% *} in
+	off) kv "Remote access" "not in use, GoodCloud is off (stored settings: SSH $ssh, web $web)" ;;
+	*) kv "Remote access" "SSH: $ssh, web: $web (through GoodCloud)" ;;
+	esac
 	[ "$TRUSTED" = no ] && say "   ${YEL}WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered${N}"
 	[ -z "$UPPER" ] && say "   ${YEL}NOTE: overlay upper layer unknown, results are less precise${N}"
 	return 0

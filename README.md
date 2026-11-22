@@ -156,7 +156,7 @@ size, because it is normal on a router that uses AstroWarp.
 
 Where the filesystem holding the file is mounted `noatime`, as the overlay is on the
 routers surveyed, the script also gives its access time as the handler's first call and
-the time written as its last (since 2.34, also in the report as `state_file_first`). That
+the time written as its last (since 2.35, also in the report as `state_file_first`). That
 is the time the file was created, so the first call since the file last did not exist.
 
 GL.iNet travel routers have no battery clock and have a wrong date until they sync the
@@ -389,9 +389,12 @@ switched on, with the version of the cloud client. Since 2.28 also whether the d
 bound to a GoodCloud account and whether remote SSH and the remote web interface
 through the cloud are on: yes, no or unknown each, never the account's name or address.
 People ask whether a device that was only bound, with remote access off, was at risk;
-these three answers let the reports say.
+these three answers let the reports say. The two remote access answers are the stored
+settings, and "on" is what the firmware sets by itself on many versions. They only matter
+while GoodCloud is on, so with GoodCloud off the script shows remote access as not in use
+and the dashboard counts it as off.
 
-Since 2.34 it carries the note given with `--note`, empty without one. It is for people
+Since 2.35 it carries the note given with `--note`, empty without one. It is for people
 who report many devices, to say where a report comes from, whether the device was
 checked before or after a clean-up, or that it is a repeat. The script prints the note
 as it will be sent before it asks.
