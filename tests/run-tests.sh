@@ -750,5 +750,20 @@ run "$D" "$OWL" --check >"$D/check.txt"
 expect "without that package nothing is said about a cleanup, the limit of a clean result still is" '! grep -q "vendor-cleanup\|cleans up by itself" "$D/check.txt" && grep -q "Not proof that nothing happened" "$D/check.txt" && ! readcode "$D/check.txt" 1 csa.gl-i.net | grep -q "vc"'
 umount "$D/m"
 
+echo "=== the state file on firmware with the fix (issue 19)"
+D=$(mkscen fresh "$OWL"); U=$D/u
+mkdir -p "$U/usr/lib/opkg" "$U/etc"; printf 'Package: gl-sdk4-system-check\nVersion: 1\n\n' >"$U/usr/lib/opkg/status"
+echo '{}' >"$U/etc/board.json"; touch -d '2026-11-22 17:24:40 UTC' "$U/etc/board.json"
+: >"$U/etc/mp_ip_mapping_info"; touch -d '2026-11-22 17:26:53 UTC' "$U/etc/mp_ip_mapping_info"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "an empty state file written after the fixed firmware first started is REVIEW, not a trace" '[ $rc = 0 ] && grep -q "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" && grep -q "written after this firmware first started" "$D/check.txt" && ! grep -q "IOC  *cloud-command" "$D/check.txt" && grep -q "no gl-helper indicators found" "$D/check.txt"'
+umount "$D/m"
+touch -d '2026-11-21 02:50:11 UTC' "$U/etc/mp_ip_mapping_info"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "one from before that first start stays a trace" '[ $rc = 1 ] && grep -q "IOC  *cloud-command  */etc/mp_ip_mapping_info" "$D/check.txt"'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

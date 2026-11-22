@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.46
+VERSION=2.47
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 21:38 UTC'
+RELEASED='2026-11-22 22:49 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1091,7 +1091,15 @@ check_tmp() {
 		aw=off; astrowarp_on && aw=on
 		w="written $(shown_time "$t")"
 		a=$(file_atime "$f"); [ -n "$a" ] && w="first call $(shown_time "$a"), last call $(shown_time "$t")"
-		if [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
+		# Firmware with the fix refuses the attack's command, so a state file written after that
+		# firmware first started is not the attack's. One owner found it written at the first
+		# start after the upgrade, in the same seconds as the SD-WAN module's other state files
+		# (/etc/mp_connection_info, /etc/mphosts; issue 19). /etc/board.json is written when a
+		# firmware starts for the first time, so its time stands for that start.
+		if [ "$n" = 0 ] && [ "$aw" = off ] && vendor_cleanup && safe "$(r etc/board.json)" &&
+			[ "$(date -u -r "$f" +%s 2>/dev/null || echo 0)" -ge "$(date -u -r "$(r etc/board.json)" +%s 2>/dev/null || echo 9999999999)" ]; then
+			add REVIEW state-file /etc/mp_ip_mapping_info "$w, empty: written after this firmware first started. This firmware has the fix and refuses the attack's command; its SD-WAN module can write the file at its own start. Not counted as a trace"
+		elif [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
 			add IOC cloud-command /etc/mp_ip_mapping_info "$w, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
 		else
 			add REVIEW state-file /etc/mp_ip_mapping_info "$w, $n bytes, AstroWarp $aw: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
