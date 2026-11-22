@@ -675,7 +675,7 @@ if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 	# TMPDIR of the caller would name a directory that the chroot does not have
 	live() { TMPDIR=/tmp GL_TRIAGE_REPORT_URL=http://127.0.0.1:9/ chroot "$L" /bin/sh /t.sh --no-device-id "$@" </dev/null 2>&1; }
 	live --show-report --note 'fleet-a 2026-11-22 after clean-up (repeat)' >"$L/show.txt"
-	expect "the note and schema 9 are in the report" 'grep -q "^   \"schema\": 9,$" "$L/show.txt" && grep -q "^   \"note\": \"fleet-a 2026-11-22 after clean-up (repeat)\",$" "$L/show.txt"'
+	expect "the note, schema 10 and whether the firmware cleans up are in the report" 'grep -q "^   \"schema\": 10,$" "$L/show.txt" && grep -q "^   \"vendor_cleanup\": \"unknown\",$" "$L/show.txt" && grep -q "^   \"note\": \"fleet-a 2026-11-22 after clean-up (repeat)\",$" "$L/show.txt"'
 	live --show-report --note "$(printf 'a;b"c\\d$e<\303\251>f\tg')" >"$L/show.txt"
 	expect "characters jstr does not allow are dropped from the note" 'grep -q "\"note\": \"abcdefg\",$" "$L/show.txt"'
 	X=$(head -c 130 /dev/zero | tr '\0' x); live --show-report --note "$X" >"$L/show.txt"
