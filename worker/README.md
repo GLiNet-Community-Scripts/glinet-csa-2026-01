@@ -132,6 +132,23 @@ script download keeps its copy there.
 To go back, remove the `[[d1_databases]]` block and deploy: the worker uses KV again.
 Reports that arrived in D1 in the meantime are then not shown.
 
+## Marking findings as probably safe
+
+The dashboard lists what the scripts sent for review. Everyone who may open the dashboard
+may mark such a finding as probably safe, with a short note, in the block "Unusual
+changes seen on several devices" or inside a single report. A marked finding is hidden
+for everyone unless they ask to see it. Each mark records who set it (the address
+Cloudflare Access signed in) and when.
+
+A mark belongs to a kind and a path and remembers the fingerprints known for that path at
+the time. A file with another fingerprint at the same path brings the finding back, as "new
+file at a path marked safe": a replaced file is exactly what should not stay hidden.
+
+The marks are kept in the D1 table `labels`, which the worker creates on first use, or in
+one KV entry when there is no database. They can be read at `<worker>/dashboard/labels`
+with the dashboard's login. Over time they form a list of what is known to be harmless,
+which the script could one day ask for; nothing does that yet.
+
 ## Telling devices apart
 
 From script 2.9 a report carries a device id, so that ten reports from one device are not

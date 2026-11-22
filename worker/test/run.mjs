@@ -210,6 +210,18 @@ if (process.argv[2] === 'serve') {
   expect('KV is left as it was', [...store.keys()].filter((k) => k.startsWith('csa-2026-01/')).length === kvReports);
   const dtok = await (async () => { globalThis.fetch = async () => new Response(JSON.stringify({ keys: [jwk] })); return token(claims); })();
   const d = (path) => call('GET', undefined, { 'cf-access-jwt-assertion': dtok }, '/csa-2026-01-report/dashboard/' + path);
+  // labels: "probably safe", set by anyone who may open the dashboard
+  const lab = (body, headers = { 'content-type': 'application/json', origin: 'https://example.org' }) => call('POST', JSON.stringify(body), { 'cf-access-jwt-assertion': dtok, ...headers }, '/csa-2026-01-report/dashboard/labels');
+  const safe1 = { key: 'new-binary /usr/sbin/tailscaled', verdict: 'safe', note: 'Tailscale updater', hashes: ['a'.repeat(64)] };
+  expect('no labels at first, and the reader is named', await (async () => { const j = await (await d('labels')).json(); return Object.keys(j.labels).length === 0 && j.you === claims.email; })());
+  const set1 = await lab(safe1), got1 = (await set1.json()).labels[safe1.key];
+  expect('a label is stored with who set it and when', set1.status === 200 && got1.verdict === 'safe' && got1.note === 'Tailscale updater' && got1.hashes.length === 1 && got1.by === claims.email && /^2\d{3}-/.test(got1.at));
+  expect('it is there on the next read', (await (await d('labels')).json()).labels[safe1.key].note === 'Tailscale updater');
+  expect('labels need the dashboard login', (await call('POST', JSON.stringify(safe1), { 'content-type': 'application/json', origin: 'https://example.org' }, '/csa-2026-01-report/dashboard/labels')).status === 404 && (await call('GET', undefined, {}, '/csa-2026-01-report/dashboard/labels')).status === 404);
+  expect('a change from another site or as a form is refused', (await lab(safe1, { 'content-type': 'application/json', origin: 'https://evil.example' })).status === 403 && (await lab(safe1, { 'content-type': 'text/plain', origin: 'https://example.org' })).status === 403);
+  expect('refuses markup in key or note, an unknown verdict and a bad fingerprint', (await lab({ ...safe1, key: '<b>' })).status === 400 && (await lab({ ...safe1, note: 'x\u0000' })).status === 400 && (await lab({ ...safe1, verdict: 'whatever' })).status === 400 && (await lab({ ...safe1, hashes: ['zz'] })).status === 400);
+  expect('an empty verdict removes the label', Object.keys((await (await lab({ ...safe1, verdict: '' })).json()).labels).length === 0);
+  expect('a label is not taken for a report', (await (await d('data')).json()).items.length === kvReports);
   const all1 = (await (await d('data')).json());
   expect('dashboard reads the moved reports from D1', all1.items.length === kvReports && all1.cursor === '' && all1.items[0].report.model === 'GL-AXT1800');
   const writesBefore = store.size;

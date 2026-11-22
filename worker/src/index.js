@@ -109,6 +109,52 @@ const row = (r) => ({ id: r.id, received: r.received, report: JSON.parse(r.repor
 const kvLoad = async (env, names) =>
   (await Promise.all(names.map(async (name) => [name, await env.REPORTS.get(name)]))).filter((x) => x[1]).map(([id, v]) => ({ id, ...JSON.parse(v) }));
 
+// What the team says about a finding that the scripts listed for review: "probably safe",
+// with a note. The dashboard then hides it unless asked. Everyone who may open the
+// dashboard may set and remove a label, and each label records who set it (the address
+// Cloudflare Access signed in). One label per kind and path; it remembers the fingerprints it
+// was given for, so a new file at a path that was called harmless shows up again.
+// Kept in D1 (the table is created on first use) or, without D1, in one KV entry.
+const LABELS_KEY = 'meta/csa-2026-01-labels';
+let labelsTable = false;
+const labels = {
+  async ready(env) {
+    if (labelsTable) return;
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS labels (key TEXT PRIMARY KEY, verdict TEXT NOT NULL, note TEXT NOT NULL, hashes TEXT NOT NULL, by TEXT NOT NULL, at TEXT NOT NULL)').run();
+    labelsTable = true;
+  },
+  async all(env) {
+    if (env.DB) {
+      await labels.ready(env);
+      const { results } = await env.DB.prepare('SELECT key, verdict, note, hashes, by, at FROM labels').all();
+      return Object.fromEntries(results.map((r) => [r.key, { verdict: r.verdict, note: r.note, hashes: JSON.parse(r.hashes), by: r.by, at: r.at }]));
+    }
+    return JSON.parse((await env.REPORTS.get(LABELS_KEY)) || '{}');
+  },
+  async set(env, key, label) {
+    if (env.DB) {
+      await labels.ready(env);
+      if (!label) await env.DB.prepare('DELETE FROM labels WHERE key = ?1').bind(key).run();
+      else await env.DB.prepare('INSERT OR REPLACE INTO labels (key, verdict, note, hashes, by, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)').bind(key, label.verdict, label.note, JSON.stringify(label.hashes), label.by, label.at).run();
+      return;
+    }
+    const all = JSON.parse((await env.REPORTS.get(LABELS_KEY)) || '{}');
+    if (label) all[key] = label; else delete all[key];
+    await env.REPORTS.put(LABELS_KEY, JSON.stringify(all));
+  },
+};
+
+// A label as the dashboard sends it. The key is a kind and a path as the reports carry
+// them; the note is plain text and shown as text.
+export function validLabel(body) {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return 'not an object';
+  if (!(typeof body.key === 'string' && body.key.length >= 3 && body.key.length <= 200 && SAFE.test(body.key))) return 'bad key';
+  if (!['safe', ''].includes(body.verdict)) return 'bad verdict';
+  if (!(typeof body.note === 'string' && body.note.length <= 200 && /^[\x20-\x7e]*$/.test(body.note))) return 'bad note';
+  if (!(Array.isArray(body.hashes) && body.hashes.length <= 60 && body.hashes.every((h) => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h)))) return 'bad hashes';
+  return null;
+}
+
 const reports = {
   async add(env, received, report) {
     if (env.DB) {
@@ -236,7 +282,21 @@ export async function accessUser(request, env) {
 }
 
 async function dashboard(request, env, data) {
-  if (!(await accessUser(request, env))) return text('not found', 404);
+  const user = await accessUser(request, env);
+  if (!user) return text('not found', 404);
+  if (data === 'labels') {
+    const out = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+    if (request.method === 'GET') return out({ labels: await labels.all(env), you: user });
+    // a change: only from the dashboard itself. A form on another site cannot send JSON,
+    // and the browser names the page a request comes from.
+    if (!(request.headers.get('content-type') || '').startsWith('application/json') || request.headers.get('origin') !== new URL(request.url).origin) return text('not from the dashboard', 403);
+    let body;
+    try { body = JSON.parse((await request.text()).slice(0, 8192)); } catch { return text('not JSON', 400); }
+    const bad = validLabel(body);
+    if (bad) return text(bad, 400);
+    await labels.set(env, body.key, body.verdict ? { verdict: body.verdict, note: body.note, hashes: body.hashes, by: user, at: new Date().toISOString() } : null);
+    return out({ labels: await labels.all(env), you: user });
+  }
   if (!data) {
     return new Response(DASHBOARD, {
       headers: {
@@ -322,6 +382,7 @@ export default {
       if (request.method !== 'POST') return text('This address needs POST: curl -X POST -H "Authorization: Bearer <EXPORT_TOKEN>" <this address>', 405);
       return migrate(request, env);
     }
+    if (pathname.endsWith('/dashboard/labels') && (request.method === 'GET' || request.method === 'POST')) return dashboard(request, env, 'labels');
     if (request.method === 'POST') return submit(request, env);
     if (request.method === 'GET' && pathname.endsWith('/export')) return exportReports(request, env);
     if (request.method === 'GET' && /\/dashboard\/?$/.test(pathname)) return dashboard(request, env, false);
