@@ -577,8 +577,8 @@ echo "=== the address of the result page carries the result as a nine-character 
 readcode() { # the code in a file of script output, line $2 of those that carry one -> "v p k g n f rv"
 	node -e 'const fs = require("fs"), h = fs.readFileSync(process.argv[1], "utf8"), src = h.slice(h.indexOf("const B32 = "), h.indexOf("function read() {"));
 		const { decode } = new Function(src + "; return { decode };")(), c = decode(process.argv[2]);
-		console.log(c ? `v=${c.v} p=${c.p} k=${c.k.join(".")} g=${c.g} n=${c.n} f=${c.f} rv=${c.rv}` : "invalid");' \
-		"$(dirname "$T")/worker/src/result.html" "$(grep -o "$3/#[0-9A-Z]*" "$1" | sed -n "${2}p" | sed 's/.*#//')"
+		console.log(c ? `v=${c.v} p=${c.p} k=${c.k.join(".")} g=${c.g} n=${c.n} f=${c.f} rv=${c.rv}` + (c.dev && c.dev.model ? ` dev=${c.dev.model}/${c.dev.ver.join(".")}/${c.dev.test ? "test" : "release"}` : "") : "invalid");' \
+		"$(dirname "$T")/worker/src/result.html" "$(grep -o "$3/#[0-9A-Z-]*" "$1" | sed -n "${2}p" | sed 's/.*#//')"
 }
 D=$(mkscen link "$OWL")
 mnt "$D" "$OWL"
@@ -601,6 +601,22 @@ fi
 expect "the result with its address comes after the GoodCloud advice, the address right under the verdict" 'grep -A8 "Verdict:" "$D/check.txt" | grep -q "csa.gl-i.net/#" && [ "$(grep -n "^== GoodCloud" "$D/check.txt" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^== Result" "$D/check.txt" | head -n 1 | cut -d: -f1)" ] && [ "$(grep -c "^== GoodCloud" "$D/check.txt")" = 1 ]'
 expect "on a device with traces the next steps follow the result" '[ "$(grep -n "^== Result" "$D/check2.txt" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^== Next steps" "$D/check2.txt" | head -n 1 | cut -d: -f1)" ]'
 expect "with --fix the address is given once, under the verdict after the clean-up" '[ "$(grep -c "https://example.org/x/#" "$D/fix.txt")" = 1 ] && grep -A25 "^== Result after remediation" "$D/fix.txt" | grep -q "https://example.org/x/#" && [ "$(grep -c "^== GoodCloud" "$D/fix.txt")" = 1 ]'
+# model and firmware: a second part of five characters, where both are known
+mkdir -p "$D/m/tmp/sysinfo" "$D/m/etc"; echo 'GL.iNet GL-MT6000' >"$D/m/tmp/sysinfo/model"; echo 4.9.1 >"$D/m/etc/glversion"; echo release2 >"$D/m/etc/version.type"
+run "$D" "$OWL" --check >"$D/check3.txt"
+grep 'csa.gl-i.net/#' "$D/check3.txt"
+expect "with model and firmware known the address has a second part, and says so" 'grep -qE "^   >>> https://csa\.gl-i\.net/#[0-9A-HJKMNP-TV-Z]{9}-[0-9A-HJKMNP-TV-Z]{5}$" "$D/check3.txt" && grep -q "the model and its firmware version" "$D/check3.txt"'
+echo 4.11.0 >"$D/m/etc/glversion"; echo beta5 >"$D/m/etc/version.type"; echo mt3000 >"$D/m/tmp/sysinfo/model"
+run "$D" "$OWL" --check >"$D/check4.txt"
+echo 'Some Other Board' >"$D/m/tmp/sysinfo/model"
+run "$D" "$OWL" --check >"$D/check5.txt"
+echo mt6000 >"$D/m/tmp/sysinfo/model"; echo 3.216 >"$D/m/etc/glversion"
+run "$D" "$OWL" --check >"$D/check6.txt"
+if command -v node >/dev/null 2>&1; then
+	expect "the second part reads back as the model and the version" 'readcode "$D/check3.txt" 1 csa.gl-i.net | grep -q " dev=mt6000/4.9.1/release$"'
+	expect "a beta build is marked as a test build" 'readcode "$D/check4.txt" 1 csa.gl-i.net | grep -q " dev=mt3000/4.11.0/test$"'
+fi
+expect "an unknown model or a version that does not fit: the short address, as before" 'grep -qE "csa\.gl-i\.net/#[0-9A-HJKMNP-TV-Z]{9}$" "$D/check5.txt" && grep -qE "csa\.gl-i\.net/#[0-9A-HJKMNP-TV-Z]{9}$" "$D/check6.txt" && ! grep -q "the model and its firmware version" "$D/check5.txt"'
 expect "nothing of a path or a name is in the address" '! grep "csa.gl-i.net/#" "$D/check2.txt" | grep -qi "rc.local\|adguard\|tmp"'
 umount "$D/m"
 

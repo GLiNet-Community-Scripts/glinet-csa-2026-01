@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.44
+VERSION=2.45
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 16:51 UTC'
+RELEASED='2026-11-22 16:57 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1776,6 +1776,31 @@ jlines() { while IFS= read -r line; do printf '%s,' "$(jtxt "$line" "${1:-300}")
 
 jstr() { printf '"%s"' "$(printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._:/+@=,()-' | cut -c1-"${2:-64}")"; }
 
+# Model and firmware of the device, for the report and for the code of the result page.
+# On a running device from the system; with --root from the files of that root.
+DEV_MODEL='' DEV_FW='' DEV_KNOWN=0
+device_info() {
+	local f
+	[ "$DEV_KNOWN" = 1 ] && return 0
+	DEV_KNOWN=1
+	if [ "$LIVE" = 1 ]; then
+		DEV_MODEL=$(cat /proc/gl-hw-info/model 2>/dev/null)
+		[ -n "$DEV_MODEL" ] || DEV_MODEL=$(rd /tmp/sysinfo/model)
+	else
+		DEV_MODEL=$(rd "$(r tmp/sysinfo/model)")
+	fi
+	# GL.iNet re-issues builds under the same version number, so the build tells them
+	# apart: "4.8.3 release2 build 1024 2026-05-29"
+	DEV_FW=$(rd "$(r etc/glversion)")
+	if [ -n "$DEV_FW" ]; then
+		f=$(rd "$(r etc/version.type)"); [ -n "$f" ] && DEV_FW="$DEV_FW $f"
+		f=$(rd "$(r etc/version.build)"); [ -n "$f" ] && DEV_FW="$DEV_FW build $f"
+		f=$(rd "$(r etc/version.date)" | cut -c1-10); [ -n "$f" ] && DEV_FW="$DEV_FW $f"
+	fi
+	# KVM devices keep it in /etc/version: RK_VERSION=V1.10.2 release1
+	[ -n "$DEV_FW" ] || DEV_FW=$(rd "$(r etc/version)" | sed -n 's/^RK_VERSION=//p' | head -n 1)
+}
+
 build_report() {
 	local model fw up quick started ports ptime list files stime sfirst f persist rules cmds kind mac devid n revs sha gc aw ssize mt ct pid
 	# Device ID: the hardware address of the first network interface, hashed. The address
@@ -1788,18 +1813,7 @@ build_report() {
 		fi
 		[ -n "$mac" ] && devid=$(printf 'csa-2026-01:%s' "$mac" | tr 'A-F' 'a-f' | sha256sum 2>/dev/null | cut -c1-16)
 	fi
-	model=$(cat /proc/gl-hw-info/model 2>/dev/null)
-	[ -n "$model" ] || model=$(rd /tmp/sysinfo/model)
-	# GL.iNet re-issues builds under the same version number, so the build tells them
-	# apart: "4.8.3 release2 build 1024 2026-05-29"
-	fw=$(rd "$(r etc/glversion)")
-	if [ -n "$fw" ]; then
-		f=$(rd "$(r etc/version.type)"); [ -n "$f" ] && fw="$fw $f"
-		f=$(rd "$(r etc/version.build)"); [ -n "$f" ] && fw="$fw build $f"
-		f=$(rd "$(r etc/version.date)" | cut -c1-10); [ -n "$f" ] && fw="$fw $f"
-	fi
-	# KVM devices keep it in /etc/version: RK_VERSION=V1.10.2 release1
-	[ -n "$fw" ] || fw=$(rd "$(r etc/version)" | sed -n 's/^RK_VERSION=//p' | head -n 1)
+	device_info; model=$DEV_MODEL fw=$DEV_FW
 	up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
 	quick=false
 	grep -q "^IOC${TAB}process${TAB}[0-9]*${TAB}GL.iNet's quick check" "$FIND" && quick=true
@@ -2111,14 +2125,24 @@ cloud_advice() {
 #    1  restarted since the attacks began
 #    2  --fix: 0 not run, 1 done, 2 incomplete
 #    2  other changes listed for review: 0 none, 1 some
-# Kinds of findings, never a path; nothing that names a device or its owner. The code
+# Where model and firmware are known, five more characters follow after a dash, so that
+# the page can say whether newer firmware exists for this device: AA006011D-K7Q2X.
+#    7  the model, as its place in RESULT_MODELS (0: not in the list)
+#    2  firmware version, first number minus one
+#    5  second number, 5 third number (up to 31 each)
+#    1  a test build (beta, rc, snapshot)
+# and a check character of their own. The first nine work without them.
+# Kinds of findings, never a path; a model and a version, never a serial number. Nothing
+# in the code tells this device from another of its kind, or names its owner. The code
 # stands after "#", a part of the address a browser does not send. The page holds the
 # same tables; the worker's tests compare them, and the tests here read every code back.
 RESULT_URL=${GL_TRIAGE_RESULT_URL:-https://csa.gl-i.net/}
 RESULT_CODES='marker=mk applet-hijack=ah persist-ref=pr keep-ref=kr cron-ref=cr ssh-key=sk rtty-server=rt pipe=pp fw-rule=fw cloud-command=cc installer-trace=it backdoor-init=bi backdoor-file=bf backdoor-keep=bk backdoor-host=bh backdoor-proc=bp persistence=pe process-quick=pq process-shell=ps process-implant=pi connection-shell=cs connection-malware=cm'
 RESULT_KINDS='mk ah pr kr cr sk rt pq pi ps pp cs cm fw cc it bi bf bk bh bp pe'
+# the models as firmware.gl-i.net names them; new ones go at the end, the order never changes
+RESULT_MODELS='be10000 be14000 be3600 be9300 e5800 mg1300 mt3000 mt3600be mt5000 mt6000 axt1800 be6500 sft1200 x3000 xe3000 ax1800 mt2500 x2000 a1300 b3000 ar300m ar300m16 ar750 ar750s b1300 e750 mt1300 mt300n-v2 x300b x750 xe300 ap1300 ar150 b2200 mifi mt300a mt300n mv1000 s1300 sf1200 usb150 x1200 n300 vixmini s10 s20ble s20otbr s200 rm1 rm10 rm10rc rm1pe rm1v2 rm4pe rmq1'
 result_link() {
-	local now k p g n up bt f rv code
+	local now k p g n up bt f rv code ext m mi i ver tb
 	# what was found before any clean-up: that is what the owner has to know about
 	now=$FIND; FIND=$TMP/findings
 	k=$(awk -F '\t' -v map="$RESULT_CODES" 'BEGIN { n = split(map, a, " "); for (i = 1; i <= n; i++) { split(a[i], kv, "="); c[kv[1]] = kv[2] } }
@@ -2162,13 +2186,41 @@ result_link() {
 			print out
 		}' 2>/dev/null)
 	case $code in ?????????) ;; *) return 0 ;; esac
+	# model and firmware, where both are known and fit
+	ext=
+	device_info
+	m=$(printf '%s' "$DEV_MODEL" | tr 'A-Z' 'a-z' | sed 's/^gl\.inet *//; s/^gl-//; s/[ (].*$//')
+	mi=0; i=0
+	for f in $RESULT_MODELS; do i=$((i + 1)); [ "$f" = "$m" ] && mi=$i; done
+	ver=$(printf '%s' "$DEV_FW" | sed -n 's/^[^0-9]*\([0-9]\{1,2\}\)\.\([0-9]\{1,2\}\)\.\([0-9]\{1,2\}\).*/\1 \2 \3/p')
+	tb=0; printf '%s' "$DEV_FW" | grep -qiE 'beta|rc[0-9]|snapshot|alpha|test' && tb=1
+	if [ "$mi" -gt 0 ] && [ -n "$ver" ]; then
+		ext=$(awk -v mi="$mi" -v ver="$ver" -v tb="$tb" -v code="$code" '
+			function bin(x, w,    s, i, d) { s = ""; for (i = 0; i < w; i++) { d = x % 2; s = d s; x = int(x / 2) } return s }
+			BEGIN {
+				alpha = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+				split(ver, v, " ")
+				if (v[1] < 1 || v[1] > 4 || v[2] > 31 || v[3] > 31) exit
+				bits = bin(mi, 7); bits = bits bin(v[1] - 1, 2); bits = bits bin(v[2], 5); bits = bits bin(v[3], 5); bits = bits bin(tb, 1)
+				sum = index(alpha, substr(code, 9, 1)) - 1; out = ""
+				for (i = 0; i < 4; i++) {
+					x = 0
+					for (j = 1; j <= 5; j++) x = x * 2 + substr(bits, i * 5 + j, 1)
+					sum = sum + (i + 1) * x
+					out = out substr(alpha, x + 1, 1)
+				}
+				out = out substr(alpha, sum % 31 + 1, 1)
+				print out
+			}' 2>/dev/null)
+		case $ext in ?????) ext="-$ext" ;; *) ext= ;; esac
+	fi
 	say ""
 	# set apart by colour, and by the arrows where there is no colour
 	say "   ${HL} >>> This result in plain words, with what to do (English, German, Chinese): ${N}"
-	say "   ${B}>>>${N} ${LINK}${RESULT_URL}#$code${N}"
-	say "   ${D}Open the address in a browser on any device, or type it; capitals do not matter. The nine${N}"
-	say "   ${D}characters stand for this result only, nothing about you or the device, and opening the${N}"
-	say "   ${D}address sends nothing from here.${N}"
+	say "   ${B}>>>${N} ${LINK}${RESULT_URL}#$code$ext${N}"
+	say "   ${D}Open the address in a browser on any device, or type it; capitals do not matter. The code${N}"
+	say "   ${D}stands for this result${ext:+, the model and its firmware version}. Nothing in it tells this device from another of${N}"
+	say "   ${D}its kind, and opening the address sends nothing from here.${N}"
 }
 
 finish() { cloud_advice; offer_report; exit "$1"; }
