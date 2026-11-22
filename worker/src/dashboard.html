@@ -117,10 +117,32 @@ button.val:hover { text-decoration-color: currentColor; }
 .card.kpi .split { margin-top: 8px; }
 .card.kpi .legend { margin-top: 6px; gap: 0 14px; line-height: 1.35; }
 .knote { margin-top: 4px; font-size: 12.5px; color: var(--text-2); line-height: 1.4; }
-/* the side panel: a report, a finding, the glossary */
-.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: min(600px, 100%); display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow); }
-.drawer[data-mode=item] { width: min(780px, 100%); } .drawer[data-mode=glossary] { width: min(520px, 100%); }
+/* the side panel: a report, a finding, the glossary. On a wide window it stands beside the
+   page, which makes room for it, and its left edge sets the width; on a narrow one it lies over the page. */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: min(var(--dw, 600px), 100%); display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow); }
+body.docked { padding-right: var(--dw); }
+body.docked .drawer { box-shadow: none; }
+.dgrip { position: absolute; top: 0; bottom: 0; left: -5px; width: 10px; cursor: col-resize; touch-action: none; z-index: 3; }
+.dgrip::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; transition: background .15s; }
+.dgrip:hover::after, .dgrip.on::after, .dgrip:focus-visible::after { background: var(--accent); }
+.dgrip:focus-visible { outline: none; }
+body:not(.docked) .dgrip { display: none; }
+/* the panel over the whole page: the details in two columns, the content in the middle */
+.drawer.full { width: 100%; box-shadow: none; border-left: 0; }
+body.fullpanel { overflow: hidden; }
+.drawer.full .dh, .drawer.full .dbody { padding-left: max(24px, calc((100% - 1240px) / 2)); padding-right: max(24px, calc((100% - 1240px) / 2)); }
+.drawer.full .dbody .body { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.drawer.full .dbody > .gl { columns: 2 420px; column-gap: 40px; } .drawer.full .gl dt { break-after: avoid; } .drawer.full .gl dd { break-before: avoid; }
+/* lists side by side in two columns, striped by row */
+.drawer.full .igrp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+.drawer.full .igrp > :not(.iline) { grid-column: 1 / -1; } .drawer.full .igrp > .btn { justify-self: start; }
+.drawer.full .iline:nth-child(n) { background: none; }
+.drawer.full .igrp:not(.nohead) > .iline:is(:nth-child(4n), :nth-child(4n+1)), .drawer.full .igrp.nohead > .iline:is(:nth-child(4n+3), :nth-child(4n+4)) { background: color-mix(in srgb, var(--surface-2) 75%, transparent); }
+.drawer.full .iline:hover { background: var(--surface-2); }
+#dFull .ico-in { display: none; } .drawer.full #dFull .ico-in { display: block; } .drawer.full #dFull .ico-out { display: none; }
+body.resizing { cursor: col-resize; user-select: none; }
 .dh { display: flex; align-items: flex-start; gap: 6px; padding: 14px 14px 12px 18px; border-bottom: 1px solid var(--border); }
+.dh .grow { flex: 1; min-width: 0; }
 .dh h2 { font-size: 16px; overflow-wrap: anywhere; }
 .drawer[data-mode=item] .dh h2 { font: 650 14.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .dh .sub { margin-top: 2px; }
@@ -128,10 +150,30 @@ button.val:hover { text-decoration-color: currentColor; }
 .dbody > h3 { margin: 18px 0 4px; font-size: 12.5px; font-weight: 650; color: var(--text-2); }
 .dbody > .sub { margin-bottom: 6px; }
 .dbody .body { grid-template-columns: minmax(0, 1fr); }
+.dbody .body .full { overflow: visible; }
+/* tables in the panel: the heading stays while the panel scrolls (-6px: above the padding), long values wrap */
+.dbody table { font-size: 13px; }
+.dbody td { overflow-wrap: break-word; }
+.dbody table > tr:first-child > th { position: sticky; top: -6px; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--border); }
+:where(.dbody table > tr:nth-child(odd):not(:first-child)) > td { background: color-mix(in srgb, var(--surface-2) 75%, transparent); }
+:where(.dbody table tr:not(:first-child):hover) > td { background: var(--surface-2); }
+.dbody td small { display: block; font-size: 12px; color: var(--text-2); }
+/* a list of files or findings: the path on top, the rest below it, grouped by kind */
+.ilist { margin-top: 6px; }
+.igrp + .igrp { margin-top: 12px; }
+.ihead { position: sticky; top: -6px; z-index: 1; display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; background: var(--surface); box-shadow: inset 0 -1px 0 var(--border); font-size: 12.5px; }
+.ihead b { font-weight: 650; }
+.iline { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 2px 12px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.iline:nth-child(odd) { background: color-mix(in srgb, var(--surface-2) 75%, transparent); }
+.iline:hover { background: var(--surface-2); }
+.ipath { line-height: 1.45; overflow-wrap: anywhere; } .ipath .mono { line-height: inherit; }
+.imeta { display: flex; flex-wrap: wrap; align-items: center; gap: 1px 10px; margin-top: 1px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.imeta .mono { font-size: 11.5px; }
+.imeta .tag { font-size: 11px; }
+.igrp > .btn { margin: 8px 0 0 8px; }
 .dbody .kpis2.wide { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .dact { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
 .gl dt { margin-top: 14px; } .gl dt b { display: block; font-weight: 650; } .gl dd { margin: 2px 0 0; color: var(--text-2); font-size: 13.5px; }
-.hashcell { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; max-width: 420px; }
 .linkish { cursor: pointer; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
 .linkish:hover { text-decoration-color: var(--accent); color: var(--accent); }
 .safeTable td { vertical-align: top; }
@@ -237,7 +279,6 @@ pre { margin: 6px 0 0; padding: 9px 11px; border-radius: 9px; background: var(--
 .count { float: right; margin-left: 10px; min-width: 24px; padding: 0 7px; border-radius: 980px; background: var(--surface-2); color: var(--text); font: 650 12px -apple-system, 'Segoe UI', sans-serif; text-align: center; }
 .stack > * + * { margin-top: 10px; }
 .stack h3 { margin: 0; font-size: 12px; font-weight: 650; color: var(--text-2); }
-.scroll { overflow-x: auto; }
 /* tables in a card: the heading row stays at the top while the rows scroll, every other
    row is shaded, and the row under the pointer is marked */
 .cb thead th, .cb table > tr:first-child > th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--border); }
@@ -259,7 +300,7 @@ pre { margin: 6px 0 0; padding: 9px 11px; border-radius: 9px; background: var(--
 .dev b { font-weight: 650; white-space: nowrap; } td.tnum { white-space: nowrap; } .dev small, .fw small { display: block; font-size: 12px; color: var(--text-2); }
 .fw { max-width: 210px; }
 .tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
-.tag { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 980px; font-size: 11.5px; font-weight: 600; background: var(--surface-2); color: var(--text-2); }
+.tag { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; padding: 0 8px; border-radius: 980px; font-size: 11.5px; font-weight: 600; background: var(--surface-2); color: var(--text-2); }
 .tag.warn { background: var(--warn-bg); color: var(--warn); }
 .tag.ok { background: var(--accent-soft); color: var(--accent); }
 .tag i { width: 8px; height: 8px; border-radius: 2px; }
@@ -554,10 +595,12 @@ tr.few td { color: var(--text-2); } tr.few td b { font-weight: 600; }
   <p class="foot">Reports are anonymous and not verified: anyone can send one. Look for patterns, not single reports. All times are UTC.</p>
 </main>
 <aside class="drawer" id="drawer" hidden aria-labelledby="dTitle">
+  <div class="dgrip" id="dGrip" tabindex="0" role="separator" aria-orientation="vertical" aria-label="Width of the panel" title="Drag to change the width, double-click for the usual width"></div>
   <div class="dh">
     <div class="grow"><h2 id="dTitle"></h2><p class="sub" id="dSub"></p></div>
     <button class="ib" type="button" id="dPrev" aria-label="Previous report" title="Previous report"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button>
     <button class="ib" type="button" id="dNext" aria-label="Next report" title="Next report"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"/></svg></button>
+    <button class="ib" type="button" id="dFull" aria-pressed="false" aria-label="Show over the whole page" title="Show over the whole page"><svg class="ico ico-out" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5L9 7"/><path d="M6.5 13.5h-4v-4"/><path d="M2.5 13.5L7 9"/></svg><svg class="ico ico-in" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 6.5h-4v-4"/><path d="M9.5 6.5L14 2"/><path d="M2.5 9.5h4v4"/><path d="M6.5 9.5L2 14"/></svg></button>
     <button class="ib" type="button" id="dClose" aria-label="Close" title="Close (Esc)"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8"/><path d="M12 4l-8 8"/></svg></button>
   </div>
   <div class="dbody" id="dBody"></div>
@@ -812,6 +855,8 @@ function seg(id, key) {
 const SIMPLE = { result: 'hit', type: 'all', recv: 'all', restart: 'any' };
 // the page in view, what the side panel shows, and the card shown over the whole page
 let curPage = 'overview', D = null, focusKey = '';
+// the panel's width per kind of content, once its edge was dragged (see dock())
+let PW = {}, dLay = '', dFull = false; try { PW = JSON.parse(localStorage.getItem('csa-panel')) || {}; } catch { /* the usual widths */ }
 // one finding (a kind and a path) in the side panel: who sent it, which files stand behind it
 function openItem(key) { openDrawer({ mode: 'item', key }); }
 function toHash() {
@@ -827,6 +872,7 @@ function toHash() {
   if (focusKey) q.set('focus', focusKey);
   if (D && D.mode === 'item') q.set('item', D.key);
   if (D && D.mode === 'report') q.set('report', D.id);
+  if (D && dFull && D.mode !== 'glossary') q.set('full', '1');
   if (sortKey !== 'received' || asc) q.set('sort', (asc ? '' : '-') + sortKey);
   const h = q.toString(); if (h !== location.hash.slice(1)) history.replaceState(null, '', h ? '#' + h : location.pathname + location.search);
 }
@@ -842,6 +888,7 @@ function fromHash() {
   const pg = q.get('page'), old = q.get('view');
   curPage = pageAt(pg) >= 0 ? pg : old === 'safe' || old === 'item' ? 'review' : 'overview';
   D = q.get('item') ? { mode: 'item', key: q.get('item') } : q.get('report') ? { mode: 'report', id: q.get('report') } : null;
+  dFull = !!D && q.has('full');
   focusKey = q.get('focus') || '';
   const so = q.get('sort'); if (so) { asc = !so.startsWith('-'); sortKey = so.replace(/^-/, ''); }
 }
@@ -882,6 +929,7 @@ document.addEventListener('keydown', (e) => {
   const ms = document.querySelectorAll('.ms[open]');
   if (ms.length) for (const o of ms) o.open = false;
   else if (board.querySelector('.about:not([hidden])')) about(null, false);
+  else if (D && dFull) setFull(false);
   else if (D) closeDrawer();
   else if (focusKey) { focusKey = ''; render(); }
   else if (editing) setEditing(false);
@@ -1294,7 +1342,7 @@ $('yamlBtn').addEventListener('click', async () => {
 // Only the cards of the page in view are drawn; the rest is drawn when its page is opened.
 let revN = -1, current = [];
 function render() {
-  repool(); markUnusual();
+  dock(); repool(); markUnusual();
   if (revN !== all.length) { REVALL = revGroups(all.filter((r) => r.schema >= 6)); revN = all.length; }
   const rows = pool.filter((r) => pass(r)), base = pool.filter((r) => pass(r, 'result')), isHit = (r) => (F.result === 'bd' ? r.bd : r.ioc > 0), hit = base.filter(isHit);
   facets.forEach((f) => f()); chips();
@@ -1436,6 +1484,19 @@ function reportsTable(rows) {
   $('range').textContent = rows.length ? `${page * size + 1}–${Math.min(rows.length, (page + 1) * size)} of ${rows.length.toLocaleString('en')} · page ${page + 1} of ${pages}` : '';
   $('prev').disabled = page === 0; $('next').disabled = page >= pages - 1;
 }
+// the line under a file or finding: fingerprint, size, when it was changed on the device and,
+// when that differs, when it was written
+const MORE = new Set();
+function fileMeta(f, size) {
+  const m = el('div', null, 'imeta');
+  if (f.sha256) { const h = el('span', f.sha256.slice(0, 16) + '…', 'mono'); h.title = 'SHA-256 ' + f.sha256; m.append(h); if (KNOWN[f.sha256]) { const k = el('span', KNOWN[f.sha256], 'tag ok'); k.title = 'Matches the checksum of this release file.'; m.append(k); } }
+  if (size) m.append(el('span', size));
+  const c = ts(f.ctime), w = ts(f.mtime);
+  if (!isNaN(c)) { const x = el('span', 'changed ' + fmt(c)); x.title = 'Changed on the device (ctime): the kernel sets it, touch and tar cannot set it back.'; m.append(x); }
+  if (!isNaN(w) && fmt(w) !== fmt(c)) { const x = el('span', 'written ' + fmt(w)); x.title = 'Written (mtime): can come with the file or be set back.'; m.append(x); }
+  if (!isNaN(w) && !isNaN(c) && lag(f) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(f)) + ' older than the change on the device. It came with the file (archive, copy) or was set back. The changed time is the one to trust.'; m.append(g); }
+  return m;
+}
 function detailBody(r) {
   const b = el('div', null, 'body');
   const sec = (title, node, full) => { const w = el('div', null, full ? 'full' : ''); w.append(el('h3', title), node); b.append(w); };
@@ -1451,8 +1512,29 @@ function detailBody(r) {
   for (const f of r.findings) { const k = kindOf(f), li = el('li'), b = el('span', KIND[k] || k, 'ev'); if (WHY[k]) { b.append(el('i', 'i')); hover(b, WHY[k]); } li.append(b, el('span', f.slice(k.length + 1), 'mono')); fl.append(li); }
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
   if (r.odd.length) { const w = el('div'); for (const [k, v] of r.odd) w.append(el('pre', k + ':  ' + v)); sec('Only on this device', w, true); }
-  if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); const fp = el('td', f.sha256.slice(0, 24) + '…', 'mono dim'); fp.title = f.sha256; row.append(el('td', f.path, 'mono'), fp, el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); const c = el('td', null, 'n'); if (f.ctime) { c.textContent = fmt(ts(f.ctime)); c.title = 'Changed on the device (ctime): the kernel sets it, touch and tar cannot set it back.'; if (lag(f) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(f)) + ' older than the change on the device. It came with the file (archive, copy) or was set back. The right-hand time is the one to trust.'; c.append(' ', g); } } row.append(c); t.append(row); } const hd = el('tr'); for (const [x, k] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Size', 'n'], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n']]) hd.append(el('th', x, k)); t.prepend(hd); sec('Files', t, true); }
-  if (r.review_items.length) { const t = el('table'), hd = el('tr'); for (const [x, k] of [['Kind', ''], ['Path or program', ''], ['Fingerprint (SHA-256)', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['', 'n']]) hd.append(el('th', x, k)); t.append(hd); for (const i of r.review_items) { const row = el('tr'), fp = el('td', i.sha256 ? i.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = i.sha256; if (KNOWN[i.sha256]) { const k = el('span', KNOWN[i.sha256], 'tag ok'); k.style.marginLeft = '6px'; k.title = 'Matches the checksum of this release file.'; fp.append(k); } const c = el('td', i.ctime ? fmt(ts(i.ctime)) : '', 'n'); if (i.mtime && i.ctime && lag(i) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(i)) + ' older than the change on the device.'; c.append(' ', g); } const g = REVALL.get(i.kind + ' ' + i.path) || { kind: i.kind, path: i.path, sha: new Set(i.sha256 ? [i.sha256] : []) }, pc = el('td', null, 'mono'), pl = el('span', i.path || '(not sent)', 'linkish'), mt = markTag(g), act = el('td', null, 'n'); pl.title = 'See which devices sent this and which files stand behind it'; pl.addEventListener('click', (e) => { e.stopPropagation(); openItem(i.kind + ' ' + i.path); }); pc.append(pl); if (mt) pc.append(mt); act.append(markButton(g, act)); row.append(el('td', i.kind), pc, fp, el('td', i.mtime ? fmt(ts(i.mtime)) : '', 'n'), c, act); t.append(row); } sec('Listed for review (not known traces)', t, true); }
+  if (r.files.length) {
+    const box = el('div', null, 'ilist'), grp = el('div', null, 'igrp nohead');
+    for (const f of r.files) { const ln = el('div', null, 'iline'), m = el('div'); const p = el('div', null, 'ipath'); p.append(el('span', f.path, 'mono')); m.append(p, fileMeta(f, f.size.toLocaleString('en') + ' B')); ln.append(m); grp.append(ln); }
+    box.append(grp); sec(`Files (${r.files.length})`, box, true);
+  }
+  // what the script listed for review, by kind: a long kind shows its first lines, the rest on request
+  if (r.review_items.length) {
+    const box = el('div', null, 'ilist'), kinds = new Map();
+    for (const i of r.review_items) (kinds.get(i.kind) || kinds.set(i.kind, []).get(i.kind)).push(i);
+    for (const [kind, list] of kinds) {
+      const grp = el('div', null, 'igrp'), h = el('div', null, 'ihead'), key = r.id + ' ' + kind, whole = list.length <= 12 || MORE.has(key);
+      h.append(el('b', kind), el('span', list.length + (list.length === 1 ? ' entry' : ' entries'), 'dim')); grp.append(h);
+      for (const i of whole ? list : list.slice(0, 8)) {
+        const g = REVALL.get(i.kind + ' ' + i.path) || { kind: i.kind, path: i.path, sha: new Set(i.sha256 ? [i.sha256] : []) };
+        const ln = el('div', null, 'iline'), m = el('div'), p = el('div', null, 'ipath'), pl = el('span', i.path || '(not sent)', 'linkish mono'), mt = markTag(g), act = el('div');
+        pl.title = 'See which devices sent this and which files stand behind it'; pl.addEventListener('click', (e) => { e.stopPropagation(); openItem(i.kind + ' ' + i.path); });
+        p.append(pl); if (mt) p.append(mt); m.append(p, fileMeta(i)); act.append(markButton(g, act)); ln.append(m, act); grp.append(ln);
+      }
+      if (!whole) { const b = el('button', `Show all ${list.length}`, 'btn sm'); b.type = 'button'; b.addEventListener('click', () => { MORE.add(key); drawer(); }); grp.append(b); }
+      box.append(grp);
+    }
+    sec(`Listed for review (${r.review_items.length}, not known traces)`, box, true);
+  }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
   if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
   if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);
@@ -1613,15 +1695,48 @@ applyLayout();
 }
 
 /* ---------- the side panel: a report, a finding, the glossary ---------- */
-// It lies over the right side of the page; the page behind it stays as it is.
+// On a wide window it stands beside the page, which makes room for it; on a narrow one it
+// lies over the right side of the page.
+const DOCK = 1100;
+function panelWidth(raw) {
+  const m = D.mode;
+  if (innerWidth < DOCK) return m === 'item' ? 780 : m === 'glossary' ? 520 : 600;
+  const w = raw || +PW[m] || innerWidth * (m === 'item' ? .46 : m === 'glossary' ? .34 : .4);
+  return Math.round(Math.max(400, Math.min(w, innerWidth - 680, 1100)));
+}
+// sets the panel's width and whether it stands beside the page; true when the page's width changed
+function dock() {
+  if (!D) dFull = false;
+  const on = !!D && !dFull && innerWidth >= DOCK, w = D ? panelWidth() + 'px' : '';
+  if (w) document.documentElement.style.setProperty('--dw', w);
+  document.body.classList.toggle('docked', on); document.body.classList.toggle('fullpanel', dFull);
+  const f = $('dFull'), box = $('drawer'); box.classList.toggle('full', dFull); f.setAttribute('aria-pressed', dFull);
+  f.title = dFull ? 'Back to the side panel (Esc)' : 'Show over the whole page'; f.setAttribute('aria-label', f.title);
+  const lay = on ? w : ''; if (lay === dLay) return false; dLay = lay; return true;
+}
+// the page's cards are drawn again when it got wider or narrower, else only the panel
+const relayout = () => { if (dock()) render(); else { drawer(); toHash(); } };
 let dKey = '';
 function openDrawer(d) {
-  const was = !!D; D = d; drawer(); toHash();
+  const was = !!D; D = d; relayout();
   for (const tr of $('rows').children) tr.classList.toggle('sel', D.mode === 'report' && tr.dataset.id === D.id);
   const sel = $('rows').querySelector('tr.sel'); if (sel) sel.scrollIntoView({ block: 'nearest' });
   if (!was) $('dClose').focus();
 }
-function closeDrawer() { D = null; drawer(); toHash(); for (const tr of $('rows').children) tr.classList.remove('sel'); }
+function closeDrawer() { D = null; dFull = false; relayout(); for (const tr of $('rows').children) tr.classList.remove('sel'); }
+const setFull = (on) => { dFull = on; relayout(); };
+$('dFull').addEventListener('click', () => setFull(!dFull));
+// the left edge: drag it, or use the arrow keys; a double-click goes back to the usual width
+{
+  const g = $('dGrip'), keep = () => { try { localStorage.setItem('csa-panel', JSON.stringify(PW)); } catch { /* for this visit only */ } };
+  const set = (w) => { PW[D.mode] = panelWidth(w); document.documentElement.style.setProperty('--dw', PW[D.mode] + 'px'); };
+  g.addEventListener('pointerdown', (e) => {
+    if (!D || e.button) return; e.preventDefault(); g.classList.add('on'); document.body.classList.add('resizing');
+    follow((m) => set(innerWidth - m.clientX), () => { g.classList.remove('on'); document.body.classList.remove('resizing'); keep(); relayout(); });
+  });
+  g.addEventListener('keydown', (e) => { if (!D || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); set(panelWidth() + (e.key === 'ArrowLeft' ? 40 : -40)); keep(); relayout(); });
+  g.addEventListener('dblclick', () => { if (!D) return; delete PW[D.mode]; keep(); relayout(); });
+}
 function drawer() {
   const box = $('drawer'); box.hidden = !D; if (!D) { dKey = ''; return; }
   const key = D.mode + ' ' + (D.id || D.key || ''), body = $('dBody'), keep = key === dKey ? body.scrollTop : 0; dKey = key;
@@ -1678,16 +1793,17 @@ function itemView(body) {
   const sec = (title, sub, heads, lines) => {
     body.append(el('h3', title)); if (sub) body.append(el('p', sub, 'sub'));
     if (!lines.length) { body.append(el('p', 'Nothing to show.', 'peak')); return; }
-    const w = el('div', null, 'scroll'), tb = el('table'), hd = el('tr'); for (const [t, c] of heads) hd.append(el('th', t, c)); tb.append(hd); for (const l of lines) tb.append(l); w.append(tb); body.append(w);
+    const tb = el('table'), hd = el('tr'); for (const [t, c] of heads) hd.append(el('th', t, c)); tb.append(hd); for (const l of lines) tb.append(l); body.append(tb);
   };
-  const span = (c) => (c.length ? (fmt(c[0]).slice(0, 10) === fmt(c[c.length - 1]).slice(0, 10) ? fmt(c[0]).slice(0, 10) : fmt(c[0]).slice(0, 10) + ' – ' + fmt(c[c.length - 1]).slice(0, 10)) : '–');
+  // the first and the last day, the last one below it
+  const span = (c) => { const td = el('td', c.length ? fmt(c[0]).slice(0, 10) : '–', 'n'), z = c.length ? fmt(c[c.length - 1]).slice(0, 10) : ''; if (z && z !== td.textContent) td.append(el('small', 'to ' + z)); return td; };
   // fingerprints
   const byHash = new Map(); for (const x of rows) { const k = x.it.sha256 || ''; (byHash.get(k) || byHash.set(k, []).get(k)).push(x); }
-  sec('Fingerprints', 'One line per different file behind this path. The same fingerprint on many devices means the same file. A mark as probably safe covers the fingerprints known when it was set.', [['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n'], ['Models', ''], ['Changed on device (UTC)', 'n'], ['Known or covered by the mark', '']], [...byHash].sort((a, b) => b[1].length - a[1].length).map(([h, xs]) => {
-    const tr = el('tr'), c = xs.map((x) => ts(x.it.ctime)).filter((n) => !isNaN(n)).sort((a, b) => a - b), hc = el('td', h || '(no fingerprint)', 'hashcell');
-    if (h) { hc.classList.add('linkish'); hc.title = 'Search all reports for this fingerprint'; hc.addEventListener('click', () => search(h)); }
+  sec('Fingerprints', 'One line per different file behind this path. The same fingerprint on many devices means the same file. A mark as probably safe covers the fingerprints known when it was set.', [['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n'], ['Models', ''], ['Changed (UTC)', 'n'], ['Mark', '']], [...byHash].sort((a, b) => b[1].length - a[1].length).map(([h, xs]) => {
+    const tr = el('tr'), c = xs.map((x) => ts(x.it.ctime)).filter((n) => !isNaN(n)).sort((a, b) => a - b), hc = el('td', h ? h.slice(0, 16) + '…' : '(no fingerprint)', 'mono');
+    if (h) { hc.classList.add('linkish'); hc.title = h + '\nSearch all reports for this fingerprint'; hc.addEventListener('click', () => search(h)); }
     const cov = el('td'); if (h && KNOWN[h]) cov.append(el('span', 'known: ' + KNOWN[h], 'tag ok')); else if (h) cov.append(el('span', lab && lab.hashes.includes(h) ? 'yes' : lab ? 'no: new since the mark' : 'not marked', 'tag ' + (lab && lab.hashes.includes(h) ? 'ok' : lab ? 'warn' : '')));
-    tr.append(hc, el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', count(xs.map((x) => x.r), (r) => r.model).slice(0, 4).map(([m, n]) => m + ' ×' + n).join(', ')), el('td', span(c), 'n'), cov);
+    tr.append(hc, el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', count(xs.map((x) => x.r), (r) => r.model).slice(0, 4).map(([m, n]) => m + ' ×' + n).join(', ')), span(c), cov);
     return tr;
   }));
   // models and firmware
@@ -1696,13 +1812,13 @@ function itemView(body) {
     const [m, f] = k.split('\t'), tr = el('tr'); tr.append(el('td', m), el('td', f), el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', new Set(xs.map((x) => x.it.sha256).filter(Boolean)).size || '–', 'n')); return tr;
   }));
   // devices
-  sec(`Devices that sent it (${rows.length})`, 'The latest report of each device. Click a line to see that device’s reports.', [['Received (UTC)', ''], ['Model', ''], ['Firmware', ''], ['Result', ''], ['SHA-256', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['Device ID', '']], rows.sort((a, b) => b.r.recv - a.r.recv).slice(0, 300).map(({ r, it }) => {
-    const tr = el('tr'), res = el('td'), cc = el('td', it.ctime ? fmt(ts(it.ctime)) : '', 'n'); tr.style.cursor = 'pointer';
+  sec(`Devices that sent it (${rows.length})`, 'The latest report of each device. Click a line to see that device’s reports.', [['Received (UTC)', ''], ['Device', ''], ['Result', ''], ['File on the device', '']], rows.sort((a, b) => b.r.recv - a.r.recv).slice(0, 300).map(({ r, it }) => {
+    const tr = el('tr'), dev = el('td'), res = el('td'), file = el('td'); tr.style.cursor = 'pointer';
+    dev.append(el('b', r.model), el('small', r.fw), el('small', r.dev || 'no device ID', 'mono'));
     res.append(el('span', r.cls === 'clean' ? 'Clean' : r.cls === 'command' ? 'Command only' : r.cls === 'shell' ? 'Remote shell' : r.cls === 'malware' ? 'gl-helper malware' : r.cls === 'backdoor' ? 'Older backdoor' : 'Traces', 'tag ' + (r.cls === 'clean' ? 'ok' : 'warn')));
     if (r.bd && r.cls !== 'backdoor') res.append(' ', el('span', 'Older backdoor', 'tag warn'));
-    if (it.mtime && it.ctime && lag(it) > LAG) { const t = el('span', 'time not from this device', 'tag warn'); t.title = 'The written time is ' + dur(lag(it)) + ' older than the change on the device.'; cc.append(' ', t); }
-    const fp = el('td', it.sha256 ? it.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = it.sha256;
-    tr.append(el('td', fmt(r.recv), 'tnum'), el('td', r.model), el('td', r.fw), res, fp, el('td', it.mtime ? fmt(ts(it.mtime)) : '', 'n'), cc, el('td', r.dev || '–', 'mono dim'));
+    file.append(fileMeta(it));
+    tr.append(el('td', fmt(r.recv), 'tnum'), dev, res, file);
     tr.addEventListener('click', () => search(r.dev || r.model));
     return tr;
   }));

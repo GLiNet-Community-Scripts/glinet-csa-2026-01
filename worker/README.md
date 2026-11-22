@@ -225,7 +225,11 @@ how an attack ran), Devices & firmware, Attack (evidence, malware files, ports, 
 attacker left), Older backdoor, Review (unusual changes, what was marked as probably
 safe, known release files) and Reports, a sortable, paged table. A row opens the report
 in a panel beside the table, with arrows to step through the rows; a finding from the
-review list opens there too, and so does the glossary. What a card shows and how to
+review list opens there too, and so does the glossary. On a wide window the panel stands
+beside the page, which makes room for it; drag its left edge to change its width (kept per
+browser, a double-click on the edge goes back to the usual width); the arrows in its title
+show it over the whole window, with the details in two columns, and Esc goes back. Long lists in it, such
+as many findings of one kind, show their first lines and the rest on request. What a card shows and how to
 read it is behind the i next to its title. The arrows at the right of a title show the card over
 the whole page. Table headings stay in view while the rows scroll.
 
