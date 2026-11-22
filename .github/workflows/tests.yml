@@ -21,7 +21,7 @@ jobs:
       matrix:
         tools: [system, busybox]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Syntax
         run: sh -n gl-helper-triage.sh
@@ -47,10 +47,9 @@ jobs:
     name: Worker and dashboard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - uses: actions/checkout@v7
+      # the runner's own Node.js; the tests need 22.13 or later for its built-in SQLite
+      - run: node --version
       - name: The built dashboard matches its source
         run: |
           cd worker
