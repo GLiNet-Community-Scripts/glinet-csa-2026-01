@@ -89,6 +89,8 @@ const FIELDS_V8 = { ...FIELDS_V7, cloud_bound: onoff, rtty_ssh: onoff, rtty_web:
 // Also the time the cloud handler's state file was created, its first call: the file's
 // access time, sent only where the filesystem does not update it (noatime), else empty.
 const FIELDS_V9 = { ...FIELDS_V8, note: txt(120), state_file_first: time };
+// for the test that openapi.json, the schema Cloudflare checks reports against, knows every field
+export const REPORT_FIELDS = Object.keys(FIELDS_V9);
 
 async function sealDeviceId(env, id) {
   if (!env.DEVICE_SALT || !id) return '';

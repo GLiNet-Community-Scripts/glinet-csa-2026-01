@@ -1,0 +1,331 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CSA-2026-01 anonymous reports",
+    "version": "9",
+    "description": "The one address the community script gl-helper-triage.sh posts to. For Cloudflare API Shield schema validation. The worker checks every report again, and more strictly: per schema version every field is required there. This file is the union of schema versions 1 to 9, so it lets every report through that the worker accepts. A new schema version must be added here, and uploaded, before a script sends it."
+  },
+  "servers": [
+    {
+      "url": "https://app.gl-i.net"
+    }
+  ],
+  "paths": {
+    "/csa-2026-01-report": {
+      "post": {
+        "operationId": "submitReport",
+        "summary": "Send one anonymous report",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Report"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "stored"
+          },
+          "400": {
+            "description": "not a valid report"
+          },
+          "413": {
+            "description": "too large"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Report": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "tool",
+          "platform",
+          "model",
+          "firmware",
+          "checked_at",
+          "uptime_s",
+          "ioc",
+          "persist",
+          "review",
+          "findings",
+          "quick_check",
+          "shell_started",
+          "shell_ports",
+          "pipe_time"
+        ],
+        "properties": {
+          "schema": {
+            "type": "integer",
+            "enum": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ]
+          },
+          "tool": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "platform": {
+            "type": "string",
+            "maxLength": 48,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "firmware": {
+            "type": "string",
+            "maxLength": 48,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "checked_at": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "uptime_s": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "ioc": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "persist": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "review": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "findings": {
+            "type": "array",
+            "maxItems": 40,
+            "items": {
+              "type": "string",
+              "maxLength": 120,
+              "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+            }
+          },
+          "quick_check": {
+            "type": "boolean"
+          },
+          "shell_started": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "shell_ports": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          },
+          "pipe_time": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "state_file_time": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "$ref": "#/components/schemas/File"
+            }
+          },
+          "persistence": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "$ref": "#/components/schemas/Persistence"
+            }
+          },
+          "fw_rules": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "maxLength": 300,
+              "pattern": "^[ -~]*$"
+            }
+          },
+          "commands": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "type": "string",
+              "maxLength": 400,
+              "pattern": "^[ -~]*$"
+            }
+          },
+          "device_id": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^([0-9a-f]{16})?$"
+          },
+          "goodcloud": {
+            "$ref": "#/components/schemas/OnOff"
+          },
+          "cloud_client": {
+            "type": "string",
+            "maxLength": 32,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "astrowarp": {
+            "$ref": "#/components/schemas/OnOff"
+          },
+          "state_file_size": {
+            "type": "integer",
+            "minimum": -1,
+            "maximum": 1000000000
+          },
+          "review_items": {
+            "type": "array",
+            "maxItems": 40,
+            "items": {
+              "$ref": "#/components/schemas/ReviewItem"
+            }
+          },
+          "cloud_bound": {
+            "$ref": "#/components/schemas/OnOff"
+          },
+          "rtty_ssh": {
+            "$ref": "#/components/schemas/OnOff"
+          },
+          "rtty_web": {
+            "$ref": "#/components/schemas/OnOff"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 120,
+            "pattern": "^[ -~]*$"
+          },
+          "state_file_first": {
+            "$ref": "#/components/schemas/Time"
+          }
+        }
+      },
+      "Time": {
+        "type": "string",
+        "maxLength": 23,
+        "pattern": "^([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC)?$",
+        "description": "2026-11-21 16:40:00 UTC, or empty"
+      },
+      "Count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000000000
+      },
+      "OnOff": {
+        "type": "string",
+        "enum": [
+          "on",
+          "off",
+          "unknown"
+        ]
+      },
+      "File": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "size",
+          "mtime"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 120,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "sha256": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^([0-9a-f]{64})?$"
+          },
+          "size": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "mtime": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "ctime": {
+            "$ref": "#/components/schemas/Time"
+          }
+        }
+      },
+      "Persistence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "lines"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 120,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "lines": {
+            "type": "array",
+            "maxItems": 60,
+            "items": {
+              "type": "string",
+              "maxLength": 300,
+              "pattern": "^[ -~]*$"
+            }
+          }
+        }
+      },
+      "ReviewItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "maxLength": 24,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9 ._:/+@=,()-]*$"
+          },
+          "sha256": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^([0-9a-f]{64})?$"
+          },
+          "mtime": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "ctime": {
+            "$ref": "#/components/schemas/Time"
+          }
+        }
+      }
+    }
+  }
+}

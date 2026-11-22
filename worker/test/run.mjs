@@ -1,6 +1,6 @@
 // node worker/test/run.mjs          run the tests
 // node worker/test/run.mjs serve    serve the worker on 127.0.0.1:8787 with a KV in memory
-import worker, { validate, reportedTable } from '../src/index.js';
+import worker, { validate, reportedTable, REPORT_FIELDS } from '../src/index.js';
 import http from 'node:http';
 
 import { readFileSync } from 'node:fs';
@@ -39,7 +39,9 @@ const good3 = {
   fw_rules: ['nat: -A SDWAN_IP_MAPPING -d 127.0.0.1/32 -j DNAT --to-destination 127.0.0.1'],
   commands: ['sh -c iptables -t nat -A SDWAN_IP_MAPPING -d 127.0.0.1 -j DNAT --to-destination 127.0.0.1;(while true;do rm -f /tmp/f;done) "x" \\ &'],
 };
+const posted = [];
 const call = (method, body, headers = {}, path = '/csa-2026-01-report') =>
+  (method === 'POST' && path === '/csa-2026-01-report' && typeof body === 'string' && posted.push(body), 0) ||
   worker.fetch(new Request(`https://example.org${path}`, { method, body, headers }), env, { waitUntil() {} });
 
 if (process.argv[2] === 'serve') {
@@ -54,6 +56,23 @@ if (process.argv[2] === 'serve') {
 } else {
   let failed = 0;
   const expect = (name, ok) => { console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}`); if (!ok) failed++; };
+  // openapi.json: the schema Cloudflare checks a report against before the worker sees it.
+  // It must let through every report the worker takes, or reports get lost unseen.
+  const oas = JSON.parse(readFileSync(new URL('../openapi.json', import.meta.url), 'utf8')), top = oas.components.schemas.Report;
+  const fits = (s, v) => {
+    if (s.$ref) s = oas.components.schemas[s.$ref.split('/').pop()];
+    if (s.enum) return s.enum.includes(v);
+    if (s.type === 'string') return typeof v === 'string' && v.length <= s.maxLength && new RegExp(s.pattern).test(v);
+    if (s.type === 'integer') return Number.isInteger(v) && v >= s.minimum && v <= s.maximum;
+    if (s.type === 'boolean') return typeof v === 'boolean';
+    if (s.type === 'array') return Array.isArray(v) && v.length <= s.maxItems && v.every((x) => fits(s.items, x));
+    if (s.type === 'object') return v !== null && typeof v === 'object' && !Array.isArray(v) && s.required.every((k) => k in v) && Object.keys(v).every((k) => k in s.properties && fits(s.properties[k], v[k]));
+    return false;
+  };
+  globalThis.fitsOpenApi = (v) => fits(top, v);
+  expect('the schema for Cloudflare knows every field of a report and every schema version', Object.keys(top.properties).sort().join() === [...REPORT_FIELDS].sort().join() && top.properties.schema.enum.every((n) => validate({ ...good, schema: n }) !== 'bad or missing field schema') && validate({ ...good, schema: top.properties.schema.enum.length + 1 }) === 'bad or missing field schema');
+  expect('it lets the reports of schema 1, 2 and 3 through', fits(top, good) && fits(top, good2) && fits(top, good3));
+  expect('it stops an unknown field, a missing one, markup and a wrong type', !fits(top, { ...good, hostname: 'x' }) && !fits(top, { ...good, tool: undefined }) && !fits(top, (({ ioc, ...r }) => r)(good)) && !fits(top, { ...good, model: '<script>' }) && !fits(top, { ...good, ioc: '3' }) && !fits(top, { ...good2, files: [{ ...file, extra: 1 }] }));
   expect('a complete report is valid', validate(good) === null);
   expect('stores a good report', (await call('POST', JSON.stringify(good), { 'cf-connecting-ip': '203.0.113.9' })).status === 200 && store.size === 2);
   expect('stored value has only the report and a time', (() => { const v = JSON.parse([...store.values()][0]); return Object.keys(v).join() === 'received,report' && !JSON.stringify(v).includes('203.0.113.9'); })());
@@ -380,6 +399,10 @@ if (process.argv[2] === 'serve') {
     const k = reportedTable(rows, { rm1: { r: ['1.10.3', '2026-11-22'] } });
     expect('where the report gives no build day, the archive does: a release from after the attack stays out', k.length === 1 && k[0].kind === 'KVM' && k[0].sku === 'GL-RM1' && k[0].firmware.join() === '1.10.1');
   }
+  // every report these tests posted: what the worker took, the schema must let through
+  let took = 0, lost = 0;
+  for (const body of posted) { let r; try { r = JSON.parse(body); } catch { continue; } if (validate(r) === null) { took++; if (!globalThis.fitsOpenApi(r)) lost++; } }
+  expect(`the schema for Cloudflare lets through all ${took} reports of these tests that the worker takes`, took >= 5 && lost === 0);
   globalThis.fetch = realFetch;
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);

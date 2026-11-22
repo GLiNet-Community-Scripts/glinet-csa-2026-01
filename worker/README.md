@@ -312,6 +312,23 @@ Anyone can send made-up reports; the worker only checks their shape and size (4 
 the Cloudflare dashboard, add a rate limiting rule for the path
 `/csa-2026-01-report`, for example 10 requests per minute per IP address.
 
+## Schema validation in front of the worker
+
+`openapi.json` describes the one address the script posts to, for Cloudflare's schema
+validation (Security, API Shield, Schema validation: upload the file). Cloudflare then
+checks a report before the worker runs: only the known fields, each of its type, length and
+characters.
+
+- The file is the union of schema versions 1 to 9: the fields of version 1 are required,
+  the later ones allowed. The worker stays the stricter check and requires every field of
+  the version a report names.
+- Start with the action "Log", look at what it would have stopped, then switch to "Block".
+  The script does not show a failed send as an error, so a wrong rule loses reports unseen.
+- It covers `POST /csa-2026-01-report` only. Leave the action for addresses that are not
+  in the schema at "none": the dashboard and the export live under the same path.
+- A new schema version goes into `openapi.json` and into Cloudflare before a script sends
+  it, like the worker itself. The tests fail when a field is missing in the file.
+
 ## Tests
 
 ```bash
