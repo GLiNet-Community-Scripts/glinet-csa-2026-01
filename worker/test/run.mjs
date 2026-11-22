@@ -188,6 +188,12 @@ if (process.argv[2] === 'serve') {
   const good8 = { ...good7, schema: 8, tool: '2.28', cloud_bound: 'on', rtty_ssh: 'off', rtty_web: 'unknown' };
   expect('a schema 8 report is valid', validate(good8) === null);
   expect('schema 8 needs its three answers, and only on, off or unknown', validate({ ...good7, schema: 8 }) !== null && validate({ ...good8, cloud_bound: 'someone@example.org' }) !== null && validate({ ...good7, cloud_bound: 'on' }) !== null);
+  // a note of the sender's own (schema 9)
+  const good9 = { ...good8, schema: 9, tool: '2.34', note: 'fleet-a 2026-11-22 after clean-up (repeat)' };
+  expect('a schema 9 report is valid, with a note and with an empty one', validate(good9) === null && validate({ ...good9, note: '' }) === null && validate({ ...good9, note: 'x'.repeat(120) }) === null);
+  expect('schema 9 needs the note, and at most 120 characters', validate({ ...good8, schema: 9 }) !== null && validate({ ...good9, note: 'x'.repeat(121) }) !== null && validate({ ...good9, note: 42 }) !== null);
+  expect('refuses a note with a control or non-ASCII character', validate({ ...good9, note: 'a\nb' }) !== null && validate({ ...good9, note: 'a\tb' }) !== null && validate({ ...good9, note: 'caf\u00e9' }) !== null && validate({ ...good9, note: 'a\u007fb' }) !== null);
+  expect('schema 8 must not carry a note', validate({ ...good8, note: 'x' }) === 'unknown field note' && validate({ ...good7, note: '' }) === 'unknown field note');
   await call('POST', JSON.stringify(good4));
   expect('without the secret the id is dropped', lastReport().device_id === '');
   env.DEVICE_SALT = 'test-salt';
