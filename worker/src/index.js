@@ -16,7 +16,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5 || v === 6,
+  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5 || v === 6 || v === 7,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -73,6 +73,10 @@ const FIELDS_V6 = {
   state_file_size: (v) => Number.isInteger(v) && v >= -1 && v <= 1e9, review_items: list(40, isReview),
 };
 
+// Since script 2.24 (schema 7): each review item also carries its two times, as the files
+// of the malware do: when it was written and when the kernel last changed its entry.
+const FIELDS_V7 = { ...FIELDS_V6, review_items: list(40, isFileOf({ kind: str(24), path: str(160), sha256: FILE.sha256, mtime: time, ctime: time })) };
+
 async function sealDeviceId(env, id) {
   if (!env.DEVICE_SALT || !id) return '';
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DEVICE_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -85,7 +89,7 @@ const text = (body, status = 200) =>
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  const fields = report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
+  const fields = report.schema === 7 ? FIELDS_V7 : report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
   for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
   for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;

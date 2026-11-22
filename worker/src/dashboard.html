@@ -606,19 +606,20 @@ function reviews(base) {
   const have = base.filter((r) => r.schema >= 6), m = new Map();
   for (const r of have) for (const i of new Map(r.review_items.map((x) => [x.kind + ' ' + x.path, x])).values()) {
     const k = i.kind + ' ' + i.path, g = m.get(k) || { kind: i.kind, path: i.path, n: 0, hit: 0, sha: new Set() };
-    g.n++; if (r.ioc > 0 || r.bd) g.hit++; if (i.sha256) g.sha.add(i.sha256); m.set(k, g);
+    g.n++; if (r.ioc > 0 || r.bd) g.hit++; if (i.sha256) g.sha.add(i.sha256); if (i.ctime && !isNaN(ts(i.ctime))) (g.ct = g.ct || []).push(ts(i.ctime)); m.set(k, g);
   }
   const hits = have.filter((r) => r.ioc > 0 || r.bd).length, rows = [...m.values()].filter((g) => g.n >= 2).sort((a, b) => b.hit - a.hit || b.n - a.n).slice(0, 30);
   $('reviewSub').dataset.n = have.length;
   if (!have.length) { box.append(el('p', 'No report carries this yet. It comes with script 2.23 and later.', 'peak')); return; }
   if (!rows.length) { box.append(el('p', `Nothing is shared by two devices yet (${have.length} reports with this data).`, 'peak')); return; }
-  const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Kind', ''], ['Path or program', ''], ['Devices', 'n'], ['With traces', 'n'], ['Different files', 'n']]) hd.append(el('th', t, c));
+  const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Kind', ''], ['Path or program', ''], ['Devices', 'n'], ['With traces', 'n'], ['Different files', 'n'], ['Changed on the devices (UTC)', 'n']]) hd.append(el('th', t, c));
   tb.append(hd);
   for (const g of rows) {
     const tr = el('tr'); tr.style.cursor = 'pointer';
     const w = el('td', g.hit + ' of ' + g.n, 'n'); if (hits && g.hit >= 2 && g.hit / g.n > hits / have.length * 1.5) { w.append(' ', el('span', 'more often with traces', 'tag warn')); }
     const d = el('td', g.sha.size || '–', 'n'); d.title = g.sha.size === 1 && g.n > 1 ? 'The same file on every device that sent a fingerprint.' : 'Number of different fingerprints behind this path.';
-    tr.append(el('td', g.kind), el('td', g.path || '(not sent)', 'mono'), el('td', g.n, 'n'), w, d);
+    const ct = (g.ct || []).sort((a, b) => a - b), when = el('td', ct.length ? (fmt(ct[0]).slice(0, 10) === fmt(ct[ct.length - 1]).slice(0, 10) ? fmt(ct[0]).slice(0, 10) : fmt(ct[0]).slice(0, 10) + ' – ' + fmt(ct[ct.length - 1]).slice(0, 10)) : '–', 'n'); when.title = 'Earliest and latest time the kernel changed this entry, over the devices that sent one (script 2.24 and later).';
+    tr.append(el('td', g.kind), el('td', g.path || '(not sent)', 'mono'), el('td', g.n, 'n'), w, d, when);
     tr.addEventListener('click', () => { const q = (g.kind + ' ' + g.path).toLowerCase(); F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
     tb.append(tr);
   }
@@ -914,7 +915,7 @@ function detail(r) {
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
   if (r.odd.length) { const w = el('div'); for (const [k, v] of r.odd) w.append(el('pre', k + ':  ' + v)); sec('Only on this device', w, true); }
   if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); const fp = el('td', f.sha256.slice(0, 24) + '…', 'mono dim'); fp.title = f.sha256; row.append(el('td', f.path, 'mono'), fp, el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); const c = el('td', null, 'n'); if (f.ctime) { c.textContent = fmt(ts(f.ctime)); c.title = 'Changed on the device (ctime): the kernel sets it, touch and tar cannot set it back.'; if (lag(f) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(f)) + ' older than the change on the device. It came with the file (archive, copy) or was set back. The right-hand time is the one to trust.'; c.append(' ', g); } } row.append(c); t.append(row); } const hd = el('tr'); for (const [x, k] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Size', 'n'], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n']]) hd.append(el('th', x, k)); t.prepend(hd); sec('Files', t, true); }
-  if (r.review_items.length) { const t = el('table'), hd = el('tr'); for (const [x, k] of [['Kind', ''], ['Path or program', ''], ['Fingerprint (SHA-256)', '']]) hd.append(el('th', x, k)); t.append(hd); for (const i of r.review_items) { const row = el('tr'), fp = el('td', i.sha256 ? i.sha256.slice(0, 24) + '…' : '', 'mono dim'); fp.title = i.sha256; row.append(el('td', i.kind), el('td', i.path || '(not sent)', 'mono'), fp); t.append(row); } sec('Listed for review (not known traces)', t, true); }
+  if (r.review_items.length) { const t = el('table'), hd = el('tr'); for (const [x, k] of [['Kind', ''], ['Path or program', ''], ['Fingerprint (SHA-256)', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n']]) hd.append(el('th', x, k)); t.append(hd); for (const i of r.review_items) { const row = el('tr'), fp = el('td', i.sha256 ? i.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = i.sha256; const c = el('td', i.ctime ? fmt(ts(i.ctime)) : '', 'n'); if (i.mtime && i.ctime && lag(i) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(i)) + ' older than the change on the device.'; c.append(' ', g); } row.append(el('td', i.kind), el('td', i.path || '(not sent)', 'mono'), fp, el('td', i.mtime ? fmt(ts(i.mtime)) : '', 'n'), c); t.append(row); } sec('Listed for review (not known traces)', t, true); }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
   if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
   if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);

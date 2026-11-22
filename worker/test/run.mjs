@@ -180,6 +180,10 @@ if (process.argv[2] === 'serve') {
   expect('schema 6 needs its fields, schema 5 must not carry them', validate({ ...good5, schema: 6 }) !== null && validate({ ...good5, review_items: [] }) !== null);
   expect('refuses review items with a description or with markup', validate({ ...good6, review_items: [{ kind: 'changed', path: '/x', sha256: '', detail: 'x' }] }) !== null && validate({ ...good6, review_items: [{ kind: 'changed', path: '<script>', sha256: '' }] }) !== null);
   expect('refuses more than 40 review items and an unknown GoodCloud state', validate({ ...good6, review_items: Array(41).fill(good6.review_items[0]) }) !== null && validate({ ...good6, goodcloud: 'maybe' }) !== null);
+  // times of the review items (schema 7)
+  const good7 = { ...good6, schema: 7, tool: '2.24', review_items: [{ kind: 'changed', path: '/etc/init.d/urandom_seed', sha256: 'b'.repeat(64), mtime: '2025-12-12 12:55:01 UTC', ctime: '2026-04-19 14:38:12 UTC' }, { kind: 'process', path: '', sha256: '', mtime: '', ctime: '' }] };
+  expect('a schema 7 report is valid', validate(good7) === null);
+  expect('schema 7 needs the times, schema 6 must not carry them', validate({ ...good7, review_items: good6.review_items }) !== null && validate({ ...good6, review_items: good7.review_items }) !== null);
   await call('POST', JSON.stringify(good4));
   expect('without the secret the id is dropped', lastReport().device_id === '');
   env.DEVICE_SALT = 'test-salt';
