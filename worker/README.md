@@ -394,6 +394,36 @@ deploy the worker first, then publish the script.
 
 After a change to the page: `node build.mjs`, which also writes `src/result.js`.
 
+## The table for the advisory
+
+`https://csa.gl-i.net/2026-01/reported.json` gives the models and firmware versions on
+which the reports show traces of the attack of 20 November. The advisory on gl-i.net reads
+it and adds it to the table it keeps by hand. Open to all, no login:
+
+```json
+{ "advisory": "CSA-2026-01", "as_of": "2026-11-22T18:30Z", "min_devices": 5,
+  "models": [ { "model": "mt6000", "sku": "GL-MT6000", "kind": "Router", "firmware": ["4.8.3", "4.9.1"] } ] }
+```
+
+Nobody reads this list before a public page shows it, and anyone can send a report. So a
+model and version are listed only when all of this holds:
+
+- At least five different devices reported traces on them. Only reports with a device id
+  count; without one, two reports of the same device cannot be told apart. Reports of the
+  first day, sent by scripts that had no id yet, therefore do not count here.
+- The firmware archive knows the model, and the version looks like a version.
+- The firmware is older than the attack. A trace on a build from 20 November on was
+  brought along by an upgrade or is something new; both are for a person to look at, and
+  for the table kept by hand.
+
+A device counts for the firmware of its first report with traces, so that checking,
+upgrading and checking again does not move a trace to the new firmware. "Traces" means
+what the dashboard counts under "With traces": the older backdoor is left out.
+
+The list says nothing per device or per report, and no numbers. It is worked out at most
+every 15 minutes and kept in KV in between. It needs the reports in D1; without the
+database the address answers 503, and the advisory shows its own table alone.
+
 ## Known release files
 
 `src/known-hashes.json` lists the SHA-256 of every binary in the releases of the

@@ -1,6 +1,6 @@
 // node worker/test/run.mjs          run the tests
 // node worker/test/run.mjs serve    serve the worker on 127.0.0.1:8787 with a KV in memory
-import worker, { validate } from '../src/index.js';
+import worker, { validate, reportedTable } from '../src/index.js';
 import http from 'node:http';
 
 import { readFileSync } from 'node:fs';
@@ -305,6 +305,7 @@ if (process.argv[2] === 'serve') {
   const auth = { authorization: 'Bearer test-token' }, mig = (q = '') => call('POST', undefined, auth, '/csa-2026-01-report/migrate' + q);
   expect('migrate refuses without a database', (await mig()).status === 400);
   expect('migrate by GET says to use POST', (await call('GET', undefined, auth, '/csa-2026-01-report/migrate')).status === 405);
+  expect('the reported table needs the database', (await call('GET', undefined, {}, '/2026-01/reported.json')).status === 503);
   env.DB = d1();
   expect('migrate needs the token', (await call('POST', undefined, {}, '/csa-2026-01-report/migrate')).status === 404);
   const m1 = await (await mig()).json();
@@ -343,6 +344,42 @@ if (process.argv[2] === 'serve') {
   const ex = await call('GET', undefined, auth, '/csa-2026-01-report/export');
   expect('export works on D1', ex.status === 200 && (await ex.text()).split('\n').filter(Boolean).length === 500 && ex.headers.get('x-next-cursor') !== '');
   expect('a bad report is still refused on D1', (await call('POST', JSON.stringify({ ...good, hostname: 'x' }))).status === 400);
+  // ---- the table for the advisory: models and firmware versions with traces
+  {
+    let n = 0;
+    const rep = (dev, o = {}, received = '2026-11-22T12:00:00.000Z') => ins.run('rep' + String(n++).padStart(4, '0'), received, JSON.stringify({ schema: 9, platform: 'openwrt', model: 'mt6000', firmware: '4.8.3 release2 build 540 2026-10-02', ioc: 2, findings: ['marker /etc/config/.gl', 'fw-rule nat'], astrowarp: 'off', state_file_size: -1, state_file_time: '', ...(dev ? { device_id: dev } : {}), ...o }));
+    const five = (tag, o, received) => { for (let i = 0; i < 5; i++) rep(tag + i, o, received); };
+    five('a');                                                                          // listed
+    for (let i = 0; i < 3; i++) rep('b' + i, { model: 'be9300', firmware: '4.10.1' });  // three devices ...
+    for (let i = 0; i < 5; i++) rep('b9', { model: 'be9300', firmware: '4.10.1' });     // ... and a fourth, five times
+    for (let i = 0; i < 5; i++) rep('', { model: 'be9300', firmware: '4.9.0' });        // no device id
+    five('c', { model: 'zz9' });                                                        // not a model of the archive
+    five('d', { firmware: '4.7.13', findings: ['backdoor-file /bin/ulogd', 'backdoor-init /etc/init.d/urandom_seed'] }); // the older backdoor only
+    five('e', { firmware: '4.10.0 release1', ioc: 0, findings: [], state_file_size: 0, state_file_time: '2026-11-21 00:10:00 UTC' }); // the state file alone
+    five('f', { firmware: '4.12.0 release1 build 700 2026-11-21' });                    // built after the attack
+    five('g', { firmware: '4.8.2' }, '2026-11-21T09:00:00.000Z');                       // checked ...
+    five('g', { firmware: '4.9.9' }, '2026-11-22T15:00:00.000Z');                       // ... upgraded, checked again
+    five('h', { firmware: '<script>' }); five('i', { platform: 'unknown', firmware: '4.6.0' });
+    const tab = (ctx = { waitUntil() {} }) => worker.fetch(new Request('https://csa.example.org/2026-01/reported.json'), env, ctx);
+    const r1 = await tab(), raw1 = await r1.text(), t1 = JSON.parse(raw1);
+    expect('the reported table is open to all, as JSON that any page may read', r1.status === 200 && r1.headers.get('content-type').startsWith('application/json') && r1.headers.get('access-control-allow-origin') === '*');
+    expect('it names the advisory, the time and the threshold', t1.advisory === 'CSA-2026-01' && /^\d{4}-\d\d-\d\dT\d\d:\d\dZ$/.test(t1.as_of) && t1.min_devices === 5);
+    expect('a model and firmware are listed from five devices on, versions in the order of their numbers', t1.models.length === 1 && t1.models[0].model === 'mt6000' && t1.models[0].sku === 'GL-MT6000' && t1.models[0].kind === 'Router' && t1.models[0].firmware.join() === '4.8.2,4.8.3,4.10.0');
+    expect('four devices are not enough, however often one of them reports; reports without an id do not count', !raw1.includes('be9300'));
+    expect('unknown models, the older backdoor alone, odd versions and firmware built after the attack stay out', !/zz9|4\.7\.13|4\.12\.0|script|4\.6\.0/.test(raw1));
+    expect('a device counts for the firmware of its first report with traces', !raw1.includes('4.9.9'));
+    expect('the table holds nothing but model, kind and versions', Object.keys(t1).join() === 'advisory,as_of,min_devices,models' && Object.keys(t1.models[0]).join() === 'model,sku,kind,firmware' && !/a0|rep00/.test(raw1));
+    rep('b4', { model: 'be9300', firmware: '4.10.1' });
+    expect('the table is kept: a new report does not change it at once', !(await (await tab()).text()).includes('be9300'));
+    const kept = JSON.parse(store.get('reported/csa-2026-01')); store.set('reported/csa-2026-01', JSON.stringify({ ...kept, checked: 0 }));
+    let later; const stale = await (await tab({ waitUntil(p) { later = p; } })).text(); await later;
+    expect('after a quarter of an hour it is worked out again, behind the answer', !stale.includes('be9300') && (await (await tab()).text()).includes('"sku":"GL-BE9300","kind":"Router","firmware":["4.10.1"]'));
+    expect('the table cannot be written to', (await worker.fetch(new Request('https://csa.example.org/2026-01/reported.json', { method: 'POST', body: '{}' }), env, { waitUntil() {} })).status === 405);
+    const kvm = (v, i) => ({ dev: 'k' + v + i, platform: 'glkvm-RM1', model: 'rm1', firmware: 'V' + v + ' release1', ioc: 1, findings: ['process implant'] });
+    const rows = [...[0, 1, 2, 3, 4].map((i) => kvm('1.10.1', i)), ...[0, 1, 2, 3, 4].map((i) => kvm('1.10.3', i))];
+    const k = reportedTable(rows, { rm1: { r: ['1.10.3', '2026-11-22'] } });
+    expect('where the report gives no build day, the archive does: a release from after the attack stays out', k.length === 1 && k[0].kind === 'KVM' && k[0].sku === 'GL-RM1' && k[0].firmware.join() === '1.10.1');
+  }
   globalThis.fetch = realFetch;
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);
