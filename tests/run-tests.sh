@@ -578,7 +578,8 @@ BB=$(command -v busybox)
 if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 	L=$BASE/live; mkdir -p "$L/bin" "$L/tmp" "$L/dev"; cp "$BB" "$L/bin/busybox"; cp "$T" "$L/t.sh"; : >"$L/dev/null"
 	mount --bind /dev/null "$L/dev/null"; chroot "$L" /bin/busybox --install -s /bin
-	live() { GL_TRIAGE_REPORT_URL=http://127.0.0.1:9/ chroot "$L" /bin/sh /t.sh --no-device-id "$@" </dev/null 2>&1; }
+	# TMPDIR of the caller would name a directory that the chroot does not have
+	live() { TMPDIR=/tmp GL_TRIAGE_REPORT_URL=http://127.0.0.1:9/ chroot "$L" /bin/sh /t.sh --no-device-id "$@" </dev/null 2>&1; }
 	live --show-report --note 'fleet-a 2026-11-22 after clean-up (repeat)' >"$L/show.txt"
 	expect "the note and schema 9 are in the report" 'grep -q "^   \"schema\": 9,$" "$L/show.txt" && grep -q "^   \"note\": \"fleet-a 2026-11-22 after clean-up (repeat)\",$" "$L/show.txt"'
 	live --show-report --note "$(printf 'a;b"c\\d$e<\303\251>f\tg')" >"$L/show.txt"
@@ -589,14 +590,24 @@ if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 	expect "without --note the note is empty" 'grep -q "\"note\": \"\",$" "$L/show.txt"'
 	# the state file's first call: empty where /proc/mounts is missing or the mount is not
 	# noatime, the access time where it is. /etc of the chroot is mounted noatime for that.
-	mkdir -p "$L/etc"; : >"$L/etc/mp_ip_mapping_info"; touch -a -d '2026-03-02 08:14:55 UTC' "$L/etc/mp_ip_mapping_info"
+	mkdir -p "$L/etc"; : >"$L/etc/mp_ip_mapping_info"
 	expect "without /proc/mounts the first call is empty" 'live --show-report | grep -q "\"state_file_first\": \"\",$"'
-	mount --bind "$L/etc" "$L/etc"; mount -o remount,bind,noatime "$L/etc"
+	mount --bind "$L/etc" "$L/etc"; mount -o remount,bind,noatime "$L/etc" 2>/dev/null
 	mkdir -p "$L/proc"; printf '/dev/root / ext4 rw,relatime 0 0\n' >"$L/proc/mounts"
 	expect "on a mount that is not noatime the first call is empty" 'live --show-report | grep -q "\"state_file_first\": \"\",$"'
-	printf '/dev/root / ext4 rw,relatime 0 0\n/dev/sda1 /etc ext4 rw,noatime 0 0\n' >"$L/proc/mounts"
-	expect "on a noatime mount the report carries the first call" 'live --show-report | grep -q "\"state_file_first\": \"2026-03-02 08:14:55 UTC\",$"'
-	rm "$L/proc/mounts" "$L/etc/mp_ip_mapping_info"; umount "$L/etc"
+	# The access time is set only now: on a relatime filesystem the reads above have moved
+	# it. The mount must really be noatime, or the script's own read moves it again; a user
+	# namespace on a relatime filesystem refuses that remount, and then this is skipped.
+	F=$L/etc/mp_ip_mapping_info
+	touch -a -d '2026-03-02 08:14:55 UTC' "$F"; cat "$F" >/dev/null
+	if awk -v m="$L/etc" '$2 == m && ("," $4 ",") ~ /,noatime,/ { f = 1 } END { exit !f }' /proc/self/mounts &&
+		[ "$(stat -c %X "$F")" = "$(date -u -d '2026-03-02 08:14:55 UTC' +%s)" ]; then
+		printf '/dev/root / ext4 rw,relatime 0 0\n/dev/sda1 /etc ext4 rw,noatime 0 0\n' >"$L/proc/mounts"
+		expect "on a noatime mount the report carries the first call" 'live --show-report | grep -q "\"state_file_first\": \"2026-03-02 08:14:55 UTC\",$"'
+	else
+		echo "  SKIP: on a noatime mount the report carries the first call (no noatime mount here: $(awk -v m="$L/etc" '$2 == m { print $4 }' /proc/self/mounts))"
+	fi
+	rm "$L/proc/mounts" "$F"; umount "$L/etc"
 	live --note 'fleet-a, repeat' >"$L/ask.txt"
 	expect "the summary before sending prints the note word for word" 'grep -A1 "And your note, as it will be sent:" "$L/ask.txt" | grep -qx "        fleet-a, repeat" && grep -q "Not sent" "$L/ask.txt"'
 	live >"$L/ask.txt"
