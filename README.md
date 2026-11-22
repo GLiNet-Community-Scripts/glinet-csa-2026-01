@@ -374,7 +374,10 @@ switched on, with the version of the cloud client. Since 2.28 also whether the d
 bound to a GoodCloud account and whether remote SSH and the remote web interface
 through the cloud are on: yes, no or unknown each, never the account's name or address.
 People ask whether a device that was only bound, with remote access off, was at risk;
-these three answers let the reports say.
+these three answers let the reports say. The two remote access answers are the stored
+settings, and "on" is what the firmware sets by itself on many versions. They only matter
+while GoodCloud is on, so with GoodCloud off the script shows remote access as not in use
+and the dashboard counts it as off.
 
 Since 2.23 it also carries what the script listed for `REVIEW`: for each finding its kind
 and path, at most 40, and for a file its SHA-256 and its two times (written, and
