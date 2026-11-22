@@ -42,10 +42,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.32
+VERSION=2.33
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 09:57 UTC'
+RELEASED='2026-11-22 10:05 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1840,6 +1840,8 @@ cloud_advice() {
 	section "GoodCloud"
 	if [ "$gc" = off ]; then
 		say "   ${GRN}GoodCloud is switched off on this device. Leave it off until fixed firmware is installed.${N}"
+		say "   ${D}Check again after every firmware upgrade: one owner reports that an upgrade with settings${N}"
+		say "   ${D}kept switched it back on.${N}"
 		astrowarp_on && say "   ${YEL}AstroWarp is still switched on. It works through GoodCloud; switch it off as well.${N}"
 		return 0
 	fi
@@ -1858,6 +1860,8 @@ cloud_advice() {
 	say "   ${D}The device then disappears from GoodCloud and AstroWarp stops working: make sure you can${N}"
 	say "   ${D}reach a remote device another way first. This does not clean a device that was already hit.${N}"
 	say "   ${D}\"I never used AstroWarp\" and \"remote access was off\" do not help: the code runs regardless.${N}"
+	say "   ${D}Check again after every firmware upgrade: one owner reports that an upgrade with settings${N}"
+	say "   ${D}kept switched it back on.${N}"
 }
 
 finish() { cloud_advice; offer_report; exit "$1"; }
