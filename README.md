@@ -126,6 +126,37 @@ or differ from it, are listed as `REVIEW` (`INFO` when a package installed them)
 that a shell from the base image runs, like the remote shell above, is not caught this
 way; only the patterns above find it.
 
+### The older backdoor (urandom_seed / ulogd)
+
+Users of GL.iNet's forum found a second backdoor that is not part of GL.iNet's notice and
+that GL.iNet's quick check does not see
+([ehidle's report](https://forum.gl-inet.com/t/found-other-malware-while-looking-for-11-20-evidence/73097),
+and posts 26, 63 and 65 of the [notice's thread](https://forum.gl-inet.com/t/2026-11-20-gl-inet-security-notice-goodcloud-kvm-routers/73056)).
+It was reported on a GL-AX1800 (4.8.3) and a GL-X2000 (4.7.13), with files dated December
+2025 and, by one user, since September 2025. How it got onto the devices is not known.
+
+It starts at every boot from a changed `/etc/init.d/urandom_seed`, reports the device to
+a server whose name imitates AdGuard and gets a second program back that runs in memory
+only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
+
+- an init script from outside a package that names `monitord`, `/bin/ulogd` or `ujaild`
+  and differs from the base image (`backdoor-init`),
+- `/bin/ulogd` that no package installed, and `/usr/bin/monitord` when it is a copy of
+  `/usr/bin/lua` (`backdoor-file`). For `/bin/ulogd` it says whether the file is the one
+  from the report (sha256 `c5e87c80…7d06`); another hash is still an indicator,
+- a changed list of files that a firmware update keeps, when it names those files
+  (`backdoor-keep`). What the backdoor writes there was not posted, so this pattern is our
+  best guess,
+- `adguardns.com` or `adguardns.org` in the configuration (`backdoor-host`),
+- a running `monitord` or `ujaild` (`backdoor-proc`).
+
+A request for one of those names in AdGuard Home's query log is `REVIEW`: it shows that
+some device in the network asked, not which one.
+
+The verdict names the backdoor apart from the gl-helper indicators. `--fix` does not
+remove it: the second stage leaves no file, and nobody has taken it apart yet. Reflash the
+firmware with "keep settings" off and do not restore a backup taken from that device.
+
 ### Firewall
 
 The running firewall rules are generated from configuration when the firewall starts, so
@@ -303,7 +334,10 @@ The receiving [worker](worker/) stores no IP address.
 8. Restarts cron and checks again.
 
 Changes go through the merged root filesystem, so the overlay stays consistent while it
-is mounted. `REVIEW` items are never touched.
+is mounted. `REVIEW` items are never touched, and neither is the
+[older backdoor](#the-older-backdoor-urandom_seed--ulogd): with only that on the device
+`--fix` changes nothing and exits 1, with both it removes the gl-helper indicators and
+exits 3.
 
 ---
 
@@ -412,6 +446,8 @@ This is community work, and not one person's.
   which the report uses. Their [findings list](https://github.com/RemoteToHome-io/gl-security-incident-2026/blob/main/docs/findings.md) says for
   every item how it was checked.
 - kosrkosr and TakashiSasaki – The first two reports of the remote shell in GL.iNet's forum
+- ehidle, and the authors of posts 26, 63 and 65 in the notice's thread – The older backdoor
+  in `urandom_seed` and `/bin/ulogd`, with its signs and the hash of the loader
 - AdamK – The connection and process checks
 - Everyone who sent an anonymous report or posted their output in the forum
 

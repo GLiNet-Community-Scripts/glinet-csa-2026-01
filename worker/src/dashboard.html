@@ -67,7 +67,7 @@ button, select, input { font: inherit; color: inherit; }
 .linkbtn { border: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; padding: 2px 4px; font-size: 13px; }
 
 .grid { display: grid; gap: 12px; }
-.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kpis { grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr)); }
 .three { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px; }
 .two { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; min-width: 0; }
@@ -258,7 +258,7 @@ tr.row.fresh td { background: var(--accent-soft); }
   <section class="filters" aria-label="Filters">
     <div class="frow">
       <input type="search" id="q" placeholder="Search: model, firmware, path, hash, port, text in a command …" aria-label="Search reports">
-      <div class="seg" id="fResult" role="group" aria-label="Result"><button type="button" data-v="hit">With traces</button><button type="button" data-v="clean">Clean</button><button type="button" data-v="all">All</button></div>
+      <div class="seg" id="fResult" role="group" aria-label="Result"><button type="button" data-v="hit">With traces</button><button type="button" data-v="bd" title="An older backdoor (urandom_seed / ulogd), not the attack of 20 November. Counted apart.">Older backdoor</button><button type="button" data-v="clean">Clean</button><button type="button" data-v="all">All</button></div>
       <div class="seg" id="fType" role="group" aria-label="Device type"><button type="button" data-v="all">All types</button><button type="button" data-v="router">Routers</button><button type="button" data-v="kvm">KVM</button></div>
     </div>
     <div class="frow">
@@ -356,9 +356,17 @@ const KIND = {
   'keep-ref': 'Survives a firmware update', 'persistence': 'rc.local or crontab changed', 'process implant': 'Malware process running',
   'process remote-shell': 'Remote shell running', 'process quick-check': 'GL.iNet’s crond indicator running', 'process replaced-tool': 'Replaced tool running',
   'pipe': 'Remote shell’s pipe left behind', 'connection': 'Open connection to the attacker', 'fw-rule': 'Firewall rule left by the attack',
+  'backdoor-init': 'Older backdoor: init script changed', 'backdoor-file': 'Older backdoor: its files', 'backdoor-keep': 'Older backdoor: survives an update',
+  'backdoor-host': 'Older backdoor: server named', 'backdoor-proc': 'Older backdoor: running',
 };
 
+const BD = 'Not the attack of 20 November: an older backdoor that users of GL.iNet’s forum found, on some devices since 2025. ';
 const WHY = {
+  'backdoor-init': BD + '/etc/init.d/urandom_seed (or another init script) has extra lines that copy the Lua interpreter to /usr/bin/monitord and run /bin/ulogd with it at every boot.',
+  'backdoor-file': BD + '/bin/ulogd is its loader, compiled Lua that reports the device to a server imitating AdGuard and fetches a second program. /usr/bin/monitord is a copy of the Lua interpreter under another name.',
+  'backdoor-keep': BD + 'The list of files that a firmware update keeps was changed so that the backdoor survives an update with “keep settings”.',
+  'backdoor-host': BD + 'A configuration file names adguardns.com or adguardns.org, the servers the backdoor reports to. They do not belong to AdGuard.',
+  'backdoor-proc': BD + 'monitord (the loader) or ujaild (the second program, run from a deleted file in /tmp) was running during the check.',
   'marker': 'One of the four files the malware puts on a device: gl-helper or gb in /etc/config/.gl/ or /etc/glinet/.cache/. GL.iNet’s own cleanup in the KVM firmware looks for exactly these.',
   'applet-hijack': 'A system tool such as netstat was swapped for another program, so its output can no longer be trusted. GL.iNet’s cleanup for KVMs removes a replaced netstat.',
   'persist-ref': 'An autostart file (rc.local, the root crontab, an init script) has a line that points to the malware’s paths. It starts the malware again at every boot.',
@@ -404,6 +412,7 @@ const LAG = 10 * 60000;
 const lag = (f) => ts(f.ctime) - ts(f.mtime);
 const dur = (ms) => { if (!isFinite(ms)) return '–'; const m = Math.round(ms / 60000); return m < 1 ? 'under a minute' : m < 90 ? m + ' min' : m < 48 * 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : Math.round(m / 1440) + ' days'; };
 
+const BD_FILE = /^\/(bin\/ulogd|usr\/bin\/monitord)$/;
 function shape(x) {
   const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', ...x.report };
   r.id = x.id || x.received + JSON.stringify(x.report).length;
@@ -412,6 +421,9 @@ function shape(x) {
   r.fw = fwShort(r.firmware);
   r.recv = Date.parse(x.received);
   r.kinds = [...new Set(r.findings.map(kindOf))];
+  // the older backdoor is counted apart: "with traces" means the attack of 20 November
+  const bdN = r.findings.filter((f) => f.startsWith('backdoor-')).length;
+  r.bd = bdN > 0; r.iocAll = r.ioc; r.ioc = Math.max(0, r.ioc - bdN);
   r.isTest = r.model === 'unknown' && r.platform === 'unknown' && r.ioc === 0;
   r.kvm = r.platform.startsWith('glkvm');
   r.type = r.kvm ? 'KVM' : r.platform === 'openwrt' ? 'Router' : r.platform;
@@ -419,15 +431,17 @@ function shape(x) {
   r.implant = r.kinds.some((k) => ['marker', 'applet-hijack', 'persist-ref', 'keep-ref', 'process implant'].includes(k));
   r.upSince = ts(r.checked_at) - r.uptime_s * 1000;
   r.restarted = r.upSince > ATTACK;
-  const times = [ts(r.shell_started), ...r.files.map((f) => ts(f.mtime))].filter((n) => !isNaN(n));
+  const times = [ts(r.shell_started), ...r.files.filter((f) => r.ioc === 0 || !BD_FILE.test(f.path)).map((f) => ts(f.mtime))].filter((n) => !isNaN(n));
   r.first = times.length ? Math.min(...times) : NaN;
   r.story = story(r);
   r.hay = [r.model, r.platform, r.firmware, r.tool, r.findings.join(' '), r.shell_ports.join(' '), r.files.map((f) => f.path + ' ' + f.sha256).join(' '), r.commands.join(' '), r.fw_rules.join(' '), r.persistence.map((p) => p.path + ' ' + p.lines.join(' ')).join(' ')].join(' ').toLowerCase();
   return r;
 }
 function story(r) {
-  if (r.ioc === 0) return 'Nothing known found.';
+  if (r.ioc === 0 && !r.bd) return 'Nothing known found.';
   const s = [];
+  if (r.bd) s.push(r.kinds.includes('backdoor-proc') ? 'Older backdoor (urandom_seed/ulogd) on the device and running.' : 'Older backdoor (urandom_seed/ulogd) on the device.');
+  if (r.ioc === 0) return s.join(' ');
   if (r.kinds.includes('process remote-shell')) s.push(`Remote shell running${r.shell_ports.length ? ' on port ' + r.shell_ports.join(', ') : ''}.`);
   else if (r.kinds.includes('pipe')) s.push('Remote shell ran since the last restart, not running now.');
   if (r.kinds.includes('marker')) s.push(r.kinds.includes('process implant') ? 'gl-helper malware on the device and running.' : 'gl-helper malware files on the device.');
@@ -447,7 +461,7 @@ const LABEL = { model: 'Device', firmware: 'Firmware', kind: 'Evidence' };
 function pass(r, skip) {
   if (F.hideTests && r.isTest) return false;
   if (F.q && !r.hay.includes(F.q)) return false;
-  if (skip !== 'result' && F.result !== 'all' && (F.result === 'hit') !== r.ioc > 0) return false;
+  if (skip !== 'result' && F.result !== 'all' && (F.result === 'bd' ? !r.bd : F.result === 'hit' ? r.ioc === 0 : r.ioc > 0 || r.bd)) return false;
   if (F.type !== 'all' && (F.type === 'kvm') !== r.kvm) return false;
   if (F.recv !== 'all' && r.recv < NOW - (F.recv === '24h' ? DAY : 7 * DAY)) return false;
   if (F.restart !== 'any' && (F.restart === 'yes') !== r.restarted) return false;
@@ -743,7 +757,7 @@ $('yamlBtn').addEventListener('click', async () => {
 /* ---------- render ---------- */
 function render() {
   repool(); markUnusual();
-  const rows = pool.filter((r) => pass(r)), base = pool.filter((r) => pass(r, 'result')), hit = base.filter((r) => r.ioc > 0);
+  const rows = pool.filter((r) => pass(r)), base = pool.filter((r) => pass(r, 'result')), isHit = (r) => (F.result === 'bd' ? r.bd : r.ioc > 0), hit = base.filter(isHit);
   facets.forEach((f) => f()); chips();
 
   const shells = hit.filter((r) => r.shell), imps = hit.filter((r) => r.implant), both = hit.filter((r) => r.shell && r.implant).length, restarted = base.filter((r) => r.restarted);
@@ -756,13 +770,14 @@ function render() {
   $('kpis').replaceChildren(k1,
     kpi('Remote shell still running', shells.filter((r) => r.kinds.includes('process remote-shell')).length, 'of ' + shells.length, 'Checked while the attacker was connected.'),
     kpi('Comes back after a restart', hit.filter((r) => r.kinds.includes('persist-ref') || r.kinds.includes('keep-ref')).length, 'of ' + hit.length, 'An autostart entry starts the malware again.'),
-    kpi('Restarted since 20 Nov', restarted.length, 'of ' + base.length, restarted.filter((r) => r.ioc === 0).length + ' of them look clean. That proves little: memory was wiped.'));
+    kpi('Restarted since 20 Nov', restarted.length, 'of ' + base.length, restarted.filter((r) => r.ioc === 0).length + ' of them look clean. That proves little: memory was wiped.'),
+    kpi('Older backdoor', base.filter((r) => r.bd).length, 'of ' + base.length, 'urandom_seed / ulogd, not the attack of 20 Nov. Counted apart from the traces above.'));
 
-  chart(pool.filter((r) => pass(r, 'bin') && r.ioc > 0));
-  rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && r.ioc > 0), FACET.model), 0, 'model');
-  rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && r.ioc > 0), FACET.firmware), 0, 'firmware');
+  chart(pool.filter((r) => pass(r, 'bin') && isHit(r)));
+  rank($('devices'), $('devicesMore'), count(pool.filter((r) => pass(r, 'model') && isHit(r)), FACET.model), 0, 'model');
+  rank($('firmwares'), $('firmwaresMore'), count(pool.filter((r) => pass(r, 'firmware') && isHit(r)), FACET.firmware), 0, 'firmware');
   course(hit); ports(hit); matrix();
-  rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && r.ioc > 0), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
+  rank($('kinds'), null, count(pool.filter((r) => pass(r, 'kind') && isHit(r)), FACET.kind), 0, 'kind', (k) => KIND[k] || k);
 
   const fm = new Map();
   for (const r of hit) for (const f of r.files) { const k = f.sha256 + ' ' + f.path, g = fm.get(k) || { ...f, n: 0, times: [] }; g.n++; g.times.push(ts(f.mtime)); if (f.ctime) { g.known = (g.known || 0) + 1; if (lag(f) > LAG) g.old = (g.old || 0) + 1; } fm.set(k, g); }
@@ -804,7 +819,8 @@ function render() {
     const res = el('td'); res.append(r.story); const tags = el('div', null, 'tags');
     if (r.shell) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s1)'; t.append(i, 'Remote shell'); tags.append(t); }
     if (r.implant) { const t = el('span', null, 'tag'), i = el('i'); i.style.background = 'var(--s2)'; t.append(i, 'gl-helper malware'); tags.append(t); }
-    if (r.ioc === 0) tags.append(el('span', 'Clean', 'tag ok'));
+    if (r.bd) tags.append(el('span', 'Older backdoor', 'tag warn'));
+    if (r.ioc === 0 && !r.bd) tags.append(el('span', 'Clean', 'tag ok'));
     if (r.restarted) tags.append(el('span', 'Restarted since the attack', 'tag warn'));
     if (r.persist) tags.append(el('span', 'rc.local or crontab changed', 'tag'));
     if (r.reports > 1) tags.append(el('span', r.reports + ' reports from this device', 'tag'));

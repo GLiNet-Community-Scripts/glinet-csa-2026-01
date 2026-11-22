@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.13
+VERSION=2.14
 
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/config/.gl/gl-helper etc/config/.gl/gb"
 MARKER_DIRS="etc/glinet/.cache etc/config/.gl"
@@ -71,6 +71,25 @@ SHELL_NET='170.39.226.'
 TOOL_RE='(^|[ /])(nc|netcat|socat) |/bin/sh -i|mkfifo'
 CONN_RE='/(nc|netcat|socat|sh|ash|bash)$'
 SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
+# A second, older backdoor that is not part of GL.iNet's notice of 2026-11-20. Users of
+# GL.iNet's forum found it on a GL-AX1800 (4.8.3) and a GL-X2000 (4.7.13), dated back to
+# 2025 (topic 73097 by ehidle; posts 26, 63 and 65 of the notice's topic 73056):
+#   /etc/init.d/urandom_seed  extra lines at the top: copy /usr/bin/lua to
+#                             /usr/bin/monitord, run /bin/ulogd with it
+#   /bin/ulogd                compiled Lua, reports the device to a server whose name
+#                             imitates AdGuard and fetches a second program
+#   ujaild                    that second program, run from a deleted file in /tmp
+#   lib/upgrade/keep.d        changed so that it survives firmware updates. What exactly
+#                             is written there was not posted; BD_KEEP_RE is our guess.
+# Findings of this family have a kind that starts with "backdoor-". --fix leaves them
+# alone: the second stage runs in memory only and nobody has taken it apart yet, so a
+# "cleaned" would promise more than a script can keep. The answer is a reflash.
+BD_RE='monitord|/bin/ulogd|ujaild|adguardns'
+BD_KEEP_RE='ulogd|monitord|urandom_seed|ujaild'
+BD_HOST_RE='adguardns\.(com|org)'
+BD_ULOGD_SHA=c5e87c80f76415f399ce4d1644f5ddc3c8b46bbb2e698b3e05f49a1f7dcd7d06
+BD_HOST_PATHS="etc/hosts etc/config etc/dnsmasq.conf etc/dnsmasq.d etc/rc.local etc/crontabs etc/init.d etc/hotplug.d"
+BD_LOG_PATHS="etc/AdGuardHome/data/querylog.json etc/AdGuardHome/data/querylog.json.1 tmp/AdGuardHome/data/querylog.json"
 FULL_UPPER_MAX_KB=65536
 TAB=$(printf '\t')
 
@@ -152,7 +171,7 @@ act() { say "   ${GRN}$*${N}"; }
 # Progress while the checks run, so the screen is not empty until the report is ready.
 # On a terminal one line is overwritten and removed at the end; otherwise (pipe, ssh
 # without a terminal) each step is a line of its own.
-STEPS=9
+STEPS=10
 TTY=0
 [ -t 3 ] && [ "${TERM:-dumb}" != dumb ] && TTY=1
 progress() {
@@ -287,6 +306,65 @@ check_markers() {
 	done
 }
 
+# The older backdoor (see BD_RE above). Runs before the general overlay checks, which
+# skip a path that already has a finding.
+check_backdoor() {
+	local f p sha owner
+	# 1. the changed init script. Any init script from outside a package that names the
+	#    backdoor's parts counts, urandom_seed is the one that was reported.
+	if [ -d "$(r etc/init.d)" ]; then
+		for f in "$(r etc/init.d)"/*; do
+			[ -f "$f" ] && [ ! -L "$f" ] || continue
+			p=etc/init.d/${f##*/}
+			grep -qE "$BD_RE" "$f" 2>/dev/null || continue
+			same_as_lower "$p" && continue
+			[ -n "$(pkg_owner "/$p")" ] && continue
+			add IOC backdoor-init "/$p" "older backdoor: starts $(grep -oE "$BD_RE" "$f" | sort -u | tr '\n' ' ' | sed 's/ $//') at boot"
+		done
+	fi
+	# 2. its loader. The real ulogd is a package and lives in /usr/sbin.
+	f=$(r bin/ulogd)
+	if [ -f "$f" ] && [ ! -L "$f" ] && [ -z "$(pkg_owner /bin/ulogd)" ] && { [ -z "$LOWER" ] || ! exists "$(l bin/ulogd)"; }; then
+		sha=$(sha256sum "$f" 2>/dev/null | cut -c1-64)
+		if [ "$sha" = "$BD_ULOGD_SHA" ]; then
+			add IOC backdoor-file /bin/ulogd "older backdoor: the loader, same file as reported in the forum (sha256 $sha)"
+		else
+			add IOC backdoor-file /bin/ulogd "older backdoor: a loader at this path, not from a package (sha256 ${sha:-unreadable}, differs from the reported one)"
+		fi
+	fi
+	# 3. the Lua interpreter under another name
+	f=$(r usr/bin/monitord)
+	if [ -f "$f" ] && [ -z "$(pkg_owner /usr/bin/monitord)" ] && [ -f "$(r usr/bin/lua)" ] && filecmp "$f" "$(r usr/bin/lua)"; then
+		add IOC backdoor-file /usr/bin/monitord "older backdoor: a copy of /usr/bin/lua under another name"
+	fi
+	# 4. lists of files a firmware update keeps
+	for f in "$(r etc/sysupgrade.conf)" "$(r lib/upgrade/keep.d)"/*; do
+		[ -f "$f" ] && [ ! -L "$f" ] || continue
+		p=${f#"${ROOT%/}"/}
+		grep -qE "$BD_KEEP_RE" "$f" 2>/dev/null || continue
+		same_as_lower "$p" && continue
+		[ -n "$(pkg_owner "/$p")" ] && continue
+		add IOC backdoor-keep "/$p" "older backdoor: keeps its files across firmware updates"
+	done
+	# 5. its servers. In the configuration that is an indicator. In AdGuard Home's query
+	#    log it means that some device in this network asked for the name, this one or
+	#    another, so that is for a human to judge.
+	for p in $BD_HOST_PATHS; do
+		exists "$(r "$p")" || continue
+		grep -rlE "$BD_HOST_RE" "$(r "$p")" 2>/dev/null | head -n 5 | while IFS= read -r f; do
+			p=${f#"${ROOT%/}"/}
+			grep -q "${TAB}/$p${TAB}" "$FIND" && continue
+			add IOC backdoor-host "/$p" "older backdoor: names its server ($(grep -oE "[a-z0-9.-]*$BD_HOST_RE" "$f" | sort -u | head -n 4 | tr '\n' ' ' | sed 's/ $//'))"
+		done
+	done
+	for p in $BD_LOG_PATHS; do
+		f=$(r "$p")
+		[ -f "$f" ] && grep -qE "$BD_HOST_RE" "$f" 2>/dev/null &&
+			add REVIEW backdoor-dns "/$p" "a device in this network asked for a server of the older backdoor (adguardns.com / adguardns.org)"
+	done
+	return 0
+}
+
 # Relative paths below the applet dirs that the overlay changed.
 applet_candidates() {
 	local d base
@@ -304,6 +382,7 @@ check_applets() {
 		up=$(src "$p") lp=
 		[ -n "$LOWER" ] && lp=$(l "$p")
 		same_as_lower "$p" && continue
+		grep -q "${TAB}/$p${TAB}" "$FIND" && continue
 		# without an upper layer only files that differ from an existing base file count
 		if [ -z "$UPPER" ] && ! exists "$lp"; then continue; fi
 		if [ -L "$up" ]; then
@@ -532,6 +611,11 @@ check_procs() {
 			add IOC process "$pid" "comm=$comm exe=$exe cmd=$cmd"
 			continue
 		fi
+		case "$comm $exe $cmd" in
+		monitord\ * | ujaild\ * | */monitord\ * | */ujaild\ * | *'/ujaild (deleted)'* | *monitord.pid*)
+			add IOC backdoor-proc "$pid" "older backdoor: comm=$comm started $(proc_start "$pid") exe=$exe cmd=$cmd"
+			continue ;;
+		esac
 		if printf '%s\n' "$cmd" | grep -qE "$PROC_RE"; then
 			add IOC process "$pid" "GL.iNet's quick check (crond -i /tmp/.log): started $(proc_start "$pid") comm=$comm exe=$exe cmd=$cmd"
 			continue
@@ -697,6 +781,7 @@ detect() {
 	: >"$FIND"
 	STEP=0
 	progress "marker files of the malware"; check_markers
+	progress "traces of the older backdoor"; check_backdoor
 	progress "replaced system tools"; check_applets
 	progress "autostart entries"; check_persist
 	progress "running processes"; check_procs
@@ -718,6 +803,9 @@ detect() {
 }
 
 count() { grep -c "^$1${TAB}" "$FIND"; }
+# IOC findings of the incident of 2026-11-20 (--fix handles these) and of the older backdoor
+count_gl() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/' "$FIND" | wc -l | tr -d ' '; }
+count_bd() { awk -F '\t' '$1=="IOC" && $2 ~ /^backdoor-/' "$FIND" | wc -l | tr -d ' '; }
 
 level_color() {
 	case $1 in IOC) printf '%s' "$RED" ;; PERSIST) printf '%s' "$YEL" ;; REVIEW) printf '%s' "$CYA" ;; *) printf '%s' "$D" ;; esac
@@ -797,12 +885,18 @@ report_body() {
 	fi
 	section "Result"
 	say "   Summary: $(tally IOC) $(tally PERSIST) $(tally REVIEW) $(tally INFO)"
-	[ "$(count IOC)" -gt 0 ] && say "   ${RED}IOC${N}      a known trace of the implant. --fix removes it."
+	[ "$(count_gl)" -gt 0 ] && say "   ${RED}IOC${N}      a known trace of the implant. --fix removes it."
+	[ "$(count_bd)" -gt 0 ] && say "   ${RED}IOC${N}      backdoor-*: a trace of the older backdoor. --fix does NOT remove it, see below."
 	[ "$(count PERSIST)" -gt 0 ] && say "   ${YEL}PERSIST${N}  a changed rc.local or root crontab. --fix resets it only when an IOC was found."
 	[ "$(count REVIEW)" -gt 0 ] && say "   ${CYA}REVIEW${N}   an unusual change, not proof of an infection. Check whether it is yours. Never modified."
 	[ "$(count INFO)" -gt 0 ] && say "   ${D}INFO     context, for example files installed by a package.${N}"
 	say ""
-	if [ "$n_ioc" -gt 0 ]; then
+	if [ "$(count_gl)" -gt 0 ] && [ "$(count_bd)" -gt 0 ]; then
+		say "   ${RED}Verdict: INFECTED - gl-helper indicators and the older backdoor (urandom_seed/ulogd) found${N}"
+	elif [ "$(count_bd)" -gt 0 ]; then
+		say "   ${RED}Verdict: INFECTED - older backdoor (urandom_seed/ulogd) found${N}"
+		say "   ${D}Not the incident of 2026-11-20: no gl-helper indicators found.${N}"
+	elif [ "$n_ioc" -gt 0 ]; then
 		say "   ${RED}Verdict: INFECTED - gl-helper indicators found${N}"
 	else
 		say "   ${GRN}${B}Verdict: no gl-helper indicators found${N}"
@@ -935,9 +1029,13 @@ restore_from_lower() {
 fix() {
 	local pid p f failed=0
 	if [ "$LIVE" = 1 ] && [ "$(id -u)" != 0 ]; then die "--fix needs root"; fi
-	if [ "$(count IOC)" = 0 ]; then
+	if [ "$(count_gl)" = 0 ]; then
 		say ""
-		say "   No IOC found, nothing to remediate. REVIEW items were not touched."
+		if [ "$(count_bd)" -gt 0 ]; then
+			say "   ${YEL}Nothing was changed. --fix does not remove the older backdoor: reflash the firmware.${N}"
+		else
+			say "   No IOC found, nothing to remediate. REVIEW items were not touched."
+		fi
 		return 0
 	fi
 	section "Remediation"
@@ -1011,6 +1109,13 @@ fix() {
 recommend() {
 	section "Next steps"
 	say "   - Copy the evidence archive off the device and keep it."
+	if [ "$(count_bd)" -gt 0 ]; then
+		say "   ${B}- The older backdoor: reflash the firmware with \"keep settings\" OFF. It survives an${N}"
+		say "   ${B}  update that keeps settings. Do not restore a backup taken from this device.${N}"
+		say "   - Its second stage runs in memory only. Until the reflash, take the device off the"
+		say "     internet, and block adguardns.com and adguardns.org in your network."
+		say "   - It may have been there for months: treat every password and key on it as copied."
+	fi
 	case $PLATFORM in
 	openwrt)
 		say "   - Update the firmware WITHOUT keeping settings: OpenWrt keeps /etc/config across"
@@ -1078,6 +1183,7 @@ build_report() {
 	# kind and what was found: a path or a name. For a process, what sort it is and its
 	# binary, never its number or its full command line.
 	list=$(awk -F '\t' '$1=="IOC" || $1=="PERSIST" {
+			if ($2 == "backdoor-proc") { c = ""; if (match($4, /comm=[^ ]+/)) c = substr($4, RSTART + 5, RLENGTH - 5); print $2 " " c; next }
 			if ($2 != "process") { print $2 " " $3; next }
 			exe = ""; if (match($4, /exe=[^ ]+/)) exe = " " substr($4, RSTART + 4, RLENGTH - 4)
 			if ($4 ~ /^GL.iNet.s quick check/) print "process quick-check"
@@ -1088,7 +1194,7 @@ build_report() {
 		while IFS= read -r line; do printf '%s,' "$(jstr "$line" 120)"; done | sed 's/,$//')
 	# fingerprints of the implant's own files and of replaced system tools: the hash shows
 	# whether everyone has the same variant, the time when it arrived
-	files=$(awk -F '\t' '$1=="IOC" && ($2=="marker" || $2=="applet-hijack") {print $3}' "$FIND" | sort -u | head -n 12 |
+	files=$(awk -F '\t' '$1=="IOC" && ($2=="marker" || $2=="applet-hijack" || $2=="backdoor-file") {print $3}' "$FIND" | sort -u | head -n 12 |
 		while IFS= read -r f; do
 			[ -f "$(r "${f#/}")" ] && [ ! -L "$(r "${f#/}")" ] || continue
 			printf '{"path": %s, "sha256": %s, "size": %s, "mtime": %s, "ctime": %s},' "$(jstr "$f" 120)" \
@@ -1104,12 +1210,14 @@ build_report() {
 	persist='' rules='' cmds=''
 	: >"$TMP/rlines"   # the same lines as plain text, to show before asking
 	if [ "$(count IOC)" -gt 0 ]; then
-		persist=$(awk -F '\t' '$2=="persist-ref" || $2=="keep-ref" || $2=="persistence" {print $2 "\t" $3}' "$FIND" | sort -u -k2 | head -n 6 |
+		persist=$(awk -F '\t' '$2=="persist-ref" || $2=="keep-ref" || $2=="persistence" || $2=="backdoor-init" || $2=="backdoor-keep" {print $2 "\t" $3}' "$FIND" | sort -u -k2 | head -n 6 |
 			while IFS="$TAB" read -r kind f; do
 				[ -f "$(r "${f#/}")" ] || continue
 				n=20
 				if [ "$kind" = keep-ref ]; then
 					grep -E "$IOC_RE" "$(r "${f#/}")"
+				elif [ "$kind" = backdoor-keep ]; then
+					grep -E "$BD_KEEP_RE" "$(r "${f#/}")"
 				elif [ "$f" = /etc/rc.local ]; then
 					# the whole file: what stands around the attacker's line matters too
 					n=60; cat "$(r "${f#/}")"
@@ -1246,15 +1354,25 @@ fix)
 	report_body
 	collect
 	{ [ -n "$ARCHIVE" ] && [ -s "$ARCHIVE" ]; } || die "no verified archive, refusing to change anything"
-	[ "$(count IOC)" -gt 0 ] || { fix; finish 0; }
+	if [ "$(count_gl)" = 0 ]; then
+		fix
+		[ "$(count_bd)" -gt 0 ] && { recommend; finish 1; }
+		finish 0
+	fi
 	fix
 	FIXRC=$?
 	sleep 2
 	section "Re-check after remediation"
 	detect "$TMP/findings.after"
-	if [ "$(count IOC)" -gt 0 ]; then
+	if [ "$(count_gl)" -gt 0 ]; then
 		grep "^IOC${TAB}" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
 		say "   ${RED}Verdict: remediation INCOMPLETE${N}"
+		recommend
+		finish 3
+	fi
+	if [ "$(count_bd)" -gt 0 ]; then
+		grep "^IOC${TAB}backdoor-" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
+		say "   ${RED}Verdict: gl-helper indicators removed, the older backdoor is STILL THERE${N}"
 		recommend
 		finish 3
 	fi

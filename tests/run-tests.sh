@@ -41,6 +41,9 @@ echo dummy >"$OWL/bin/busybox"; ln -s busybox "$OWL/bin/netstat"; ln -s busybox 
 mkdir -p "$OWL/etc/uci-defaults"; echo 'uci commit' >"$OWL/etc/uci-defaults/10_firstboot"
 printf 'P:busybox\nF:bin\nR:busybox\n\n' >"$OWL/lib/apk/db/installed"
 echo openwrt >"$OWL/etc/hostname"
+printf '#!/bin/sh /etc/rc.common\nSTART=99\n' >"$OWL/etc/init.d/urandom_seed"
+echo lua-interpreter >"$OWL/usr/bin/lua"
+mkdir -p "$OWL/lib/upgrade/keep.d"; echo /etc/config/network >"$OWL/lib/upgrade/keep.d/netifd"
 
 if [ -n "$KVM_LOWER" ]; then
 echo "=== 1. KVM (RM1PE 1.10.2 base), infected"
@@ -266,6 +269,49 @@ run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
 C
 expect "KVM layout: identity file listed once" '[ $(C | grep -c "^ *ZeroTier") = 1 ] && C | grep -q "ZeroTier  */etc/kvmd/user/zerotier/identity.secret"'
 expect "no dropbearkey in the base image: key listed without fingerprint" 'C | grep -A1 "SSH client key  */root/.ssh/id_rsa" | grep -q "fingerprint not available"'
+umount "$D/m"
+
+echo "=== older backdoor (urandom_seed / ulogd / monitord)"
+backdoor() { # upper dir
+	mkdir -p "$1/etc/init.d" "$1/bin" "$1/usr/bin" "$1/lib/upgrade/keep.d"
+	printf '#!/bin/sh /etc/rc.common\ncp /usr/bin/lua /usr/bin/monitord\ncp /bin/ulogd /var/run/monitord.pid\n/usr/bin/monitord /var/run/monitord.pid &\nSTART=99\n' >"$1/etc/init.d/urandom_seed"
+	echo bytecode >"$1/bin/ulogd"; echo lua-interpreter >"$1/usr/bin/monitord"
+	printf '/etc/config/network\n/bin/ulogd\n/etc/init.d/urandom_seed\n' >"$1/lib/upgrade/keep.d/netifd"
+}
+D=$(mkscen bd "$OWL"); U=$D/u
+backdoor "$U"
+mkdir -p "$U/etc/AdGuardHome/data"; echo '{"QH":"up.adguardns.org"}' >"$U/etc/AdGuardHome/data/querylog.json"
+echo '1.2.3.4 cdn.adguardns.com' >"$U/etc/hosts"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "backdoor only: exit 1 and its own verdict" '[ $rc = 1 ] && grep -q "Verdict: INFECTED - older backdoor" "$D/check.txt" && grep -q "no gl-helper indicators found" "$D/check.txt"'
+expect "init script, loader, renamed Lua and keep list are IOC" 'grep -q "IOC  *backdoor-init  */etc/init.d/urandom_seed" "$D/check.txt" && grep -q "IOC  *backdoor-file  */bin/ulogd" "$D/check.txt" && grep -q "IOC  *backdoor-file  */usr/bin/monitord" "$D/check.txt" && grep -q "IOC  *backdoor-keep  */lib/upgrade/keep.d/netifd" "$D/check.txt"'
+expect "server name in the configuration is IOC, in the query log REVIEW" 'grep -q "IOC  *backdoor-host  */etc/hosts" "$D/check.txt" && grep -q "REVIEW  *backdoor-dns" "$D/check.txt"'
+expect "no second finding for the same path" '[ $(grep -c " /bin/ulogd$" "$D/check.txt") = 1 ] && [ $(grep -c " /etc/init.d/urandom_seed$" "$D/check.txt") = 1 ]'
+expect "advice is a reflash without keeping settings" 'grep -q "keep settings.* OFF" "$D/check.txt"'
+run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
+expect "--fix changes nothing and says so: exit 1, files still there" '[ $rc = 1 ] && grep -q "does not remove the older backdoor" "$D/fix.txt" && [ -f "$D/m/bin/ulogd" ] && grep -q monitord "$D/m/etc/init.d/urandom_seed"'
+expect "the loader is in the archive" 'tar -tzf "$(ls "$D"/out/*.tar.gz | head -n 1)" | grep -q "bin/ulogd"'
+umount "$D/m"
+
+D=$(mkscen bdboth "$OWL"); U=$D/u
+backdoor "$U"
+mkdir -p "$U/etc/config/.gl"; echo payload >"$U/etc/config/.gl/gl-helper"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "both: one verdict that names both" 'grep -q "Verdict: INFECTED - gl-helper indicators and the older backdoor" "$D/check.txt"'
+run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
+expect "both: --fix removes gl-helper, leaves the backdoor, exit 3" '[ $rc = 3 ] && [ ! -e "$D/m/etc/config/.gl" ] && [ -f "$D/m/bin/ulogd" ] && grep -q "older backdoor is STILL THERE" "$D/fix.txt"'
+umount "$D/m"
+
+D=$(mkscen bdclean "$OWL"); U=$D/u
+mkdir -p "$U/usr/sbin" "$U/etc/init.d" "$U/lib/apk/db" "$U/lib/upgrade/keep.d" "$U/usr/bin"
+echo real >"$U/usr/sbin/ulogd"; printf '#!/bin/sh\n/usr/sbin/ulogd -d\n' >"$U/etc/init.d/ulogd"
+printf 'P:busybox\nF:bin\nR:busybox\n\nP:ulogd\nF:usr/sbin\nR:ulogd\nF:etc/init.d\nR:ulogd\n\n' >"$U/lib/apk/db/installed"
+echo /etc/my-own-file >"$U/lib/upgrade/keep.d/mine"; echo something-else >"$U/usr/bin/monitord"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "the ulogd package, an own keep list and another monitord are no indicator" '[ $rc = 0 ] && ! grep -q "backdoor-" "$D/check.txt"'
 umount "$D/m"
 
 echo; echo "RESULT: $pass passed, $fail failed"
