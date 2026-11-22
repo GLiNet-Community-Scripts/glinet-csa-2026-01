@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.37
+VERSION=2.38
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 13:04 UTC'
+RELEASED='2026-11-22 15:33 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -344,7 +344,27 @@ filecmp() {
 #   PERSIST  persistence file; removed by --fix only when an IOC is present
 #   REVIEW   unusual overlay change; archived and reported, never changed
 #   INFO     context
-add() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$FIND"; }
+# A copy of this script names every indicator it searches for: the malware's paths and
+# the older backdoor's servers. Saved on the device, in /etc/config or an autostart
+# directory, it matched its own search and the device was called infected (seen in a
+# report from a clean router). Such a copy is listed for review instead, so that someone
+# still looks at it if it is not theirs. It is known by three lines every version has.
+self_copy() {
+	safe "$1" || return 1
+	grep -q '^# gl-helper-triage\.sh - triage for' "$1" 2>/dev/null &&
+		grep -q '^BD_HOST_RE=' "$1" 2>/dev/null && grep -q '^IOC_RE=' "$1" 2>/dev/null
+}
+add() {
+	case "$1 $2" in
+	'IOC backdoor-init' | 'IOC backdoor-host' | 'IOC persist-ref' | 'IOC keep-ref' | 'IOC cron-ref')
+		case $3 in /*)
+			if self_copy "$(r "${3#/}")"; then
+				set -- REVIEW script-copy "$3" "a copy of this script: it names the indicators it searches for. Not counted as a trace. If you did not put it here, look at it"
+			fi ;;
+		esac ;;
+	esac
+	printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$FIND"
+}
 
 # Package that installed a file: apk (OpenWrt 24.10+), opkg (older OpenWrt / GL 4.x).
 pkg_owner() {

@@ -688,11 +688,14 @@ const dur = (ms) => { if (!isFinite(ms)) return '–'; const m = Math.round(ms /
 
 const ATTACK_FROM = Date.parse('2026-11-20T00:00:00Z');
 const NOT_HIJACK = /^applet-hijack \/usr\/sbin\/tailscaled?$/;
+// scripts before 2.38 took a copy of themselves, saved on the device, for a trace: the
+// script names every indicator it searches for
+const NOT_SELF = /^(backdoor-host|backdoor-init|persist-ref) \/\S*gl-helper-triage\.sh$/;
 const BD_FILE = /^\/(bin\/ulogd|usr\/bin\/monitord)$/;
 function shape(x) {
   const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', review_items: [], goodcloud: '', cloud_client: '', astrowarp: '', state_file_size: null, cloud_bound: '', rtty_ssh: '', rtty_web: '', note: '', state_file_first: '', ...x.report };
   // script 2.16 and 2.17 took an updated Tailscale for a replaced system tool; not a trace
-  const fp = (f) => NOT_HIJACK.test(f);
+  const fp = (f) => NOT_HIJACK.test(f) || NOT_SELF.test(f);
   if (r.findings.some(fp)) { r.ioc = Math.max(0, r.ioc - r.findings.filter(fp).length); r.findings = r.findings.filter((f) => !fp(f)); r.files = r.files.filter((f) => !/^\/usr\/sbin\/tailscaled?$/.test(f.path)); }
   // Scripts before 2.17 did not know that the cloud handler's state file is a trace: they
   // sent its time and called the device clean. The reports show the rule holds (no router

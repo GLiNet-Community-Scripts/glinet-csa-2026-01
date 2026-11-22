@@ -602,6 +602,9 @@ was also run in check and archive mode on a GL.iNet router with firmware 4.11
   an attacker made, may remain. Read the `REVIEW` items.
 - Without a base image (`/rom`) the results are less precise and the tools come
   from `$PATH`.
+- A copy of the script saved on the device names every indicator it searches for. Since
+  2.38 such a copy is listed as `REVIEW script-copy` and not counted as a trace; earlier
+  versions called a device infected for a copy in `/etc/config` or an autostart directory.
 - The script only reads regular files. A named pipe or a link into `/proc` in a place it
   scans is not opened, because reading one could block the run for good; where such a
   thing stands in for `rc.local` or the root crontab it is listed as `REVIEW`.
