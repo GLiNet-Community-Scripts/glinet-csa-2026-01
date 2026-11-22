@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.27
+VERSION=2.28
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -96,8 +96,10 @@ KVM_NETS='65.20.71.131 66.245.219.252'
 KVM_RE='65\.20\.71\.131|66\.245\.219\.252|gl-inet\.top'
 # The two addresses alone. They are in the installer as well (the servers it fetches the
 # malware from, ports 8000 and 8899, and the attacker's own rtty server), so with two
-# sources they count as indicators. The name stays a matter for review.
-KVM_IP_RE='65\.20\.71\.131|66\.245\.219\.252'
+# sources they count as indicators.
+# gl-inet.top counts too since the malware's helper was read (topic 73056, post 92): it
+# is in there as a fallback server, gl-inet.top:8899.
+KVM_IP_RE='65\.20\.71\.131|66\.245\.219\.252|gl-inet\.top'
 CONN_RE='/(nc|netcat|socat|sh|ash|bash)$'
 SHELL_RE="170\\.39\\.226\\.|/tmp/f([ ;|>]|\$)"
 # A second, older backdoor that is not part of GL.iNet's notice of 2026-11-20. Users of
@@ -407,6 +409,22 @@ check_backdoor() {
 		grep -qE "$BD_ULOGD_NAMES" "$f" 2>/dev/null && owner="$owner, holds the function names of the analysed loader"
 		[ -n "$sha" ] && printf '%s\n' "$BD_ULOGD_SHAS" | grep -qxF "$sha" && owner="$owner, the same file as on another reported device"
 		add IOC backdoor-file /bin/ulogd "older backdoor: its loader, $owner (sha256 ${sha:-unreadable})"
+	fi
+	# 2a. compiled Lua anywhere in the overlay. The firmware keeps its compiled Lua in the
+	#     read-only image, so a file with that header in the overlay is unusual; with the
+	#     loader's function names in it, it is the loader under another name.
+	if [ -n "$UPPER" ]; then
+		find "$UPPER" -xdev -type f -size +1k -size -8192k -exec grep -l 'LuaQ' {} + 2>/dev/null | while IFS= read -r f; do
+			[ "$(head -c 4 "$f" 2>/dev/null | tr -d '\033')" = Lua ] || continue
+			p=${f#"${UPPER%/}"/}
+			grep -q "${TAB}/$p${TAB}" "$FIND" && continue
+			[ -n "$(pkg_owner "/$p")" ] && continue
+			if grep -qE "$BD_ULOGD_NAMES" "$f" 2>/dev/null; then
+				add IOC backdoor-file "/$p" "older backdoor: its loader under another name (compiled Lua with the loader's function names, sha256 $(sha256sum "$f" 2>/dev/null | cut -c1-64))"
+			else
+				add REVIEW lua-bytecode "/$p" "compiled Lua in the overlay, not from a package; the older backdoor's loader is such a file"
+			fi
+		done
 	fi
 	# 3. the Lua interpreter under another name
 	f=$(r usr/bin/monitord)
@@ -1039,6 +1057,22 @@ goodcloud_state() {
 	printf '%s%s' "$st" "${v:+ (gl-sdk4-cloud $v)}"
 }
 
+# Is the device bound to a GoodCloud account, and are remote SSH and the remote web
+# interface through the cloud switched on? Three answers, on, off or unknown each. People
+# ask whether a device that was only bound, with remote access off, was at risk; the
+# reports can answer that. Only yes or no is read: never the account's name or address.
+cloud_opt() { # file, option: on when the option has a value that is not empty or 0
+	safe "$1" || { echo unknown; return; }
+	if grep -qE "^[[:space:]]*option[[:space:]]+$2[[:space:]]+['\"]?[^'\"0[:space:]]" "$1" 2>/dev/null; then echo on; else echo off; fi
+}
+cloud_bound() {
+	local f
+	f=$(r etc/config/gl-cloud)
+	safe "$f" || { echo unknown; return; }
+	# the cloud's "bind" command writes these four; "unbind" deletes them
+	if grep -qE "^[[:space:]]*option[[:space:]]+(bindtime|username|email|bindtype)[[:space:]]+['\"]?[^'\"[:space:]]" "$f" 2>/dev/null; then echo on; else echo off; fi
+}
+
 report_head() {
 	say "${B}== gl-helper triage $VERSION${N}  ${D}(CSA-2026-01)${N}"
 	kv Host "$HOST"
@@ -1049,7 +1083,7 @@ report_head() {
 	kv Overlay "${UPPER:-unknown}"
 	kv "Base image" "${LOWER:-none}"
 	kv "Trusted tools" "$TRUSTED"
-	kv "GoodCloud now" "$(goodcloud_state)"
+	kv "GoodCloud now" "$(goodcloud_state), bound to an account: $(cloud_bound), remote SSH: $(cloud_opt "$(r etc/config/rtty)" ssh_en), remote web: $(cloud_opt "$(r etc/config/rtty)" web_en)"
 	[ "$TRUSTED" = no ] && say "   ${YEL}WARNING: no usable busybox in a base image, tools come from \$PATH and could be tampered${N}"
 	[ -z "$UPPER" ] && say "   ${YEL}NOTE: overlay upper layer unknown, results are less precise${N}"
 	return 0
@@ -1602,7 +1636,7 @@ build_report() {
 	ssize=-1; safe "$(r etc/mp_ip_mapping_info)" && ssize=$(cat "$(r etc/mp_ip_mapping_info)" 2>/dev/null | wc -c | tr -d ' ')
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 7,
+"schema": 8,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -1624,6 +1658,9 @@ build_report() {
 "commands": [$cmds],
 "goodcloud": $(jstr "${gc%% *}" 8),
 "cloud_client": $(jstr "$(printf '%s' "$gc" | sed -n 's/.*(gl-sdk4-cloud \(.*\))$/\1/p')" 32),
+"cloud_bound": $(jstr "$(cloud_bound)" 8),
+"rtty_ssh": $(jstr "$(cloud_opt "$(r etc/config/rtty)" ssh_en)" 8),
+"rtty_web": $(jstr "$(cloud_opt "$(r etc/config/rtty)" web_en)" 8),
 "astrowarp": $(jstr "$aw" 8),
 "state_file_size": ${ssize:--1},
 "review_items": [$revs],
@@ -1683,7 +1720,8 @@ offer_report() {
 		sed 's/^/        /' "$TMP/revlines" >&3
 		ysay "If a path here says more about you than you want to share, do not send."
 	fi
-	ysay "And whether GoodCloud and AstroWarp are switched on."
+	ysay "And whether GoodCloud and AstroWarp are on, whether the device is bound to a GoodCloud"
+	ysay "account (yes or no, never the account), and whether remote SSH and web access are on."
 	ysay "Not sent: host name, IP or MAC addresses, keys, the content of any other file."
 	if [ "$REPORT" != yes ]; then
 		if [ -t 0 ] && [ -t 3 ]; then

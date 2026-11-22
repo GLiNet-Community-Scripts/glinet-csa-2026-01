@@ -97,8 +97,9 @@ This script also detects:
 - a link in a tool directory that the firmware does not have, for example a new
   `/usr/bin/netstat` (`REVIEW`),
 - scripts in `/etc/udhcpc.user.d`, which the router runs on every DHCP event (`REVIEW`),
-- the name `gl-inet.top`, which a KVM that was taken over on 19 November looked up, on
-  a command line or in an autostart file (`REVIEW`),
+- the name `gl-inet.top` on a command line, in an autostart file or in `/etc/rtty_conf`.
+  It is in the malware's helper as a fallback server (`gl-inet.top:8899`), so it counts
+  as an indicator like the two addresses,
 - connections to the attacker's server that are attempted but not answered: the server
   was suspended on 21 November, so a shell loop that still runs never gets through,
 - Tailscale from the [community Tailscale updater](https://github.com/Admonstrator/glinet-tailscale-updater)
@@ -200,7 +201,10 @@ only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
   `/lib/upgrade/keep.d/netifd`,
 - one of the known server names in the configuration (`backdoor-host`): `adguardns.com`,
   `adguardns.org`, `lede-openproject.org`, `adxinsight.com`, `openwrt-project.org`,
-- a running `monitord` or `ujaild` (`backdoor-proc`).
+- a running `monitord` or `ujaild` (`backdoor-proc`),
+- compiled Lua anywhere in the overlay that no package installed: with the loader's
+  function names in it, it is the loader under another name (`backdoor-file`), otherwise
+  `REVIEW lua-bytecode`. The firmware keeps its own compiled Lua in the read-only image.
 
 A request for one of those names in AdGuard Home's query log is `REVIEW`: it shows that
 some device in the network asked, not which one.
@@ -346,7 +350,11 @@ was last written (mtime) and when the kernel last changed its entry (ctime). The
 can come with the file, from an archive or a copy, or be set back with `touch`; the second
 cannot, so the two together show when the file really arrived. It also gives the time
 and size of the cloud handler's state file, and whether GoodCloud and AstroWarp are
-switched on, with the version of the cloud client.
+switched on, with the version of the cloud client. Since 2.28 also whether the device is
+bound to a GoodCloud account and whether remote SSH and the remote web interface
+through the cloud are on: yes, no or unknown each, never the account's name or address.
+People ask whether a device that was only bound, with remote access off, was at risk;
+these three answers let the reports say.
 
 Since 2.23 it also carries what the script listed for `REVIEW`: for each finding its kind
 and path, at most 40, and for a file its SHA-256 and its two times (written, and
