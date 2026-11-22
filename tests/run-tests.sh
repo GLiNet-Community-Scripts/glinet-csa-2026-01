@@ -39,6 +39,9 @@ run() { # dir lower mode...
 	triage --root "$d/m" --upper "$d/u" --lower "$lo" -o "$d/out" "$@"
 }
 
+echo "=== 0. The version and its release time are where the website's guide reads them"
+expect "VERSION and RELEASED lines have the form the guide expects" 'grep -qE "^VERSION=[0-9]+\.[0-9]+\$" "$T" && grep -qE "^RELEASED=.20[0-9]{2}-[01][0-9]-[0-3][0-9] [0-2][0-9]:[0-5][0-9] UTC.\$" "$T"'
+
 # ------------------------------------------------------------ OpenWrt base image
 OWL=$BASE/openwrt-rom
 mkdir -p "$OWL"/{etc/init.d,etc/rc.d,bin,usr/bin,lib/apk/db,etc/crontabs}
