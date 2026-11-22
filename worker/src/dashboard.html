@@ -61,6 +61,10 @@ button, select, input { font: inherit; color: inherit; }
 .layoutRow label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layoutRow button { border: 0; background: none; color: var(--text-2); cursor: pointer; padding: 2px 6px; border-radius: 6px; font-size: 13px; }
 .layoutRow button:hover:not(:disabled) { background: var(--surface); color: var(--text); } .layoutRow button:disabled { opacity: .3; cursor: default; }
+.kpis2 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.hashcell { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; max-width: 420px; }
+.linkish { cursor: pointer; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
+.linkish:hover { text-decoration-color: var(--accent); color: var(--accent); }
 #layoutMenu .pop { left: auto; right: 0; width: 340px; max-height: 70vh; }
 .safeTable td { vertical-align: top; }
 .safeTable .who { color: var(--text-2); font-size: 13px; white-space: nowrap; }
@@ -306,9 +310,20 @@ tr.row.fresh td { background: var(--accent-soft); }
     <div class="seg" id="viewSeg" role="group" aria-label="Page"><button type="button" data-v="main">Dashboard</button><button type="button" data-v="safe">Probably safe</button></div>
   </div>
 
+  <section id="itemView" hidden>
+    <div class="card" style="margin-top:12px">
+      <div class="chead"><button class="btn" type="button" id="itemBack">← Back</button><h2 id="itemTitle" style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:16px;overflow-wrap:anywhere"></h2><span class="grow"></span><span id="itemAct"></span></div>
+      <p class="sub" id="itemSub"></p>
+      <div class="grid kpis2" id="itemStats" style="margin-top:12px"></div>
+    </div>
+    <div class="card" style="margin-top:12px"><h2>Fingerprints</h2><p class="sub">One line per different file behind this path. The same fingerprint on many devices means the same file. A mark as probably safe covers the fingerprints known when it was set.</p><div class="scroll" id="itemHashes"></div></div>
+    <div class="card" style="margin-top:12px"><h2>Models and firmware</h2><p class="sub">Which devices sent this finding, and how many of them show traces.</p><div class="scroll" id="itemModels"></div></div>
+    <div class="card" style="margin-top:12px"><div class="chead"><h2>Devices that sent it</h2><p class="sub tnum" id="itemCount"></p></div><p class="sub">The latest report of each device. Click a line to see that device’s reports on the dashboard.</p><div class="scroll" id="itemDevices"></div></div>
+  </section>
+
   <section class="card" id="safeView" style="margin-top:12px" hidden>
     <div class="chead"><h2>Marked as probably safe</h2><p class="sub tnum" id="safeCount"></p></div>
-    <p class="sub">Every finding someone on the team has marked, with who did it, when and why. These are hidden on the dashboard unless asked for. Click a finding to see its reports.</p>
+    <p class="sub">Every finding someone on the team has marked, with who did it, when and why. These are hidden on the dashboard unless asked for. Click a finding to see which devices sent it.</p>
     <div class="scroll" id="safeList" style="margin-top:8px"></div>
   </section>
 
@@ -385,7 +400,7 @@ tr.row.fresh td { background: var(--accent-soft); }
 
   <section class="card" style="margin-top:12px">
     <h2>Unusual changes seen on several devices</h2>
-    <p class="sub" id="reviewSub">What the script listed for review, not known traces. Most of it is harmless and the owner’s own. Look for a change that many devices with traces share and clean ones do not. Click a row to see its reports. Mark what you have looked at as probably safe, here or in a single report, and it is hidden for everyone; a new file at the same path brings it back. The marks build up a list of what is known to be harmless.</p>
+    <p class="sub" id="reviewSub">What the script listed for review, not known traces. Most of it is harmless and the owner’s own. Look for a change that many devices with traces share and clean ones do not. Click a row to see which devices sent it and which files stand behind it. Mark what you have looked at as probably safe, here or in a single report, and it is hidden for everyone; a new file at the same path brings it back. The marks build up a list of what is known to be harmless.</p>
     <div class="scroll" id="reviews"></div>
   </section>
 
@@ -528,7 +543,7 @@ function shape(x) {
   const times = [ts(r.shell_started), r.cmd ? ts(r.state_file_time) : NaN, ...r.files.filter((f) => r.ioc === 0 || !BD_FILE.test(f.path)).map(ftime)].filter((n) => !isNaN(n));
   r.first = times.length ? Math.min(...times) : NaN;
   r.story = story(r);
-  r.hay = [r.model, r.platform, r.firmware, r.tool, r.findings.join(' '), r.shell_ports.join(' '), r.files.map((f) => f.path + ' ' + f.sha256).join(' '), r.commands.join(' '), r.fw_rules.join(' '), r.review_items.map((i) => i.kind + ' ' + i.path + ' ' + i.sha256).join(' '), r.persistence.map((p) => p.path + ' ' + p.lines.join(' ')).join(' ')].join(' ').toLowerCase();
+  r.hay = [r.model, r.platform, r.firmware, r.tool, r.dev, r.findings.join(' '), r.shell_ports.join(' '), r.files.map((f) => f.path + ' ' + f.sha256).join(' '), r.commands.join(' '), r.fw_rules.join(' '), r.review_items.map((i) => i.kind + ' ' + i.path + ' ' + i.sha256).join(' '), r.persistence.map((p) => p.path + ' ' + p.lines.join(' ')).join(' ')].join(' ').toLowerCase();
   return r;
 }
 function story(r) {
@@ -575,7 +590,9 @@ function seg(id, key) {
 }
 /* ---------- the filters in the address, so a view can be shared ---------- */
 const SIMPLE = { result: 'hit', type: 'all', recv: 'all', restart: 'any' };
-let view = 'main';
+let view = 'main', itemKey = '', itemFrom = 'main';
+// open the page of one finding (a kind and a path): who sent it, which files stand behind it
+function openItem(key) { itemFrom = view === 'item' ? itemFrom : view; itemKey = key; view = 'item'; render(); scrollTo(0, 0); }
 function toHash() {
   const q = new URLSearchParams();
   if (F.q) q.set('q', F.q);
@@ -586,6 +603,7 @@ function toHash() {
   if (!F.hideTests) q.set('tests', '1');
   if (zoom !== 'attack') q.set('chart', zoom);
   if (view !== 'main') q.set('view', view);
+  if (view === 'item' && itemKey) q.set('item', itemKey);
   if (sortKey !== 'received' || asc) q.set('sort', (asc ? '' : '-') + sortKey);
   const h = q.toString(); if (h !== location.hash.slice(1)) history.replaceState(null, '', h ? '#' + h : location.pathname + location.search);
 }
@@ -597,7 +615,7 @@ function fromHash() {
   F.unusual = q.has('unusual'); $('onlyUnusual').checked = F.unusual;
   $('perDevice').checked = !q.has('all_reports'); F.hideTests = !q.has('tests'); $('hideTests').checked = F.hideTests;
   if (['attack', 'all'].includes(q.get('chart'))) zoom = q.get('chart');
-  view = q.get('view') === 'safe' ? 'safe' : 'main';
+  view = ['safe', 'item'].includes(q.get('view')) ? q.get('view') : 'main'; itemKey = q.get('item') || ''; if (view === 'item' && !itemKey) view = 'main';
   const so = q.get('sort'); if (so) { asc = !so.startsWith('-'); sortKey = so.replace(/^-/, ''); }
 }
 
@@ -762,7 +780,7 @@ function reviews(base) {
     { const t = markTag(REVALL.get(g.kind + ' ' + g.path) || g); if (t) { pathCell.append(t); if (lab && lab.note) pathCell.append(el('small', ' ' + lab.note, 'dim')); } }
     const act = el('td', null, 'n'); act.append(markButton(REVALL.get(g.kind + ' ' + g.path) || g, act));
     tr.append(el('td', g.kind), pathCell, el('td', g.n, 'n'), w, d, when, act);
-    tr.addEventListener('click', () => { const q = (g.kind + ' ' + g.path).toLowerCase(); F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
+    tr.addEventListener('click', () => openItem(g.kind + ' ' + g.path));
     tb.append(tr);
   }
   box.append(tb, el('p', `${have.length} reports carry this data, ${hits} of them with traces. Shown: ${showOnce ? 'every finding' : 'what at least two devices share'}, most traces first, at most 40.` + (safeN && !showSafe ? ` ${safeN} marked as probably safe are hidden.` : ''), 'peak'));
@@ -1041,7 +1059,7 @@ function render() {
   const total = all.filter((r) => !r.isTest).length;
   $('status').textContent = all.length ? `${total.toLocaleString('en')} report${total === 1 ? '' : 's'} · last received ${fmt(last)} UTC` : 'No reports yet.';
   current = rows;
-  safeList(); toHash();
+  safeList(); itemView(); toHash();
 }
 let current = [];
 const opened = new Set();
@@ -1061,7 +1079,7 @@ function detail(r) {
   sec('Findings', r.findings.length ? fl : el('p', 'None.', 'dim'), true);
   if (r.odd.length) { const w = el('div'); for (const [k, v] of r.odd) w.append(el('pre', k + ':  ' + v)); sec('Only on this device', w, true); }
   if (r.files.length) { const t = el('table'); for (const f of r.files) { const row = el('tr'); const fp = el('td', f.sha256.slice(0, 24) + '…', 'mono dim'); fp.title = f.sha256; row.append(el('td', f.path, 'mono'), fp, el('td', f.size.toLocaleString('en') + ' B', 'n'), el('td', fmt(ts(f.mtime)), 'n')); const c = el('td', null, 'n'); if (f.ctime) { c.textContent = fmt(ts(f.ctime)); c.title = 'Changed on the device (ctime): the kernel sets it, touch and tar cannot set it back.'; if (lag(f) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(f)) + ' older than the change on the device. It came with the file (archive, copy) or was set back. The right-hand time is the one to trust.'; c.append(' ', g); } } row.append(c); t.append(row); } const hd = el('tr'); for (const [x, k] of [['File', ''], ['Fingerprint (SHA-256)', ''], ['Size', 'n'], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n']]) hd.append(el('th', x, k)); t.prepend(hd); sec('Files', t, true); }
-  if (r.review_items.length) { const t = el('table'), hd = el('tr'); for (const [x, k] of [['Kind', ''], ['Path or program', ''], ['Fingerprint (SHA-256)', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['', 'n']]) hd.append(el('th', x, k)); t.append(hd); for (const i of r.review_items) { const row = el('tr'), fp = el('td', i.sha256 ? i.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = i.sha256; const c = el('td', i.ctime ? fmt(ts(i.ctime)) : '', 'n'); if (i.mtime && i.ctime && lag(i) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(i)) + ' older than the change on the device.'; c.append(' ', g); } const g = REVALL.get(i.kind + ' ' + i.path) || { kind: i.kind, path: i.path, sha: new Set(i.sha256 ? [i.sha256] : []) }, pc = el('td', i.path || '(not sent)', 'mono'), mt = markTag(g), act = el('td', null, 'n'); if (mt) pc.append(mt); act.append(markButton(g, act)); row.append(el('td', i.kind), pc, fp, el('td', i.mtime ? fmt(ts(i.mtime)) : '', 'n'), c, act); t.append(row); } sec('Listed for review (not known traces)', t, true); }
+  if (r.review_items.length) { const t = el('table'), hd = el('tr'); for (const [x, k] of [['Kind', ''], ['Path or program', ''], ['Fingerprint (SHA-256)', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['', 'n']]) hd.append(el('th', x, k)); t.append(hd); for (const i of r.review_items) { const row = el('tr'), fp = el('td', i.sha256 ? i.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = i.sha256; const c = el('td', i.ctime ? fmt(ts(i.ctime)) : '', 'n'); if (i.mtime && i.ctime && lag(i) > LAG) { const g = el('span', 'time not from this device', 'tag warn'); g.title = 'The written time is ' + dur(lag(i)) + ' older than the change on the device.'; c.append(' ', g); } const g = REVALL.get(i.kind + ' ' + i.path) || { kind: i.kind, path: i.path, sha: new Set(i.sha256 ? [i.sha256] : []) }, pc = el('td', null, 'mono'), pl = el('span', i.path || '(not sent)', 'linkish'), mt = markTag(g), act = el('td', null, 'n'); pl.title = 'See which devices sent this and which files stand behind it'; pl.addEventListener('click', (e) => { e.stopPropagation(); openItem(i.kind + ' ' + i.path); }); pc.append(pl); if (mt) pc.append(mt); act.append(markButton(g, act)); row.append(el('td', i.kind), pc, fp, el('td', i.mtime ? fmt(ts(i.mtime)) : '', 'n'), c, act); t.append(row); } sec('Listed for review (not known traces)', t, true); }
   if (r.commands.length) { const w = el('div'); for (const c of r.commands) w.append(el('pre', c)); sec('Commands of its processes', w, true); }
   if (r.persistence.length) { const w = el('div'); for (const p of r.persistence) w.append(el('pre', p.path + '\n' + p.lines.map((l) => '  ' + l).join('\n'))); sec('Lines from autostart files (rc.local in full, others: what is not in the firmware)', w, true); }
   if (r.fw_rules.length) sec('Firewall chain SDWAN_IP_MAPPING', el('pre', r.fw_rules.join('\n')), true);
@@ -1097,7 +1115,7 @@ $('csv').addEventListener('click', () => {
 // the server with every request.
 let closed = new Set();
 try { closed = new Set(JSON.parse(localStorage.getItem('csa-folded') || '[]')); } catch { /* no storage: nothing is folded */ }
-for (const card of document.querySelectorAll('main .card:not(#safeView)')) {
+for (const card of document.querySelectorAll('main .card:not(#safeView):not(#itemView .card)')) {
   const h = card.querySelector(':scope > h2, :scope > .chead > h2'); if (!h) continue;
   card.dataset.key = h.textContent.trim();
   const key = h.textContent.trim(), b = el('button', key, 'fold'); b.type = 'button'; h.replaceChildren(b);
@@ -1187,10 +1205,60 @@ applyLayout();
 /* ---------- the two pages: the dashboard, and what was marked as probably safe ---------- */
 for (const b of $('viewSeg').children) b.addEventListener('click', () => { view = b.dataset.v; render(); scrollTo(0, 0); });
 function applyView() {
-  const safe = view === 'safe';
-  for (const b of $('viewSeg').children) b.setAttribute('aria-pressed', String(b.dataset.v === view));
-  document.querySelector('.filters').hidden = safe; $('kpis').hidden = safe; board.hidden = safe; $('safeView').hidden = !safe;
+  const safe = view === 'safe', main = view === 'main';
+  for (const b of $('viewSeg').children) b.setAttribute('aria-pressed', String(b.dataset.v === (view === 'item' ? itemFrom : view)));
+  document.querySelector('.filters').hidden = !main; $('kpis').hidden = !main; board.hidden = !main; $('safeView').hidden = !safe; $('itemView').hidden = view !== 'item';
   const n = Object.keys(LABELS).length; $('viewSeg').children[1].textContent = 'Probably safe' + (n ? ' (' + n + ')' : '');
+}
+$('itemBack').addEventListener('click', () => { view = itemFrom; render(); });
+// One finding seen from the other side: every device that sent it, the files behind it,
+// the models and firmware. What one wants to know before calling it safe.
+function itemView() {
+  if (view !== 'item') return;
+  const i = itemKey.indexOf(' '), kind = itemKey.slice(0, i), path = itemKey.slice(i + 1);
+  // the latest report of each device that carries review findings at all
+  const latest = new Map(); for (const r of all) if (r.schema >= 6 && !r.isTest) { const k = r.dev || r.id, b = latest.get(k); if (!b || r.recv > b.recv) latest.set(k, r); }
+  const devs = [...latest.values()], rows = [];
+  for (const r of devs) { const it = r.review_items.find((x) => x.kind === kind && x.path === path); if (it) rows.push({ r, it }); }
+  const hitOf = (r) => r.ioc > 0 || r.bd, hits = rows.filter((x) => hitOf(x.r)).length, allHits = devs.filter(hitOf).length;
+  const g = REVALL.get(itemKey) || { kind, path, sha: new Set(rows.map((x) => x.it.sha256).filter(Boolean)) }, lab = LABELS[itemKey], st = labelState(g);
+  $('itemTitle').textContent = kind + '  ' + (path || '(no path sent)'); const mt = markTag(g); if (mt) $('itemTitle').append(mt);
+  const act = $('itemAct'); act.replaceChildren(); act.append(markButton(g, act));
+  const show = el('button', 'Show these reports', 'btn'); show.type = 'button'; show.style.marginLeft = '8px'; show.addEventListener('click', () => { const q = itemKey.toLowerCase(); view = 'main'; F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); }); act.append(show);
+  $('itemSub').textContent = (lab ? `Marked as probably safe by ${lab.by} on ${lab.at.slice(0, 16).replace('T', ' ')} UTC` + (lab.note ? `: ${lab.note}` : '') + '. ' : '') + 'A finding the scripts listed for review, not a known trace.';
+  const share = (n, d) => (d ? Math.round(n / d * 100) + '%' : '–'), ct = rows.map((x) => ts(x.it.ctime)).filter((n) => !isNaN(n)).sort((a, b) => a - b), shas = new Set(rows.map((x) => x.it.sha256).filter(Boolean));
+  $('itemStats').replaceChildren(
+    kpi('Devices', rows.length, 'of ' + devs.length, 'Devices whose latest report carries this finding, of those that send review findings (script 2.23 and later).'),
+    kpi('With traces', share(hits, rows.length), `${hits} of ${rows.length}`, `Among all these devices ${share(allHits, devs.length)} show traces. A much higher share here would be worth a look.`),
+    kpi('Different files', shas.size || '–', '', shas.size ? (shas.size === 1 ? 'The same file on every device that sent a fingerprint.' : 'Fingerprints behind this path.') : 'Nothing with a fingerprint: a link, an account or a process.'),
+    kpi('Changed on the devices', ct.length ? fmt(ct[0]).slice(0, 10) : '–', ct.length > 1 && fmt(ct[0]).slice(0, 10) !== fmt(ct[ct.length - 1]).slice(0, 10) ? 'to ' + fmt(ct[ct.length - 1]).slice(0, 10) : '', 'When the kernel last changed this entry, earliest to latest (script 2.24 and later).'));
+  const table = (box, heads, lines) => { box.replaceChildren(); if (!lines.length) { box.append(el('p', 'Nothing to show.', 'peak')); return; } const tb = el('table'), hd = el('tr'); for (const [t, c] of heads) hd.append(el('th', t, c)); tb.append(hd); for (const l of lines) tb.append(l); box.append(tb); };
+  // fingerprints
+  const byHash = new Map(); for (const x of rows) { const k = x.it.sha256 || ''; (byHash.get(k) || byHash.set(k, []).get(k)).push(x); }
+  table($('itemHashes'), [['SHA-256', ''], ['Devices', 'n'], ['With traces', 'n'], ['Models', ''], ['Changed on device (UTC)', 'n'], ['Covered by the mark', '']], [...byHash].sort((a, b) => b[1].length - a[1].length).map(([h, xs]) => {
+    const tr = el('tr'), c = xs.map((x) => ts(x.it.ctime)).filter((n) => !isNaN(n)).sort((a, b) => a - b), hc = el('td', h || '(no fingerprint)', 'hashcell');
+    if (h) { hc.classList.add('linkish'); hc.title = 'Search all reports for this fingerprint'; hc.addEventListener('click', () => { view = 'main'; F.q = h; $('q').value = h; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); }); }
+    const cov = el('td'); if (h) cov.append(el('span', lab && lab.hashes.includes(h) ? 'yes' : lab ? 'no: new since the mark' : 'not marked', 'tag ' + (lab && lab.hashes.includes(h) ? 'ok' : lab ? 'warn' : '')));
+    tr.append(hc, el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', count(xs.map((x) => x.r), (r) => r.model).slice(0, 4).map(([m, n]) => m + ' ×' + n).join(', ')), el('td', c.length ? (fmt(c[0]).slice(0, 10) === fmt(c[c.length - 1]).slice(0, 10) ? fmt(c[0]).slice(0, 10) : fmt(c[0]).slice(0, 10) + ' – ' + fmt(c[c.length - 1]).slice(0, 10)) : '–', 'n'), cov);
+    return tr;
+  }));
+  // models and firmware
+  const mf = new Map(); for (const x of rows) { const k = x.r.model + '\t' + x.r.fw; (mf.get(k) || mf.set(k, []).get(k)).push(x); }
+  table($('itemModels'), [['Model', ''], ['Firmware', ''], ['Devices', 'n'], ['With traces', 'n'], ['Different files', 'n']], [...mf].sort((a, b) => b[1].length - a[1].length).map(([k, xs]) => {
+    const [m, f] = k.split('\t'), tr = el('tr'); tr.append(el('td', m), el('td', f), el('td', xs.length, 'n'), el('td', xs.filter((x) => hitOf(x.r)).length + ' of ' + xs.length, 'n'), el('td', new Set(xs.map((x) => x.it.sha256).filter(Boolean)).size || '–', 'n')); return tr;
+  }));
+  // devices
+  $('itemCount').textContent = rows.length + (rows.length === 1 ? ' device' : ' devices');
+  table($('itemDevices'), [['Received (UTC)', ''], ['Model', ''], ['Firmware', ''], ['Result', ''], ['SHA-256', ''], ['Written (mtime)', 'n'], ['Changed on device (ctime)', 'n'], ['Device ID', '']], rows.sort((a, b) => b.r.recv - a.r.recv).slice(0, 300).map(({ r, it }) => {
+    const tr = el('tr'), res = el('td'), cc = el('td', it.ctime ? fmt(ts(it.ctime)) : '', 'n'); tr.style.cursor = 'pointer';
+    res.append(el('span', r.cls === 'clean' ? 'Clean' : r.cls === 'command' ? 'Command only' : r.cls === 'shell' ? 'Remote shell' : r.cls === 'malware' ? 'gl-helper malware' : r.cls === 'backdoor' ? 'Older backdoor' : 'Traces', 'tag ' + (r.cls === 'clean' ? 'ok' : 'warn')));
+    if (r.bd && r.cls !== 'backdoor') res.append(' ', el('span', 'Older backdoor', 'tag warn'));
+    if (it.mtime && it.ctime && lag(it) > LAG) { const t = el('span', 'time not from this device', 'tag warn'); t.title = 'The written time is ' + dur(lag(it)) + ' older than the change on the device.'; cc.append(' ', t); }
+    const fp = el('td', it.sha256 ? it.sha256.slice(0, 16) + '…' : '', 'mono dim'); fp.title = it.sha256;
+    tr.append(el('td', fmt(r.recv), 'tnum'), el('td', r.model), el('td', r.fw), res, fp, el('td', it.mtime ? fmt(ts(it.mtime)) : '', 'n'), cc, el('td', r.dev || '–', 'mono dim'));
+    tr.addEventListener('click', () => { const q = (r.dev || r.model).toLowerCase(); view = 'main'; F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
+    return tr;
+  }));
 }
 function safeList() {
   const box = $('safeList'); box.replaceChildren();
@@ -1207,7 +1275,7 @@ function safeList() {
     if (labelState(g) === 'new') { const t = el('span', 'new file since', 'tag warn'); t.style.marginLeft = '8px'; t.title = 'A file with another fingerprint was reported at this path after it was marked. It is shown on the dashboard again.'; pc.append(t); }
     rm.type = 'button'; rm.addEventListener('click', (e) => { e.stopPropagation(); setLabel(g, '', ''); }); act.append(rm);
     tr.append(el('td', kind), pc, el('td', lab.note || '–'), el('td', lab.by, 'who'), el('td', lab.at.slice(0, 16).replace('T', ' '), 'n'), files, now, act);
-    tr.addEventListener('click', () => { const q = key.toLowerCase(); view = 'main'; F.q = q; $('q').value = q; F.result = 'all'; syncs.forEach((f) => f()); page = 0; render(); });
+    tr.addEventListener('click', () => openItem(key));
     tb.append(tr);
   }
   box.append(tb);

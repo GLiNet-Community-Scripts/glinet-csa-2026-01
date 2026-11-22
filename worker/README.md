@@ -145,6 +145,11 @@ A mark belongs to a kind and a path and remembers the fingerprints known for tha
 the time. A file with another fingerprint at the same path brings the finding back, as "new
 file at a path marked safe": a replaced file is exactly what should not stay hidden.
 
+Every finding has a page of its own, reached by a click on it: the devices that sent it,
+the fingerprints behind its path with the number of devices for each, the models and
+firmware, and when the entry changed on the devices. That is the page to look at before
+marking something.
+
 The dashboard has a page "Probably safe" that lists every mark with its comment, who set
 it and when, and from which a mark can be removed.
 
