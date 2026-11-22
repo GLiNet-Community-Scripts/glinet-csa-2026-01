@@ -298,3 +298,24 @@ node test/run.mjs serve
 
 The second command serves the worker on `127.0.0.1:8787` with storage in memory. Point the
 script at it with `GL_TRIAGE_REPORT_URL=http://127.0.0.1:8787/`.
+
+## Known release files
+
+`src/known-hashes.json` lists the SHA-256 of every binary in the releases of the
+community's Tailscale and AdGuard Home builds, taken from the `checksums.txt` of each
+release in `admonstrator/glinet-tailscale-updater` and `admonstrator/glinet-adguard-updater`.
+`build.mjs` puts the list into the dashboard. A finding whose every reported file has one
+of these fingerprints is a known release file: it is hidden like a finding marked as
+probably safe, needs no mark, and is listed with its release on the "Probably safe" page.
+Another file at the same path is still listed for review.
+
+After a new release:
+
+```sh
+sh tools/known-hashes.sh
+node build.mjs
+```
+
+A release that was built again keeps only its latest checksums, so an older build of the
+same version is not in the list. The list only ever hides review findings; it never
+changes whether a device counts as hit.

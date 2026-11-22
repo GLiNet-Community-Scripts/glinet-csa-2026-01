@@ -174,6 +174,9 @@ if (process.argv[2] === 'serve') {
   expect('refuses a ctime that is not a time', validate({ ...good5, files: [{ ...file, ctime: '<b>' }] }) !== null);
   // the dashboard's own script must at least parse: a syntax error leaves an empty page
   { const { DASHBOARD } = await import('../src/dashboard.js'); let ok = true; try { for (const m of DASHBOARD.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]); } catch { ok = false; } expect('the dashboard script parses', ok); }
+  // the list of known release files is built into the page, and every entry is a SHA-256 with a name
+  { const { DASHBOARD } = await import('../src/dashboard.js'); const m = /const KNOWN = (\{.*?\});/.exec(DASHBOARD); let known = {}; try { known = JSON.parse(m[1]); } catch { /* stays empty */ }
+    expect('the known release files are in the built page', !DASHBOARD.includes('/*KNOWN_HASHES*/') && Object.keys(known).length > 100 && Object.entries(known).every(([h, n]) => /^[0-9a-f]{64}$/.test(h) && /^[\w .,-]{5,80}$/.test(n))); }
   // review items, GoodCloud, state file size (schema 6)
   const good6 = { ...good5, schema: 6, tool: '2.23', goodcloud: 'on', cloud_client: '1.2.3-4', astrowarp: 'off', state_file_size: 0, review_items: [{ kind: 'changed', path: '/etc/init.d/urandom_seed', sha256: 'b'.repeat(64) }, { kind: 'process', path: '', sha256: '' }] };
   expect('a schema 6 report is valid, also without a state file or review items', validate(good6) === null && validate({ ...good6, state_file_size: -1, review_items: [], goodcloud: 'unknown', cloud_client: '' }) === null);
