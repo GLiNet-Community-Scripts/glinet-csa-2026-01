@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.47
+VERSION=2.48
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 22:49 UTC'
+RELEASED='2026-11-22 22:53 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1094,11 +1094,12 @@ check_tmp() {
 		# Firmware with the fix refuses the attack's command, so a state file written after that
 		# firmware first started is not the attack's. One owner found it written at the first
 		# start after the upgrade, in the same seconds as the SD-WAN module's other state files
-		# (/etc/mp_connection_info, /etc/mphosts; issue 19). /etc/board.json is written when a
-		# firmware starts for the first time, so its time stands for that start.
-		if [ "$n" = 0 ] && [ "$aw" = off ] && vendor_cleanup && safe "$(r etc/board.json)" &&
-			[ "$(date -u -r "$f" +%s 2>/dev/null || echo 0)" -ge "$(date -u -r "$(r etc/board.json)" +%s 2>/dev/null || echo 9999999999)" ]; then
-			add REVIEW state-file /etc/mp_ip_mapping_info "$w, empty: written after this firmware first started. This firmware has the fix and refuses the attack's command; its SD-WAN module can write the file at its own start. Not counted as a trace"
+		# (/etc/mp_connection_info, /etc/mphosts; issue 19). "After" is told by the day the
+		# firmware was built. A file that tells the first start, /etc/board.json, is no help:
+		# it is written before the clock is set and carries a date in 1970 on real devices.
+		if [ "$n" = 0 ] && [ "$aw" = off ] && vendor_cleanup && a=$(built_epoch) &&
+			[ "$(date -u -r "$f" +%s 2>/dev/null || echo 0)" -ge "$a" ]; then
+			add REVIEW state-file /etc/mp_ip_mapping_info "$w, empty: written after this firmware was built. This firmware has the fix and refuses the attack's command; its SD-WAN module can write the file at its own start. Not counted as a trace"
 		elif [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
 			add IOC cloud-command /etc/mp_ip_mapping_info "$w, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
 		else
@@ -1258,6 +1259,16 @@ RESTART_FROM='2026-11-19 00:00:00 UTC'
 vendor_cleanup() {
 	rd "$(r usr/lib/opkg/status)" | grep -qx 'Package: gl-sdk4-system-check' && return 0
 	[ -n "$LOWER" ] && exists "$(l etc/uci-defaults/00-system-check)"
+}
+# The start of the day this firmware was built, in seconds, from /etc/version.date. Only
+# the day is taken: the file does not say which time zone its time is in.
+built_epoch() {
+	local d s
+	d=$(rd "$(r etc/version.date)" | cut -c1-10)
+	case $d in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) return 1 ;; esac
+	s=$(date -u -d "$d 00:00:00" +%s 2>/dev/null) || return 1
+	case $s in '' | *[!0-9]*) return 1 ;; esac
+	echo "$s"
 }
 vendor_cleanup_state() {
 	if vendor_cleanup; then echo on; elif safe "$(r usr/lib/opkg/status)"; then echo off; else echo unknown; fi
