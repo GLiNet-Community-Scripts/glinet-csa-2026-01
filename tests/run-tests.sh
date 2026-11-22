@@ -584,7 +584,7 @@ D=$(mkscen link "$OWL")
 mnt "$D" "$OWL"
 run "$D" "$OWL" --check >"$D/check.txt"
 grep -B1 'csa.gl-i.net/#' "$D/check.txt"
-expect "the address is short: the host, a # and nine characters without I, L, O or U" 'grep -qE "^   https://csa\.gl-i\.net/#[0-9A-HJKMNP-TV-Z]{9}$" "$D/check.txt"'
+expect "the address is short: the host, a # and nine characters without I, L, O or U" 'grep -qE "^   >>> https://csa\.gl-i\.net/#[0-9A-HJKMNP-TV-Z]{9}$" "$D/check.txt"'
 mkdir -p "$D/m/tmp" "$D/m/etc/config"; mkfifo "$D/m/tmp/f"; printf '#!/bin/sh\nmy-own-thing\n' >"$D/m/etc/rc.local"
 printf "config cloud\n\toption enable '1'\n" >"$D/m/etc/config/gl-cloud"; printf 'x http://up.adguardns.org/\n' >"$D/m/etc/config/other"
 run "$D" "$OWL" --check >"$D/check2.txt"

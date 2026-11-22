@@ -342,9 +342,12 @@ prints an address directly under the verdict:
 ```
    Verdict: ATTACKED - a command sent through GoodCloud ran on this device
 
-   This result in plain words, with what to do (English, German, Chinese):
-   https://csa.gl-i.net/#AA006011D
+    >>> This result in plain words, with what to do (English, German, Chinese):
+   >>> https://csa.gl-i.net/#AA006011D
 ```
+
+On a terminal the first of these lines is white on green and the address is underlined, so
+that it is the thing a reader sees.
 
 The page behind it explains what was found, what that means and what to do, in English,
 German and Chinese. Over ssh the address often cannot be clicked, so it is short enough to
