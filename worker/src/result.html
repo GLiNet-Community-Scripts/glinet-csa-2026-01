@@ -188,8 +188,10 @@ const NAMES = {
 const MALWARE = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'cm'], SHELL = ['ps', 'pp', 'cs'];
 // which steps go with which result; "gc" stands for the GoodCloud step that fits the setting
 const PLAN = {
-  router: { c: ['gc', 'update', 'again'], cr: ['gc', 'update', 'sure', 'again'], a: ['gc', 'archive', 'reset', 'creds', 'clients'], i: ['gc', 'archive', 'reset', 'creds', 'clients'], s: ['norestart', 'gc', 'archive', 'reset', 'creds', 'clients'], m: ['gc', 'archive', 'reset', 'creds', 'clients'], b: ['offline', 'archive', 'reflash', 'credsold', 'clients'] },
-  kvm: { c: ['gc', 'kvmupdate', 'again'], cr: ['gc', 'kvmupdate', 'sure', 'again'], a: ['gc', 'archive', 'kvmfw', 'creds', 'kvmhost'], i: ['gc', 'archive', 'kvmfw', 'creds', 'kvmhost'], s: ['norestart', 'gc', 'archive', 'kvmfw', 'creds', 'kvmhost'], m: ['gc', 'archive', 'kvmfw', 'creds', 'kvmhost'], b: ['offline', 'archive', 'kvmfw', 'credsold', 'kvmhost'] },
+  // saving the evidence comes first wherever something was found: a restart, a reset and
+  // even a clean-up wipe traces, and nothing else here is that urgent
+  router: { c: ['gc', 'update', 'again'], cr: ['gc', 'update', 'sure', 'again'], a: ['archive', 'gc', 'reset', 'creds', 'clients'], i: ['archive', 'gc', 'reset', 'creds', 'clients'], s: ['archive', 'gc', 'reset', 'creds', 'clients'], m: ['archive', 'gc', 'reset', 'creds', 'clients'], b: ['archive', 'offline', 'reflash', 'credsold', 'clients'] },
+  kvm: { c: ['gc', 'kvmupdate', 'again'], cr: ['gc', 'kvmupdate', 'sure', 'again'], a: ['archive', 'gc', 'kvmfw', 'creds', 'kvmhost'], i: ['archive', 'gc', 'kvmfw', 'creds', 'kvmhost'], s: ['archive', 'gc', 'kvmfw', 'creds', 'kvmhost'], m: ['archive', 'gc', 'kvmfw', 'creds', 'kvmhost'], b: ['archive', 'offline', 'kvmfw', 'credsold', 'kvmhost'] },
 };
 const TONE = { c: 'ok', cr: 'ok', a: 'bad', i: 'bad', s: 'bad', m: 'bad', b: 'bad' };
 
@@ -269,8 +271,7 @@ const T = {
       gcoffk: ['Switch the cloud service off now', 'The attack came in through GL.iNet’s cloud service. Switch it off in the KVM’s web interface; a user found the switch under “More Settings”.'],
       gckeep: ['Leave GoodCloud switched off', 'Keep it off until GL.iNet’s fixed firmware is installed, and check the switch again after every firmware update: an update can switch it back on.'],
       gcx: ['Make sure GoodCloud and AstroWarp are off', 'The script could not read whether GoodCloud is on. Look at the GoodCloud switch in the admin panel and switch it off until fixed firmware is installed.'],
-      norestart: ['Do not restart the device yet', 'The remote access and its traces exist only in memory. Save the evidence first (next steps), then reset.'],
-      archive: ['Save the evidence before you restart or reset', 'Run the script once more with --archive and copy the file it names off the device. A restart or a reset wipes the traces.', 'sh gl-helper-triage.sh --archive'],
+      archive: ['First, save the evidence', 'Do this before anything else, and do not restart the device before it: a restart or a reset wipes the traces, and some exist only in memory. Run the script once more with --archive and copy the file it names off the device.', 'sh gl-helper-triage.sh --archive'],
       reset: ['Reset the router to factory settings', 'A firmware update that keeps your settings is not enough. Set the router up again by hand afterwards and do not restore a backup taken from it.'],
       reflash: ['Install the firmware again, without keeping settings', 'Download the firmware for your model from GL.iNet and install it with “keep settings” switched off. Set the router up by hand afterwards and do not restore a backup taken from it.'],
       kvmfw: ['Install GL.iNet’s security firmware and reset the KVM', 'Install the latest firmware for your model, then restore the factory settings. An update that keeps settings also keeps the password and what the attacker may have added.'],
@@ -360,8 +361,7 @@ const T = {
       gcoffk: ['Den Cloud-Dienst jetzt ausschalten', 'Der Angriff kam über den Cloud-Dienst von GL.iNet. Schalte ihn in der Weboberfläche des KVM aus; ein Nutzer hat den Schalter unter „More Settings“ gefunden.'],
       gckeep: ['GoodCloud ausgeschaltet lassen', 'Lass es aus, bis die korrigierte Firmware von GL.iNet installiert ist, und prüfe den Schalter nach jedem Firmware-Update erneut: Ein Update kann ihn wieder einschalten.'],
       gcx: ['Sicherstellen, dass GoodCloud und AstroWarp aus sind', 'Das Skript konnte nicht lesen, ob GoodCloud an ist. Sieh in der Verwaltungsoberfläche nach dem GoodCloud-Schalter und schalte ihn aus, bis die korrigierte Firmware installiert ist.'],
-      norestart: ['Das Gerät noch nicht neu starten', 'Der Fernzugang und seine Spuren existieren nur im Arbeitsspeicher. Sichere zuerst die Beweise (nächste Schritte), setze dann zurück.'],
-      archive: ['Beweise sichern, bevor du neu startest oder zurücksetzt', 'Lass das Skript noch einmal mit --archive laufen und kopiere die genannte Datei vom Gerät herunter. Ein Neustart oder ein Zurücksetzen löscht die Spuren.', 'sh gl-helper-triage.sh --archive'],
+      archive: ['Zuerst: Beweise sichern', 'Tu das vor allem anderen und starte das Gerät vorher nicht neu: Ein Neustart oder ein Zurücksetzen löscht die Spuren, und manche gibt es nur im Arbeitsspeicher. Lass das Skript noch einmal mit --archive laufen und kopiere die genannte Datei vom Gerät herunter.', 'sh gl-helper-triage.sh --archive'],
       reset: ['Den Router auf Werkseinstellungen zurücksetzen', 'Ein Firmware-Update, das deine Einstellungen behält, reicht nicht. Richte den Router danach von Hand neu ein und spiele keine Sicherung ein, die von ihm stammt.'],
       reflash: ['Die Firmware neu installieren, ohne die Einstellungen zu behalten', 'Lade die Firmware für dein Modell bei GL.iNet herunter und installiere sie mit ausgeschaltetem „Einstellungen behalten“. Richte den Router danach von Hand ein und spiele keine Sicherung ein, die von ihm stammt.'],
       kvmfw: ['Die Sicherheits-Firmware von GL.iNet installieren und das KVM zurücksetzen', 'Installiere die neueste Firmware für dein Modell und stelle danach die Werkseinstellungen wieder her. Ein Update mit behaltenen Einstellungen behält auch das Passwort und was der Angreifer hinzugefügt haben kann.'],
@@ -450,8 +450,7 @@ const T = {
       gcoffk: ['立即关闭云服务', '攻击是通过 GL.iNet 的云服务进来的。请在 KVM 的网页界面里把它关掉；有用户是在 “More Settings” 里找到这个开关的。'],
       gckeep: ['保持 GoodCloud 关闭', '在安装 GL.iNet 的修复版固件之前不要打开，并且每次升级固件后都再检查一次这个开关：升级可能会把它重新打开。'],
       gcx: ['确认 GoodCloud 和 AstroWarp 已经关闭', '脚本没能读出 GoodCloud 是否开启。请到管理界面里查看 GoodCloud 开关，并在安装修复版固件之前保持关闭。'],
-      norestart: ['先不要重启设备', '远程访问通道和它的痕迹只存在于内存里。请先保存证据（见后面的步骤），然后再恢复出厂设置。'],
-      archive: ['在重启或恢复出厂设置之前，先保存证据', '再运行一次脚本并加上 --archive，然后把它给出的文件从设备上复制出来。重启或恢复出厂设置会清除这些痕迹。', 'sh gl-helper-triage.sh --archive'],
+      archive: ['第一步：保存证据', '请先做这一步，在此之前不要重启设备：重启或恢复出厂设置会清除痕迹，而有些痕迹只存在于内存里。再运行一次脚本并加上 --archive，然后把它给出的文件从设备上复制出来。', 'sh gl-helper-triage.sh --archive'],
       reset: ['把路由器恢复出厂设置', '保留设置的固件升级是不够的。恢复之后请手动重新配置，不要导入从这台路由器备份出来的配置。'],
       reflash: ['重新刷写固件，并且不保留设置', '从 GL.iNet 下载适用于你型号的固件，安装时关闭“保留设置”。之后请手动重新配置，不要导入从这台路由器备份出来的配置。'],
       kvmfw: ['安装 GL.iNet 的安全固件，并重置 KVM', '安装适用于你型号的最新固件，然后恢复出厂设置。保留设置的升级也会保留密码，以及攻击者可能添加的东西。'],
