@@ -204,7 +204,10 @@ only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
   (`backdoor-keep`): the backdoor appends `/bin/ulogd` and `/etc/init.d/urandom_seed` to
   `/lib/upgrade/keep.d/netifd`,
 - one of the known server names in the configuration (`backdoor-host`): `adguardns.com`,
-  `adguardns.org`, `lede-openproject.org`, `adxinsight.com`, `openwrt-project.org`,
+  `adguardns.org`, `lede-openproject.org`, `adxinsight.com`, `openwrt-project.org`.
+  A line that blocks such a name is no indicator (`backdoor-block`, `INFO`): a hosts
+  entry to `0.0.0.0`, `127.0.0.1`, `::` or `::1`, or dnsmasq's `address=/name/`,
+  `server=/name/` and `local=/name/` without a real address,
 - a running `monitord` or `ujaild` (`backdoor-proc`),
 - compiled Lua anywhere in the overlay that no package installed: with the loader's
   function names in it, it is the loader under another name (`backdoor-file`), otherwise
@@ -321,14 +324,20 @@ through GoodCloud, and by reports of 22 November devices are still being hit.
 The head of the report appears at once. It includes whether GoodCloud is switched on
 now, with the version of its client; that is the setting at the time of the check, not
 during the attack. While the checks run, a line shows which of the
-nine steps is in progress. The report groups its findings by label and ends with a summary and a verdict. The copy
+nine steps is in progress. The report groups its findings by label and ends with a summary and a verdict. Under a
+clean verdict on a running device the script says when the device last started. If that
+was on or after 19 November 2026 it adds that the result says little about the time
+before: a remote shell and what it left in memory are gone after a restart, and on a KVM
+a firmware update can have removed the malware's files. The copy
 in the evidence archive is always plain text.
 
 Findings are labeled:
 
 - `IOC`: a known indicator. `--fix` removes it.
 - `PERSIST`: `rc.local` or root crontab in the overlay without an implant reference.
-  `--fix` resets it only when an IOC was found, like the vendor cleanup.
+  `--fix` resets it only when the malware itself was found (its files, autostart entries
+  or processes), like the vendor cleanup. With nothing but traces of the remote shell
+  (its process, pipe, connection, the firewall rule) both files stay as they are.
 - `REVIEW`: unusual change. Archived and reported, never modified.
 - `INFO`: context, for example files installed by a package.
 

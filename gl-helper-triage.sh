@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.31
+VERSION=2.32
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -132,6 +132,12 @@ af500b2a912c75ae08c96c3cff70339eb8b05365e34b577f7067547236e97abc
 e009cb771c52c66f5899151345b11aa2d1cc5e64147ade8059413d09b2ed5c87'
 # Names that stand in clear text in the loader although its strings are hidden
 BD_ULOGD_NAMES='get_mac_form_proc|get_ddns_form_proc|ret_pts_num|domain_table'
+# A line that blocks such a name instead of using it: a hosts entry to a null address, or
+# dnsmasq's address=/name/ (also to a null address), server=/name/ and local=/name/ with
+# nothing behind them, written directly or as a list in /etc/config/dhcp. The summary
+# tells people to block these names, so a block must not count as the backdoor (issue 5).
+BD_NULL='0\.0\.0\.0|127\.0\.0\.1|::1?'
+BD_BLOCK_RE="^[[:space:]]*(($BD_NULL)[[:space:]]|(address|server|local)=/[^[:space:]]*/($BD_NULL|#)?[[:space:]]*\$|list[[:space:]]+(address|server)[[:space:]]+.?/[^[:space:]]*/($BD_NULL|#)?.?[[:space:]]*\$)"
 BD_HOST_PATHS="etc/hosts etc/config etc/dnsmasq.conf etc/dnsmasq.d etc/rc.local etc/crontabs etc/init.d etc/hotplug.d"
 BD_LOG_PATHS="etc/AdGuardHome/data/querylog.json etc/AdGuardHome/data/querylog.json.1 tmp/AdGuardHome/data/querylog.json"
 FULL_UPPER_MAX_KB=65536
@@ -464,7 +470,12 @@ check_backdoor() {
 		find "$(r "$p")" -xdev -type f -exec grep -lE "$BD_HOST_RE" {} + 2>/dev/null | head -n 5 | while IFS= read -r f; do
 			p=${f#"${ROOT%/}"/}
 			grep -q "${TAB}/$p${TAB}" "$FIND" && continue
-			add IOC backdoor-host "/$p" "older backdoor: names its server ($(grep -oE "[a-z0-9.-]*$BD_HOST_RE" "$f" | sort -u | head -n 4 | tr '\n' ' ' | sed 's/ $//'))"
+			n=$(grep -oE "[a-z0-9.-]*($BD_HOST_RE)" "$f" | sort -u | head -n 4 | tr '\n' ' ' | sed 's/ $//')
+			if grep -E "$BD_HOST_RE" "$f" | grep -qvE "$BD_BLOCK_RE"; then
+				add IOC backdoor-host "/$p" "older backdoor: names its server ($n)"
+			else
+				add INFO backdoor-block "/$p" "blocks a server of the older backdoor ($n): that is the advice, not the backdoor"
+			fi
 		done
 	done
 	for p in $BD_LOG_PATHS; do
@@ -1046,7 +1057,33 @@ count_gl() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-comman
 # malware files, autostart entries, a remote shell.
 count_cmd() { awk -F '\t' '$1=="IOC" && ($2=="cloud-command" || $2=="fw-rule" || $2=="installer-trace")' "$FIND" | wc -l | tr -d ' '; }
 count_hard() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command" && $2 != "fw-rule" && $2 != "installer-trace"' "$FIND" | wc -l | tr -d ' '; }
+# Findings that show the malware itself, not only the remote shell: its files, its
+# autostart entries, its processes. The shell's process, pipe, connection and the
+# firewall rule leave no autostart entry (RemoteToHome, R-7), so --fix leaves rc.local
+# and the root crontab alone when those are all there is (issue 5).
+count_implant() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command" && $2 != "rtty-server" && $2 != "installer-trace" && $2 != "fw-rule" && $2 != "pipe" && !(($2=="process" || $2=="connection") && $4 ~ /reported remote shell|^remote shell reported/)' "$FIND" | wc -l | tr -d ' '; }
 count_bd() { awk -F '\t' '$1=="IOC" && $2 ~ /^backdoor-/' "$FIND" | wc -l | tr -d ' '; }
+
+# Under a clean verdict on a running device: when it last started. The remote shell, its
+# pipe and the firewall rule live in memory only, and a KVM firmware update can remove
+# the malware's files, so a device started since the attacks began is clean now, which
+# says nothing about before (issue 5; GL.iNet staff say the same of their quick check).
+RESTART_FROM='2026-11-19 00:00:00 UTC'
+restart_note() {
+	local up bt
+	[ "$LIVE" = 1 ] || return 0
+	up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+	case $up in '' | *[!0-9]*) return 0 ;; esac
+	bt=$(date -u -d "@$(($(date +%s) - up))" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)
+	[ -n "$bt" ] || return 0
+	say "   ${D}Running since $bt.${N}"
+	awk -v a="$bt" -v b="$RESTART_FROM" 'BEGIN { exit !(a >= b) }' || return 0
+	say "   ${YEL}It was restarted since the attacks began. A remote shell and what it left in memory are${N}"
+	say "   ${YEL}gone after a restart, so this result says little about the time before it.${N}"
+	case $PLATFORM in glkvm*)
+		say "   ${YEL}On a KVM a firmware update can also have removed the malware's files.${N}" ;;
+	esac
+}
 
 level_color() {
 	case $1 in IOC) printf '%s' "$RED" ;; PERSIST) printf '%s' "$YEL" ;; REVIEW) printf '%s' "$CYA" ;; *) printf '%s' "$D" ;; esac
@@ -1191,6 +1228,7 @@ report_body() {
 		fi
 	else
 		say "   ${GRN}${B}Verdict: no gl-helper indicators found${N}"
+		restart_note
 	fi
 }
 
@@ -1416,13 +1454,23 @@ fix() {
 	if [ -p "$(r tmp/f)" ] && grep -q "^IOC${TAB}pipe${TAB}" "$FIND"; then
 		if rm -f "$(r tmp/f)"; then act "removed the pipe /tmp/f"; else failed=1; fi
 	fi
-	# 3. persistence, only because an IOC was found (same set as the vendor cleanup)
-	for p in $PERSIST; do
-		exists "$(src "$p")" || continue
-		same_as_lower "$p" && continue
-		restore_from_lower "$p" || failed=1
-		say "     ${D}(previous version: files/merged/$p in the archive)${N}"
-	done
+	# 3. persistence, only because the malware itself was found (same set as the vendor
+	#    cleanup). With nothing but the remote shell's traces these files stay as they are.
+	if [ "$(count_implant)" -gt 0 ]; then
+		for p in $PERSIST; do
+			exists "$(src "$p")" || continue
+			same_as_lower "$p" && continue
+			restore_from_lower "$p" || failed=1
+			say "     ${D}(previous version: files/merged/$p in the archive)${N}"
+		done
+	else
+		for p in $PERSIST; do
+			exists "$(src "$p")" || continue
+			same_as_lower "$p" && continue
+			say "   left /$p as it is: only traces of the remote shell were found, and the shell is not"
+			say "   known to write there. Read the file yourself (files/merged/$p in the archive)."
+		done
+	fi
 	# 4. other files that start the implant (init scripts, hotplug, profile, ...)
 	#    and replaced applets: put the base image version back or remove them
 	awk -F '\t' '$1=="IOC" && ($2=="persist-ref" || $2=="applet-hijack") {print substr($3,2)}' "$FIND" |

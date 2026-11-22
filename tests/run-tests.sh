@@ -223,6 +223,33 @@ run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
 expect "fix removes the pipe, exit 2" '[ $rc = 2 ] && [ ! -e "$D/m/tmp/f" ] && grep -q "removed the pipe" "$D/fix.txt"'
 umount "$D/m"
 
+echo; echo "=== 8a. Only the shell's pipe: the owner's rc.local and crontab stay (issue 5)"
+D=$(mkscen pipeown "$OWL")
+mnt "$D" "$OWL"
+mkdir -p "$D/m/tmp" "$D/m/etc/crontabs"; mkfifo "$D/m/tmp/f"
+printf '/usr/bin/my-own-thing &\nexit 0\n' >"$D/m/etc/rc.local"
+echo '0 3 * * * /usr/bin/my-backup' >"$D/m/etc/crontabs/root"
+run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
+grep -E 'left /|removed|restored' "$D/fix.txt"
+expect "fix removes the pipe and leaves rc.local and the crontab, exit 2" '[ $rc = 2 ] && [ ! -e "$D/m/tmp/f" ] && grep -q my-own-thing "$D/m/etc/rc.local" && grep -q my-backup "$D/m/etc/crontabs/root" && grep -q "left /etc/rc.local as it is" "$D/fix.txt"'
+umount "$D/m"
+
+echo; echo "=== 8b. Blocking the older backdoor's servers is not the backdoor (issue 5)"
+D=$(mkscen bdblock "$OWL")
+mnt "$D" "$OWL"
+mkdir -p "$D/m/etc/config" "$D/m/etc/dnsmasq.d"
+printf '127.0.0.1 localhost\n0.0.0.0 cdn.adguardns.com\n::\tup.adguardns.org\n' >"$D/m/etc/hosts"
+printf 'address=/adxinsight.com/\naddress=/lede-openproject.org/0.0.0.0\nserver=/openwrt-project.org/\n' >"$D/m/etc/dnsmasq.d/block.conf"
+printf "config dnsmasq\n\tlist address '/adguardns.com/0.0.0.0'\n\tlist server '/adguardns.org/'\n" >"$D/m/etc/config/dhcp"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+grep -E -A1 'backdoor-' "$D/check.txt"
+expect "block entries are INFO, exit 0, clean verdict" '[ $rc = 0 ] && grep -q "INFO  *backdoor-block  */etc/hosts" "$D/check.txt" && grep -q "INFO  *backdoor-block  */etc/dnsmasq.d/block.conf" "$D/check.txt" && grep -q "INFO  *backdoor-block  */etc/config/dhcp" "$D/check.txt" && ! grep -q "IOC  *backdoor-host" "$D/check.txt"'
+echo '203.0.113.7 cdn.adxinsight.com' >>"$D/m/etc/hosts"
+echo 'server=/adguardns.com/203.0.113.7' >>"$D/m/etc/dnsmasq.d/block.conf"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "a name with a real address is still IOC, shown in full" '[ $rc = 1 ] && grep -q "IOC  *backdoor-host  */etc/hosts" "$D/check.txt" && grep -q "IOC  *backdoor-host  */etc/dnsmasq.d/block.conf" "$D/check.txt" && grep -q "cdn.adxinsight.com" "$D/check.txt"'
+umount "$D/m"
+
 echo; echo "=== 9. Stored SSH client keys and VPN credentials are listed, without their content"
 C() { sed -n '/== Credentials/,/== Result/p' "$D/check.txt"; }   # the credentials section only
 OWC=$BASE/openwrt-rom-creds
