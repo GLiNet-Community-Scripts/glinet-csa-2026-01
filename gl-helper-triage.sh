@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.18
+VERSION=2.19
 
 # watch.sh: reported for KVMs, run every three minutes by a second cron daemon
 MARKERS="etc/glinet/.cache/gl-helper etc/glinet/.cache/gb etc/glinet/.cache/watch.sh etc/config/.gl/gl-helper etc/config/.gl/gb"
@@ -241,10 +241,23 @@ if [ -n "$LOWER" ] && [ -x "$(l bin/busybox)" ] && "$(l bin/busybox)" true 2>/de
 	TRUSTED="yes ($TBB)"
 fi
 
+# Is it safe to open this path and read it to the end? A named pipe blocks until someone
+# writes to it, and so do some files below /proc; one of them in a scanned place would
+# hang the script, with no report and no archive. So only regular files are read, and a
+# link only when it does not lead into /proc, /sys or /dev. Directory scans use
+# "find -type f", which does not follow links at all.
+safe() {
+	[ -f "$1" ] || return 1
+	[ -L "$1" ] || return 0
+	case $(readlink -f "$1" 2>/dev/null) in '' | /proc/* | /sys/* | /dev/*) return 1 ;; esac
+	return 0
+}
+rd() { safe "$1" && cat "$1" 2>/dev/null; }
+
 if [ -f "$(r etc/openwrt_release)" ]; then
 	PLATFORM=openwrt
-elif grep -q '^RK_MODEL=' "$(r etc/version)" 2>/dev/null; then
-	PLATFORM="glkvm-$(sed -n 's/^RK_MODEL=//p' "$(r etc/version)")"
+elif rd "$(r etc/version)" | grep -q '^RK_MODEL='; then
+	PLATFORM="glkvm-$(rd "$(r etc/version)" | sed -n 's/^RK_MODEL=//p' | head -n 1)"
 else
 	PLATFORM=unknown
 fi
@@ -252,7 +265,7 @@ fi
 if [ "$LIVE" = 1 ]; then
 	HOST=$(cat /proc/sys/kernel/hostname 2>/dev/null)
 else
-	HOST=$(cat "$(r etc/hostname)" 2>/dev/null)
+	HOST=$(rd "$(r etc/hostname)")
 fi
 HOST=$(printf '%s' "${HOST:-unknown}" | tr -c 'A-Za-z0-9._-' '_')
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
@@ -282,7 +295,7 @@ pkg_owner() {
 		return
 	fi
 	info=$(r usr/lib/opkg/info)
-	[ -d "$info" ] && grep -lxF "/$p" "$info"/*.list 2>/dev/null | head -n 1 | sed 's#.*/##; s#\.list$##'
+	[ -d "$info" ] && find "$info" -maxdepth 1 -type f -name '*.list' -exec grep -lxF "/$p" {} + 2>/dev/null | head -n 1 | sed 's#.*/##; s#\.list$##'
 }
 
 # A package explains a file only when the base image does not have that file: then it was
@@ -369,7 +382,7 @@ check_backdoor() {
 	fi
 	# 3. the Lua interpreter under another name
 	f=$(r usr/bin/monitord)
-	if [ -f "$f" ] && [ -z "$(pkg_owner /usr/bin/monitord)" ] && [ -f "$(r usr/bin/lua)" ] && filecmp "$f" "$(r usr/bin/lua)"; then
+	if [ -f "$f" ] && [ ! -L "$f" ] && [ -z "$(pkg_owner /usr/bin/monitord)" ] && [ -f "$(r usr/bin/lua)" ] && filecmp "$f" "$(r usr/bin/lua)"; then
 		add IOC backdoor-file /usr/bin/monitord "older backdoor: a copy of /usr/bin/lua under another name"
 	fi
 	# 4. lists of files a firmware update keeps
@@ -389,7 +402,7 @@ check_backdoor() {
 	#    another, so that is for a human to judge.
 	for p in $BD_HOST_PATHS; do
 		exists "$(r "$p")" || continue
-		grep -rlE "$BD_HOST_RE" "$(r "$p")" 2>/dev/null | head -n 5 | while IFS= read -r f; do
+		find "$(r "$p")" -xdev -type f -exec grep -lE "$BD_HOST_RE" {} + 2>/dev/null | head -n 5 | while IFS= read -r f; do
 			p=${f#"${ROOT%/}"/}
 			grep -q "${TAB}/$p${TAB}" "$FIND" && continue
 			add IOC backdoor-host "/$p" "older backdoor: names its server ($(grep -oE "[a-z0-9.-]*$BD_HOST_RE" "$f" | sort -u | head -n 4 | tr '\n' ' ' | sed 's/ $//'))"
@@ -397,7 +410,7 @@ check_backdoor() {
 	done
 	for p in $BD_LOG_PATHS; do
 		f=$(r "$p")
-		[ -f "$f" ] && grep -qE "$BD_HOST_RE" "$f" 2>/dev/null &&
+		safe "$f" && grep -qE "$BD_HOST_RE" "$f" 2>/dev/null &&
 			add REVIEW backdoor-dns "/$p" "a device in this network asked for a server of the older backdoor ($(grep -oE "$BD_HOST_RE" "$f" | sort -u | head -n 4 | tr '\n' ' ' | sed 's/ $//'))"
 	done
 	return 0
@@ -464,6 +477,10 @@ check_persist() {
 		f=$(src "$p")
 		exists "$f" || continue
 		same_as_lower "$p" && continue
+		if ! safe "$f"; then
+			add REVIEW odd-file "/$p" "not a regular file ($(ls -ld "$f" 2>/dev/null | cut -c1-10)), not read"
+			continue
+		fi
 		if grep -qE "$IOC_RE" "$f" 2>/dev/null; then
 			add IOC persist-ref "/$p" "references gl-helper paths"
 		else
@@ -517,10 +534,10 @@ check_review() {
 		done
 	fi
 	# accounts
-	awk -F: '$3 == 0 && $1 != "root" {print $1}' "$(r etc/passwd)" 2>/dev/null | while IFS= read -r a; do
+	rd "$(r etc/passwd)" | awk -F: '$3 == 0 && $1 != "root" {print $1}' | while IFS= read -r a; do
 		add REVIEW uid0-account "/etc/passwd" "second uid 0 account: $a"
 	done
-	if [ -n "$LOWER" ] && [ -f "$(l etc/passwd)" ]; then
+	if [ -n "$LOWER" ] && [ -f "$(l etc/passwd)" ] && safe "$(r etc/passwd)"; then
 		awk -F: 'NR==FNR {seen[$1]=1; next} !($1 in seen) {print $1 " (shell " $7 ")"}' \
 			"$(l etc/passwd)" "$(r etc/passwd)" 2>/dev/null | while IFS= read -r a; do
 			add REVIEW new-account "/etc/passwd" "account not in base image: $a"
@@ -551,6 +568,7 @@ cred() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$TMP/creds"; }
 
 # Number of lines "option <name> <value>" with a value that is not empty. $1 file, $2 name
 uci_count() {
+	safe "$1" || { echo 0; return; }
 	grep -cE "^[[:space:]]*option[[:space:]]+$2[[:space:]]+['\"]?[^'\"[:space:]]" "$1" 2>/dev/null </dev/null
 }
 
@@ -564,7 +582,7 @@ check_credentials() {
 	# for client keys, the others are the usual OpenSSH names. The file name comes from
 	# the device, so only its plain characters are printed.
 	for f in "$(r root/.ssh)"/id_*; do
-		[ -f "$f" ] || continue
+		safe "$f" || continue
 		case $f in *.pub) continue ;; esac
 		fp=
 		[ -n "$dk" ] && fp=$("$dk" -y -f "$f" 2>/dev/null </dev/null | sed -n 's/^Fingerprint: *//p' | head -n 1)
@@ -724,7 +742,7 @@ check_exes() {
 # Is AstroWarp (SD-WAN) switched on? "option enable '1'" in the global section of
 # /etc/config/mptun, which is what the firmware's own check reads.
 astrowarp_on() {
-	[ -f "$(r etc/config/mptun)" ] || return 1
+	safe "$(r etc/config/mptun)" || return 1
 	awk '/^[[:space:]]*config[[:space:]]/ { g = ($0 ~ /global/) }
 		g && /^[[:space:]]*option[[:space:]]+enable[[:space:]]/ { v = $0; gsub(/.*enable[[:space:]]+|[\047"]/, "", v); if (v == "1") f = 1 }
 		END { exit !f }' "$(r etc/config/mptun)" 2>/dev/null
@@ -736,7 +754,7 @@ check_tmp() {
 	f=$(r tmp/f)
 	[ -p "$f" ] && add IOC pipe /tmp/f "named pipe of the reported remote shell: the shell ran since the last boot, last data $(file_time "$f")"
 	f=$(r etc/mp_ip_mapping_info)
-	if [ -f "$f" ]; then
+	if safe "$f"; then
 		local t n aw
 		t=$(file_time "$f") n=$(cat "$f" 2>/dev/null | wc -c | tr -d ' ')
 		aw=off; astrowarp_on && aw=on
@@ -1079,7 +1097,7 @@ collect() {
 		tar -C "${ROOT%/}/" -cf - "./$f" 2>/dev/null | tar -C "$E/files/merged" -xf - 2>/dev/null
 	done
 	# shadow: whether a hash changed, never the hash itself
-	if [ -r "$(r etc/shadow)" ]; then
+	if safe "$(r etc/shadow)" && [ -r "$(r etc/shadow)" ]; then
 		base_shadow=/dev/null
 		[ -n "$LOWER" ] && [ -r "$(l etc/shadow)" ] && base_shadow=$(l etc/shadow)
 		awk -F: 'FILENAME==ARGV[1] {b[$1]=$2; next}
@@ -1199,7 +1217,7 @@ fix() {
 	# 6. sysupgrade keep lists: drop only the lines that keep implant paths
 	awk -F '\t' '$1=="IOC" && $2=="keep-ref" {print substr($3,2)}' "$FIND" | while IFS= read -r p; do
 		f=$(r "$p")
-		[ -f "$f" ] || continue
+		safe "$f" || continue
 		grep -vE "$IOC_RE" "$f" >"$TMP/keep.new"
 		cat "$TMP/keep.new" >"$f" && act "removed gl-helper lines from /$p" || echo fail >>"$TMP/fixfail"
 	done
@@ -1287,17 +1305,17 @@ build_report() {
 		[ -n "$mac" ] && devid=$(printf 'csa-2026-01:%s' "$mac" | tr 'A-F' 'a-f' | sha256sum 2>/dev/null | cut -c1-16)
 	fi
 	model=$(cat /proc/gl-hw-info/model 2>/dev/null)
-	[ -n "$model" ] || model=$(cat /tmp/sysinfo/model 2>/dev/null)
+	[ -n "$model" ] || model=$(rd /tmp/sysinfo/model)
 	# GL.iNet re-issues builds under the same version number, so the build tells them
 	# apart: "4.8.3 release2 build 1024 2026-05-29"
-	fw=$(cat "$(r etc/glversion)" 2>/dev/null)
+	fw=$(rd "$(r etc/glversion)")
 	if [ -n "$fw" ]; then
-		f=$(cat "$(r etc/version.type)" 2>/dev/null); [ -n "$f" ] && fw="$fw $f"
-		f=$(cat "$(r etc/version.build)" 2>/dev/null); [ -n "$f" ] && fw="$fw build $f"
-		f=$(cut -c1-10 "$(r etc/version.date)" 2>/dev/null); [ -n "$f" ] && fw="$fw $f"
+		f=$(rd "$(r etc/version.type)"); [ -n "$f" ] && fw="$fw $f"
+		f=$(rd "$(r etc/version.build)"); [ -n "$f" ] && fw="$fw build $f"
+		f=$(rd "$(r etc/version.date)" | cut -c1-10); [ -n "$f" ] && fw="$fw $f"
 	fi
 	# KVM devices keep it in /etc/version: RK_VERSION=V1.10.2 release1
-	[ -n "$fw" ] || fw=$(sed -n 's/^RK_VERSION=//p' "$(r etc/version)" 2>/dev/null | head -n 1)
+	[ -n "$fw" ] || fw=$(rd "$(r etc/version)" | sed -n 's/^RK_VERSION=//p' | head -n 1)
 	up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
 	quick=false
 	grep -q "^IOC${TAB}process${TAB}[0-9]*${TAB}GL.iNet's quick check" "$FIND" && quick=true
@@ -1337,7 +1355,7 @@ build_report() {
 	if [ "$(count IOC)" -gt 0 ]; then
 		persist=$(awk -F '\t' '$2=="persist-ref" || $2=="keep-ref" || $2=="persistence" || $2=="backdoor-init" || $2=="backdoor-keep" {print $2 "\t" $3}' "$FIND" | sort -u -k2 | head -n 6 |
 			while IFS="$TAB" read -r kind f; do
-				[ -f "$(r "${f#/}")" ] || continue
+				safe "$(r "${f#/}")" || continue
 				n=20
 				if [ "$kind" = keep-ref ]; then
 					grep -E "$IOC_RE" "$(r "${f#/}")"

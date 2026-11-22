@@ -457,6 +457,9 @@ was also run in check and archive mode on a GL.iNet router with firmware 4.11
   an attacker made, may remain. Read the `REVIEW` items.
 - Without a read-only base image (`/rom`) the results are less precise and the tools come
   from `$PATH`.
+- The script only reads regular files. A named pipe or a link into `/proc` in a place it
+  scans is not opened, because reading one could block the run for good; where such a
+  thing stands in for `rc.local` or the root crontab it is listed as `REVIEW`.
 - The script cannot see anything outside the device, such as changes on an attached
   computer or on the cloud account.
 
@@ -490,7 +493,8 @@ This is community work, and not one person's.
   in `urandom_seed` and `/bin/ulogd`, with its signs and the hash of the loader
 - AdamK – The connection and process checks
 - [joska252](https://github.com/joska252) – Found that the archive contained password hashes and private keys, and that
-  changed files of the base image's own packages were skipped ([#3](https://github.com/admonstrator/glinet-csa-2026-01/issues/3), [#4](https://github.com/admonstrator/glinet-csa-2026-01/issues/4))
+  changed files of the base image's own packages were skipped, and that a named pipe could hang the script
+  ([#3](https://github.com/admonstrator/glinet-csa-2026-01/issues/3), [#4](https://github.com/admonstrator/glinet-csa-2026-01/issues/4), [#9](https://github.com/admonstrator/glinet-csa-2026-01/issues/9))
 - Everyone who sent an anonymous report or posted their output in the forum
 
 ---

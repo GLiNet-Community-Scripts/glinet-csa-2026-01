@@ -383,5 +383,20 @@ run "$D" "$OWT" --check >"$D/check.txt"; rc=$?
 expect "a file over a busybox link is still IOC" '[ $rc = 1 ] && grep -q "IOC  *applet-hijack  */bin/login" "$D/check.txt"'
 umount "$D/m"
 
+echo "=== a named pipe in a scanned place must not hang the script (issue 9)"
+D=$(mkscen fifo "$OWO"); U=$D/u
+mkdir -p "$U/etc/config" "$U/etc/init.d" "$U/etc/crontabs" "$U/usr/lib/opkg/info" "$U/root/.ssh" "$U/etc/config/.gl"
+mkfifo "$U/etc/config/x" "$U/etc/init.d/y" "$U/etc/crontabs/z" "$U/usr/lib/opkg/info/evil.list" "$U/root/.ssh/id_fifo"
+rm -f "$U/etc/rc.local"; mkfifo "$U/etc/rc.local" "$U/etc/mp_ip_mapping_info" "$U/etc/passwd" "$U/etc/hostname"
+mkfifo "$U/etc/config/wireguard" "$U/etc/config/mptun"
+echo payload >"$U/etc/config/.gl/gl-helper"
+mnt "$D" "$OWO"
+timeout 60 sh "$T" --root "$D/m" --upper "$D/u" --lower "$OWO" -o "$D/out" --archive >"$D/check.txt" 2>&1; rc=$?
+expect "the run ends with a verdict and an archive (exit $rc)" '[ $rc = 1 ] && grep -q "Verdict: INFECTED" "$D/check.txt" && ls "$D"/out/*.tar.gz >/dev/null'
+expect "a pipe in place of rc.local is reported, not read" 'grep -q "REVIEW  *odd-file  */etc/rc.local" "$D/check.txt"'
+timeout 60 sh "$T" --root "$D/m" --upper "$D/u" --lower "$OWO" -o "$D/out" --fix >"$D/fix.txt" 2>&1; rc=$?
+expect "--fix ends too and removes the malware (exit $rc)" '[ $rc != 124 ] && [ ! -e "$D/m/etc/config/.gl" ]'
+umount "$D/m"
+
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]
