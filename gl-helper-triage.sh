@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.38
+VERSION=2.39
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 15:33 UTC'
+RELEASED='2026-11-22 15:51 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -2057,7 +2057,53 @@ cloud_advice() {
 	say "   ${D}kept switched it back on.${N}"
 }
 
-finish() { cloud_advice; offer_report; exit "$1"; }
+# The result as an address. The page behind it explains in plain words, in English, German
+# and Chinese, what was found and what to do; the output above is written for people who
+# know these devices. The address carries the result as short codes after "#", a part a
+# browser does not send: the script's version, router or KVM, the verdict, the kinds of
+# findings (never a path), whether GoodCloud is on, whether the device was restarted
+# since the attacks began, and what --fix did. Nothing that names a device or its owner.
+# The page holds the same table of codes; the worker's tests compare the two.
+RESULT_URL=${GL_TRIAGE_RESULT_URL:-https://csa.gl-i.net/2026-01/}
+RESULT_CODES='marker=mk applet-hijack=ah persist-ref=pr keep-ref=kr cron-ref=cr ssh-key=sk rtty-server=rt pipe=pp fw-rule=fw cloud-command=cc installer-trace=it backdoor-init=bi backdoor-file=bf backdoor-keep=bk backdoor-host=bh backdoor-proc=bp persistence=pe process-quick=pq process-shell=ps process-implant=pi connection-shell=cs connection-malware=cm'
+result_link() {
+	local now k r p g n up bt b f rv
+	# what was found before any clean-up: that is what the owner has to know about
+	now=$FIND; FIND=$TMP/findings
+	k=$(awk -F '\t' -v map="$RESULT_CODES" 'BEGIN { n = split(map, a, " "); for (i = 1; i <= n; i++) { split(a[i], kv, "="); c[kv[1]] = kv[2] } }
+		$1 == "IOC" || $1 == "PERSIST" {
+			x = $2
+			if (x == "process") { if ($4 ~ /^GL.iNet.s quick check/) x = "process-quick"; else if ($4 ~ /^remote shell/) x = "process-shell"; else x = "process-implant" }
+			if (x == "connection") { if ($4 ~ /reported remote shell/) x = "connection-shell"; else x = "connection-malware" }
+			if (!(x in c) || (c[x] in seen)) next
+			seen[c[x]] = 1
+			sep = "."; if (out == "") sep = ""
+			out = out sep c[x]
+		} END { print out }' "$FIND" 2>/dev/null)
+	r=c; [ "$(count_cmd)" -gt 0 ] && r=a; [ "$(count_hard)" -gt 0 ] && r=m
+	b=; [ "$(count_bd)" -gt 0 ] && b='&b=1'
+	rv=$(count REVIEW)
+	FIND=$now
+	case $PLATFORM in openwrt) p=r ;; glkvm-*) p=k ;; *) p=u ;; esac
+	g=$(goodcloud_state); case ${g%% *} in on) g=1 ;; off) g=0 ;; *) g=x ;; esac
+	n=0
+	if [ "$LIVE" = 1 ]; then
+		up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+		case $up in '' | *[!0-9]*) ;; *)
+			bt=$(date -u -d "@$(($(date +%s) - up))" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null)
+			[ -n "$bt" ] && awk -v a="$bt" -v b="$RESTART_FROM" 'BEGIN { exit !(a >= b) }' && n=1 ;;
+		esac
+	fi
+	f=; case $1 in 2) f='&f=2' ;; 3) [ "$MODE" = fix ] && f='&f=3' ;; esac
+	[ "${rv:-0}" -gt 0 ] 2>/dev/null && rv="&rv=$rv" || rv=
+	section "Your result in plain words"
+	say "   ${B}${RESULT_URL}#v=$VERSION&p=$p&r=$r&k=$k$b&g=$g&n=$n$f$rv${N}"
+	say "   ${D}Open this address in a browser, on any device. The page explains what was found and${N}"
+	say "   ${D}what to do, in English, German and Chinese. The address holds only short codes for this${N}"
+	say "   ${D}result, nothing about you or the device, and opening it sends nothing from here.${N}"
+}
+
+finish() { cloud_advice; offer_report; result_link "$1"; exit "$1"; }
 
 # ---------------------------------------------------------------- main
 report_head

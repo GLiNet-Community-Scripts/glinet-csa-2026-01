@@ -571,6 +571,23 @@ run "$D" "$OWL" --check >"$D/check.txt"
 expect "WireGuard server config written seconds after the loader is noted" 'grep -A1 "REVIEW  *backdoor-wg  */etc/config/wireguard_server" "$D/check.txt" | grep -q "written 11 s after"'
 umount "$D/m"
 
+echo "=== the address of the result page carries the result as short codes"
+D=$(mkscen link "$OWL")
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+grep 'csa.gl-i.net' "$D/check.txt"
+expect "clean: verdict c, no kinds, GoodCloud not known, a router" 'grep -q "https://csa.gl-i.net/2026-01/#v=[0-9.]*&p=r&r=c&k=&g=x&n=0$" "$D/check.txt"'
+mkdir -p "$D/m/tmp" "$D/m/etc/config"; mkfifo "$D/m/tmp/f"; printf '#!/bin/sh\nmy-own-thing\n' >"$D/m/etc/rc.local"
+printf "config cloud\n\toption enable '1'\n" >"$D/m/etc/config/gl-cloud"; printf 'x http://up.adguardns.org/\n' >"$D/m/etc/config/other"
+run "$D" "$OWL" --check >"$D/check.txt"
+grep 'csa.gl-i.net' "$D/check.txt"
+expect "pipe, changed rc.local and a backdoor server: kinds without paths, b=1, GoodCloud on" 'grep -qE "#v=[0-9.]+&p=r&r=m&k=[a-z.]+&b=1&g=1&n=0(&rv=[0-9]+)?$" "$D/check.txt" && grep "csa.gl-i.net" "$D/check.txt" | grep -q "[=.]pp" && grep "csa.gl-i.net" "$D/check.txt" | grep -q "[=.]pe" && grep "csa.gl-i.net" "$D/check.txt" | grep -q "[=.]bh" && ! grep "csa.gl-i.net" "$D/check.txt" | grep -q "rc.local\|adguard\|tmp/f"'
+GL_TRIAGE_RESULT_URL=https://example.org/x/ run "$D" "$OWL" --fix >"$D/fix.txt"
+grep 'example.org' "$D/fix.txt"
+expect "after --fix the address still names what was found, and says what the fix did" 'grep "https://example.org/x/#v=" "$D/fix.txt" | grep "[=.]pp" | grep -qE "&f=[23]"'
+expect "the address is the last thing the script prints" 'tail -n 4 "$D/check.txt" | grep -q "csa.gl-i.net/2026-01/#v="'
+umount "$D/m"
+
 echo "=== a copy of this script on the device is not a trace"
 D=$(mkscen selfcopy "$OWL")
 mnt "$D" "$OWL"

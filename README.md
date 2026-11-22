@@ -334,6 +334,24 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 
 ---
 
+## 🗣️ The Result in Plain Words
+
+The output is written for people who know these devices. For everyone else every run ends
+with an address (since 2.39):
+
+```
+== Your result in plain words
+   https://csa.gl-i.net/2026-01/#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0
+```
+
+The page behind it explains what was found, what that means and what to do, in English,
+German and Chinese. The address carries the result as short codes after `#`: the script's
+version, router or KVM, the verdict, the kinds of findings, whether GoodCloud is on,
+whether the device was restarted since the attacks began, what `--fix` did and how many
+review findings there are. No path, no name, no ID. A browser does not send the part after
+`#`, so opening the address sends nothing about the device, and it can be posted in a
+forum as it is. The page does not check anything; it explains the codes it is given.
+
 ## 🎛️ Modes
 
 | Option | Effect |
