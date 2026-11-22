@@ -569,6 +569,14 @@ if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 	expect "without a note the summary does not mention one" '! grep -q "your note" "$L/ask.txt" && grep -q "Not sent" "$L/ask.txt"'
 	live --note >"$L/err.txt"; rc=$?
 	expect "--note without a text is an error, exit 4" '[ $rc = 4 ] && grep -q "ERROR: --note needs a text" "$L/err.txt"'
+	# The second stage: a process ujaild that runs from a deleted /tmp/ujaild, in a /proc
+	# made of plain files. No test can hold a program with a known hash, so this checks that
+	# another hash leaves the finding as it is.
+	mkdir -p "$L/proc/1" "$L/proc/4242"; printf 'init\0' >"$L/proc/1/cmdline"
+	echo ujaild >"$L/proc/4242/comm"; printf '/usr/sbin/ujaild\0' >"$L/proc/4242/cmdline"
+	echo 'another build' >"$L/tmp/ujaild (deleted)"; ln -s '/tmp/ujaild (deleted)' "$L/proc/4242/exe"
+	live --no-report >"$L/check.txt"; rc=$?
+	expect "ujaild with another hash is still IOC backdoor-proc, not called the known one" '[ $rc = 1 ] && grep -A1 "IOC  *backdoor-proc  *4242" "$L/check.txt" | grep -q "older backdoor: comm=ujaild" && ! grep -q "known second stage" "$L/check.txt"'
 	umount "$L/dev/null"
 else
 	echo "  SKIP: needs a statically linked busybox"

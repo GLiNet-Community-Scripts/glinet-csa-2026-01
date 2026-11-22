@@ -130,10 +130,18 @@ BD_HOST_RE='adguardns\.(com|org)|lede-openproject\.org|adxinsight\.com|openwrt-p
 BD_INIT_SHA=3265f27feb954744581cdea2373b88ceae9d85b67e90487353fd48902cf4fc19
 # /bin/ulogd as posted in topic 73097 (posts 1, 2, 3 and 6). The file differs from device
 # to device, so these are no detection rule; a match only says "seen before".
+# A survey of 28 routers with the backdoor found a different hash on every one, none of
+# them in this list. The list is kept for the samples it came from.
 BD_ULOGD_SHAS='c5e87c80f76415f399ce4d1644f5ddc3c8b46bbb2e698b3e05f49a1f7dcd7d06
 af500b2a912c75ae08c96c3cff70339eb8b05365e34b577f7067547236e97abc
 2a020364b1f993b542254db0053ff91248b3efa0dd728b1fa73facaa7e646272
 e009cb771c52c66f5899151345b11aa2d1cc5e64147ade8059413d09b2ed5c87'
+# The second stage ujaild, as the kernel holds it (/proc/<pid>/exe, run from a deleted
+# /tmp/ujaild). Unlike the loader it is the same program on many devices: on 30 routers of
+# four models it had one of these two hashes (6,815,892 bytes on 23, 6,750,356 bytes on 7).
+# Another hash does not clear a process: the name alone is the indicator.
+BD_STAGE_SHAS='311b5767e7d63e7dbdc1476c36608b8d7ef729c8bbcc64ded63b9470396351d6
+53736d5db721a358bec5b9ddf6056df73b36fc5330300342c42f866a05191432'
 # Names that stand in clear text in the loader although its strings are hidden
 BD_ULOGD_NAMES='get_mac_form_proc|get_ddns_form_proc|ret_pts_num|domain_table'
 # A line that blocks such a name instead of using it: a hosts entry to a null address, or
@@ -801,7 +809,7 @@ check_procs() {
 	: >"$TMP/procs"
 	: >"$TMP/sockets"
 	: >"$TMP/exes"
-	local d pid exe comm cmd
+	local d pid exe comm cmd sha known
 	for d in /proc/[0-9]*; do
 		pid=${d#/proc/}
 		[ "$pid" = $$ ] && continue
@@ -823,7 +831,12 @@ check_procs() {
 		fi
 		case "$comm $exe $cmd" in
 		monitord\ * | ujaild\ * | */monitord\ * | */ujaild\ * | *'/ujaild (deleted)'* | *monitord.pid*)
-			add IOC backdoor-proc "$pid" "older backdoor: comm=$comm started $(proc_start "$pid") exe=$exe cmd=$cmd"
+			# the program the kernel runs, up to 64 MiB as for other deleted programs
+			sha=
+			[ "$(cat "$d/exe" 2>/dev/null | wc -c)" -le 67108864 ] && sha=$(sha256sum "$d/exe" 2>/dev/null | cut -c1-64)
+			known=
+			[ -n "$sha" ] && printf '%s\n' "$BD_STAGE_SHAS" | grep -qxF "$sha" && known=" known second stage, the same program as on other reported devices (sha256 $sha):"
+			add IOC backdoor-proc "$pid" "older backdoor:$known comm=$comm started $(proc_start "$pid") exe=$exe cmd=$cmd"
 			continue ;;
 		esac
 		if printf '%s\n' "$cmd" | grep -qE "$PROC_RE"; then

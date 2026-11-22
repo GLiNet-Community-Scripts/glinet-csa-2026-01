@@ -208,7 +208,10 @@ only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
   A line that blocks such a name is no indicator (`backdoor-block`, `INFO`): a hosts
   entry to `0.0.0.0`, `127.0.0.1`, `::` or `::1`, or dnsmasq's `address=/name/`,
   `server=/name/` and `local=/name/` without a real address,
-- a running `monitord` or `ujaild` (`backdoor-proc`),
+- a running `monitord` or `ujaild` (`backdoor-proc`). The second stage `ujaild` runs from
+  a deleted file, so the script fingerprints the copy the kernel holds: on 30 routers of
+  four models it was one of two programs, and a match is noted as the known second stage.
+  Another fingerprint does not clear the process,
 - compiled Lua anywhere in the overlay that no package installed: with the loader's
   function names in it, it is the loader under another name (`backdoor-file`), otherwise
   `REVIEW lua-bytecode`. The firmware keeps its own compiled Lua in the read-only image,
