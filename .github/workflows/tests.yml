@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   script:
-    name: Script (${{ matrix.tools }})
+    name: Script
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
