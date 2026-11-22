@@ -238,6 +238,8 @@ if (process.argv[2] === 'serve') {
   let cur = '', got = 0, pages = 0; const ids = new Set();
   do { const pg = await (await d('data' + (cur ? '?cursor=' + encodeURIComponent(cur) : ''))).json(); pg.items.forEach((x) => ids.add(x.id)); got += pg.items.length; cur = pg.cursor; pages++; } while (cur && pages < 10);
   expect('paging on D1 returns every report once, also with equal times', got === kvReports + 1 + 1100 && ids.size === got && pages === 3);
+  const allRes = await call('GET', undefined, { authorization: 'Bearer test-token' }, '/csa-2026-01-report/export?all=1');
+  expect('export with all=1 returns every report in one answer', (await allRes.text()).trim().split('\n').length === got && allRes.headers.get('x-next-cursor') === '');
   const ex = await call('GET', undefined, auth, '/csa-2026-01-report/export');
   expect('export works on D1', ex.status === 200 && (await ex.text()).split('\n').filter(Boolean).length === 500 && ex.headers.get('x-next-cursor') !== '');
   expect('a bad report is still refused on D1', (await call('POST', JSON.stringify({ ...good, hostname: 'x' }))).status === 400);

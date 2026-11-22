@@ -66,7 +66,8 @@ curl https://app.gl-i.net/csa-2026-01-report
 curl -H "Authorization: Bearer <EXPORT_TOKEN>" https://app.gl-i.net/csa-2026-01-report/export
 ```
 
-The export returns a page of reports as JSON lines (500 from D1, 40 from KV). When there are more, the response
+With `?all=1` the export returns every report in one answer (from D1). Without it, the
+export returns a page of reports as JSON lines (500 from D1, 40 from KV). When there are more, the response
 header `x-next-cursor` has the value for `?cursor=`.
 
 To test a full round, run the script on a device with `--report`. It sends a report even

@@ -233,8 +233,13 @@ const maintainer = (request, env) => Boolean(env.EXPORT_TOKEN) && request.header
 // EXPORT_TOKEN; without that secret the address does not exist.
 async function exportReports(request, env) {
   if (!maintainer(request, env)) return text('not found', 404);
-  const page = await reports.page(env, new URL(request.url).searchParams.get('cursor'));
-  return new Response(page.items.map((x) => JSON.stringify({ received: x.received, report: x.report })).join('\n') + '\n', {
+  const params = new URL(request.url).searchParams;
+  let page = await reports.page(env, params.get('cursor'));
+  const items = page.items;
+  // ?all=1: every report in one answer instead of a page at a time. From D1 that is one
+  // query per 500 reports; 40 pages stay within what one request may do.
+  if (params.get('all') === '1' && env.DB) for (let n = 1; page.cursor && n < 40; n++) { page = await reports.page(env, page.cursor); items.push(...page.items); }
+  return new Response(items.map((x) => JSON.stringify({ received: x.received, report: x.report })).join('\n') + '\n', {
     headers: { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'x-next-cursor': page.cursor },
   });
 }
