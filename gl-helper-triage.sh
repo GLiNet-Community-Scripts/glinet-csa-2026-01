@@ -42,7 +42,7 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.28
+VERSION=2.29
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -274,7 +274,11 @@ fi
 safe() {
 	[ -f "$1" ] || return 1
 	[ -L "$1" ] || return 0
-	case $(readlink -f "$1" 2>/dev/null) in '' | /proc/* | /sys/* | /dev/*) return 1 ;; esac
+	# the busybox of some KVM firmware has no "readlink -f"; then the link's own target has
+	# to do. Without this every linked file there counted as unsafe, /etc/rc.local among them.
+	local t
+	t=$(readlink -f "$1" 2>/dev/null); [ -n "$t" ] || t=$(readlink "$1" 2>/dev/null)
+	case $t in '' | /proc/* | /sys/* | /dev/*) return 1 ;; esac
 	return 0
 }
 rd() { safe "$1" && cat "$1" 2>/dev/null; }
@@ -426,6 +430,15 @@ check_backdoor() {
 			fi
 		done
 	fi
+	# 2b. Two owners found /etc/config/wireguard_server written eleven seconds after the
+	#     loader was dropped. If that holds on more devices it points to how the backdoor got
+	#     in, so the distance in time is noted. Times only, the file is not read.
+	f=$(r bin/ulogd)
+	if [ -f "$f" ] && [ -f "$(r etc/config/wireguard_server)" ]; then
+		p=$(( $(date -u -r "$(r etc/config/wireguard_server)" +%s 2>/dev/null || echo 0) - $(date -u -r "$f" +%s 2>/dev/null || echo 0) ))
+		[ "$p" -ge -120 ] && [ "$p" -le 120 ] &&
+			add REVIEW backdoor-wg /etc/config/wireguard_server "written $p s after the older backdoor's loader /bin/ulogd; two owners reported the same"
+	fi
 	# 3. the Lua interpreter under another name
 	f=$(r usr/bin/monitord)
 	if [ -f "$f" ] && [ ! -L "$f" ] && [ -z "$(pkg_owner /usr/bin/monitord)" ] && [ -f "$(r usr/bin/lua)" ] && filecmp "$f" "$(r usr/bin/lua)"; then
@@ -479,16 +492,16 @@ applet_candidates() {
 # one (UPX) does not, so it counts when the updater's own traces are on the device. A
 # string in a file can be faked too, which is why a match only makes the finding INFO
 # instead of REVIEW: neither is an indicator, and the file stays in the archive.
-own_tailscale() {
+own_tailscale() { # $1: the directory it lives in, usr/sbin on routers, usr/bin on KVMs
 	local f
-	f=$(r usr/sbin/tailscaled)
+	f=$(r "$1/tailscaled")
 	[ -f "$f" ] && [ ! -L "$f" ] || return 1
 	if grep -q 'tiny\.by\.admon' "$f" 2>/dev/null; then
 		echo "the community Tailscale updater's build (its version string is in the file)"
 		return 0
 	fi
 	grep -q 'UPX!' "$f" 2>/dev/null || return 1
-	if { safe "$(r etc/sysupgrade.conf)" && grep -q '^/usr/sbin/tailscaled$' "$(r etc/sysupgrade.conf)" 2>/dev/null; } ||
+	if { safe "$(r etc/sysupgrade.conf)" && grep -q "^/$1/tailscaled\$" "$(r etc/sysupgrade.conf)" 2>/dev/null; } ||
 		[ -d "$(r root/tailscale_config_backup)" ] ||
 		{ safe "$(r usr/bin/gl_tailscale)" && grep -q 'stateful-filtering=false' "$(r usr/bin/gl_tailscale)" 2>/dev/null; }; then
 		echo "a compressed build, and the community Tailscale updater's traces are on this device"
@@ -499,7 +512,6 @@ own_tailscale() {
 
 check_applets() {
 	local p up lp owner ts
-	ts=$(own_tailscale)
 	applet_candidates >"$TMP/cand"
 	while IFS= read -r p; do
 		up=$(src "$p") lp=
@@ -508,12 +520,25 @@ check_applets() {
 		grep -q "${TAB}/$p${TAB}" "$FIND" && continue
 		# without an upper layer only files that differ from an existing base file count
 		if [ -z "$UPPER" ] && ! exists "$lp"; then continue; fi
-		case $p in usr/sbin/tailscale | usr/sbin/tailscaled)
-			if [ -n "$ts" ] && { [ ! -L "$up" ] || case $(readlink "$up") in tailscaled | /usr/sbin/tailscaled) true ;; *) false ;; esac; }; then
+		case $p in usr/sbin/tailscale | usr/sbin/tailscaled | usr/bin/tailscale | usr/bin/tailscaled)
+			ts=$(own_tailscale "${p%/*}")
+			if [ -n "$ts" ] && { [ ! -L "$up" ] || case $(readlink "$up") in tailscaled | "/${p%/*}/tailscaled") true ;; *) false ;; esac; }; then
 				add INFO updater-file "/$p" "$ts"
 				continue
 			fi ;;
 		esac
+		# A netstat link to busybox that was made since the attack began. The reports show it
+		# on KVMs, always made on the evening of 20 November, on some next to the malware's
+		# files and on others with nothing else left. So the installer was at work here.
+		if [ -L "$up" ] && [ "${p##*/}" = netstat ]; then
+			case $(readlink "$up") in /bin/busybox | busybox | ../../bin/busybox)
+				owner=$(file_ctime "$up")
+				if [ -n "$owner" ] && awk -v a="$owner" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
+					add IOC installer-trace "/$p" "link to busybox made on $owner, during or after the attack: the malware's installer was at work on this device"
+					continue
+				fi ;;
+			esac
+		fi
 		if [ -L "$up" ]; then
 			if [ -n "$lp" ] && exists "$lp"; then
 				add REVIEW symlink "/$p" "-> $(readlink "$up") (base: $(readlink "$lp" 2>/dev/null || echo file))"
@@ -1015,12 +1040,12 @@ detect() {
 
 count() { grep -c "^$1${TAB}" "$FIND"; }
 # IOC findings of the incident of 2026-11-20 (--fix handles these) and of the older backdoor
-count_gl() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command" && $2 != "rtty-server"' "$FIND" | wc -l | tr -d ' '; }
+count_gl() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command" && $2 != "rtty-server" && $2 != "installer-trace"' "$FIND" | wc -l | tr -d ' '; }
 # Traces that only say "a crafted command from the cloud ran": the rule it leaves in the
 # firewall and the handler's empty state file. And everything else of this incident:
 # malware files, autostart entries, a remote shell.
-count_cmd() { awk -F '\t' '$1=="IOC" && ($2=="cloud-command" || $2=="fw-rule")' "$FIND" | wc -l | tr -d ' '; }
-count_hard() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command" && $2 != "fw-rule"' "$FIND" | wc -l | tr -d ' '; }
+count_cmd() { awk -F '\t' '$1=="IOC" && ($2=="cloud-command" || $2=="fw-rule" || $2=="installer-trace")' "$FIND" | wc -l | tr -d ' '; }
+count_hard() { awk -F '\t' '$1=="IOC" && $2 !~ /^backdoor-/ && $2 != "cloud-command" && $2 != "fw-rule" && $2 != "installer-trace"' "$FIND" | wc -l | tr -d ' '; }
 count_bd() { awk -F '\t' '$1=="IOC" && $2 ~ /^backdoor-/' "$FIND" | wc -l | tr -d ' '; }
 
 level_color() {
@@ -1139,7 +1164,7 @@ report_body() {
 	section "Result"
 	say "   Summary: $(tally IOC) $(tally PERSIST) $(tally REVIEW) $(tally INFO)"
 	[ "$(count_hard)" -gt 0 ] && say "   ${RED}IOC${N}      a known trace of the malware or of a remote shell. --fix removes it."
-	[ "$(count_cmd)" -gt 0 ] && say "   ${RED}IOC${N}      cloud-command, fw-rule: a crafted command from the cloud ran on this device."
+	[ "$(count_cmd)" -gt 0 ] && say "   ${RED}IOC${N}      cloud-command, fw-rule, installer-trace: the attack reached this device."
 	[ "$(count_bd)" -gt 0 ] && say "   ${RED}IOC${N}      backdoor-*: a trace of the older backdoor. --fix does NOT remove it, see below."
 	[ "$(count PERSIST)" -gt 0 ] && say "   ${YEL}PERSIST${N}  a changed rc.local or root crontab. --fix resets it only when an IOC was found."
 	[ "$(count REVIEW)" -gt 0 ] && say "   ${CYA}REVIEW${N}   an unusual change, not proof of an infection. Check whether it is yours. Never modified."
@@ -1154,10 +1179,16 @@ report_body() {
 	elif [ "$(count_hard)" -gt 0 ]; then
 		say "   ${RED}Verdict: INFECTED - gl-helper indicators found${N}"
 	elif [ "$(count_cmd)" -gt 0 ]; then
-		say "   ${RED}Verdict: ATTACKED - a command sent through GoodCloud ran on this device${N}"
-		say "   ${D}No malware files and no remote shell were found. The one such command that was recovered${N}"
-		say "   ${D}only looked for the malware and reported back; others opened a remote shell. What ran${N}"
-		say "   ${D}here cannot be told from the device, least of all after a restart.${N}"
+		if grep -q "^IOC${TAB}installer-trace${TAB}" "$FIND"; then
+			say "   ${RED}Verdict: ATTACKED - the malware's installer was at work on this device${N}"
+			say "   ${D}Its files are not here now. They may have been removed since, by a firmware update${N}"
+			say "   ${D}or by the attacker. Treat the device as one that was infected.${N}"
+		else
+			say "   ${RED}Verdict: ATTACKED - a command sent through GoodCloud ran on this device${N}"
+			say "   ${D}No malware files and no remote shell were found. The one such command that was recovered${N}"
+			say "   ${D}only looked for the malware and reported back; others opened a remote shell. What ran${N}"
+			say "   ${D}here cannot be told from the device, least of all after a restart.${N}"
+		fi
 	else
 		say "   ${GRN}${B}Verdict: no gl-helper indicators found${N}"
 	fi
@@ -1600,6 +1631,7 @@ build_report() {
 			else if ($2 == "connection") { sub(/^[0-9]*\//, "", p) }
 			else if ($2 == "new-account" || $2 == "uid0-account") { x = $4; sub(/^[^:]*: /, "", x) }
 			else if ($2 == "deleted-exe") { pid = $3; p = ""; if (match($4, /exe=.*/)) p = substr($4, RSTART + 4) }
+			else if ($2 == "backdoor-wg") { x = $4; sub(/ s after.*/, "s", x); sub(/^written /, "after=", x) }
 			else if ($2 == "new-link" || $2 == "symlink") {
 				# where the link points, and for a changed link where it pointed in the firmware
 				t = $4; sub(/^-> /, "", t); b = ""
@@ -1624,7 +1656,8 @@ build_report() {
 						mt=$(file_time "$n")
 						# up to 64 MiB: an added program is often large (Tailscale has about 30 MiB),
 						# and those are the ones worth comparing across devices
-						[ -n "$(find "$n" -maxdepth 0 -size -65537k 2>/dev/null)" ] && sha=$(sha256sum "$n" 2>/dev/null | cut -c1-64)
+						# not for the WireGuard configuration: only its times matter, and it holds keys
+						[ "$kind" != backdoor-wg ] && [ -n "$(find "$n" -maxdepth 0 -size -65537k 2>/dev/null)" ] && sha=$(sha256sum "$n" 2>/dev/null | cut -c1-64)
 					fi
 				fi ;;
 			esac
@@ -1744,7 +1777,33 @@ offer_report() {
 	if send_report; then act "Sent. Thank you."; else say "   ${YEL}Could not send the report (no connection, or no curl or wget). Nothing was sent.${N}"; fi
 }
 
-finish() { offer_report; exit "$1"; }
+# Said at the end of every run, whatever was found: the attack came in through GoodCloud,
+# and by reports of 22 November devices are still being hit. The code that was used is on
+# the device and runs whenever the cloud client runs, with AstroWarp on or off.
+cloud_advice() {
+	local gc
+	gc=$(goodcloud_state); gc=${gc%% *}
+	section "GoodCloud"
+	if [ "$gc" = off ]; then
+		say "   ${GRN}GoodCloud is switched off on this device. Leave it off until fixed firmware is installed.${N}"
+		astrowarp_on && say "   ${YEL}AstroWarp is still switched on. It works through GoodCloud; switch it off as well.${N}"
+		return 0
+	fi
+	say "   ${RED}${B}Switch GoodCloud and AstroWarp off now, if you can.${N}"
+	if [ "$gc" = on ]; then say "   ${RED}GoodCloud is ON on this device.${N} The attack came in through it, and by reports of"
+	else say "   Whether GoodCloud is on could not be read here. The attack came in through it, and by reports of"; fi
+	say "   22 November devices are still being hit. Until fixed firmware is installed:"
+	case $PLATFORM in
+	glkvm-*) say "     switch the cloud service off in the KVM's web interface." ;;
+	*)
+		say "     ${B}uci set 'gl-cloud.@cloud[0].enable=0'; uci commit gl-cloud; /etc/init.d/gl-cloud stop${N}"
+		say "     or switch it off in the admin panel under Applications, GoodCloud." ;;
+	esac
+	say "   ${D}The device then disappears from GoodCloud and AstroWarp stops working: make sure you can${N}"
+	say "   ${D}reach a remote device another way first. This does not clean a device that was already hit.${N}"
+}
+
+finish() { cloud_advice; offer_report; exit "$1"; }
 
 # ---------------------------------------------------------------- main
 report_head

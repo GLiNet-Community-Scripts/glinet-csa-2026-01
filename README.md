@@ -94,6 +94,10 @@ This script also detects:
 
   `crond -i /tmp/.log`, the process GL.iNet's check looks for, is the name the malware
   gives its own process.
+- a `netstat` link to busybox that was made on or after 20 November (`installer-trace`).
+  The anonymous reports show it on KVMs, always made on the evening of the attack, on
+  some next to the malware's files and on others with nothing else left. With only this,
+  the verdict is `ATTACKED`: the installer was at work, its files are gone.
 - a link in a tool directory that the firmware does not have, for example a new
   `/usr/bin/netstat` (`REVIEW`),
 - scripts in `/etc/udhcpc.user.d`, which the router runs on every DHCP event (`REVIEW`),
@@ -204,7 +208,10 @@ only. The script reports as `IOC`, with a kind that starts with `backdoor-`:
 - a running `monitord` or `ujaild` (`backdoor-proc`),
 - compiled Lua anywhere in the overlay that no package installed: with the loader's
   function names in it, it is the loader under another name (`backdoor-file`), otherwise
-  `REVIEW lua-bytecode`. The firmware keeps its own compiled Lua in the read-only image.
+  `REVIEW lua-bytecode`. The firmware keeps its own compiled Lua in the read-only image,
+- `/etc/config/wireguard_server` written within two minutes of `/bin/ulogd` (`REVIEW
+  backdoor-wg`, with the distance in seconds). Two owners found it written eleven seconds
+  after the loader; if more devices show it, it points to how the backdoor got in.
 
 A request for one of those names in AdGuard Home's query log is `REVIEW`: it shows that
 some device in the network asked, not which one.
@@ -306,6 +313,10 @@ ssh root@DEVICE 'sh -s -- --fix' < gl-helper-triage.sh
 
 Exit codes: `0` clean, `1` indicators found, `2` fixed and clean, `3` fix incomplete,
 `4` error.
+
+Every run ends with a section on GoodCloud: when it is on, or cannot be read, the script
+says to switch GoodCloud and AstroWarp off and gives the command. The attack came in
+through GoodCloud, and by reports of 22 November devices are still being hit.
 
 The head of the report appears at once. It includes whether GoodCloud is switched on
 now, with the version of its client; that is the setting at the time of the check, not
@@ -564,6 +575,8 @@ This is community work, and not one person's.
 - AdamK – The connection and process checks
 - ehidle – The evidence of the attack on a GL-BE9300: that the recovered command only looked for the
   malware, and that the cloud handler's state file is a trace that survives a restart
+- Romer – The older backdoor's keep list in full, and that the WireGuard server configuration was
+  written seconds after it
 - rdizzie – Read the malware's installer and posted what it does and where it puts its files
 - [joska252](https://github.com/joska252) – Found that the archive contained password hashes and private keys, and that
   changed files of the base image's own packages were skipped, and that a named pipe could hang the script
