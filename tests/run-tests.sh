@@ -17,6 +17,15 @@ ok()  { echo "  PASS: $*"; pass=$((pass+1)); }
 bad() { echo "  FAIL: $*"; fail=$((fail+1)); }
 expect() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
 
+# The script under test can be given its own shell and its own tools, so that it runs as
+# it does on a device while this file keeps the tools of the machine:
+#   TRIAGE_SH="busybox sh" TRIAGE_PATH=/path/to/busybox-applets unshare -rm bash tests/run-tests.sh
+TRIAGE_SH=${TRIAGE_SH:-sh}
+TRIAGE_PATH=${TRIAGE_PATH:-$PATH}
+# shellcheck disable=SC2086 # TRIAGE_SH may be two words ("busybox sh")
+triage() { env PATH="$TRIAGE_PATH" $TRIAGE_SH "$T" "$@"; }
+if [ "$TRIAGE_PATH" = "$PATH" ]; then echo "script runs with: $TRIAGE_SH, the tools of this machine"; else echo "script runs with: $TRIAGE_SH, tools only from $TRIAGE_PATH"; fi
+
 mkscen() { # name lower
 	local d=$BASE/$1
 	mkdir -p "$d/u" "$d/w" "$d/m" "$d/out"
@@ -27,7 +36,7 @@ mkscen() { # name lower
 mnt() { mount -t overlay overlay -o "lowerdir=$2,upperdir=$1/u,workdir=$1/w" "$1/m"; }
 run() { # dir lower mode...
 	local d=$1 lo=$2; shift 2
-	sh "$T" --root "$d/m" --upper "$d/u" --lower "$lo" -o "$d/out" "$@"
+	triage --root "$d/m" --upper "$d/u" --lower "$lo" -o "$d/out" "$@"
 }
 
 # ------------------------------------------------------------ OpenWrt base image
@@ -394,10 +403,10 @@ rm -f "$U/etc/rc.local"; mkfifo "$U/etc/rc.local" "$U/etc/mp_ip_mapping_info" "$
 mkfifo "$U/etc/config/wireguard" "$U/etc/config/mptun"
 echo payload >"$U/etc/config/.gl/gl-helper"
 mnt "$D" "$OWO"
-timeout 60 sh "$T" --root "$D/m" --upper "$D/u" --lower "$OWO" -o "$D/out" --archive >"$D/check.txt" 2>&1; rc=$?
+timeout 60 env PATH="$TRIAGE_PATH" $TRIAGE_SH "$T" --root "$D/m" --upper "$D/u" --lower "$OWO" -o "$D/out" --archive >"$D/check.txt" 2>&1; rc=$?
 expect "the run ends with a verdict and an archive (exit $rc)" '[ $rc = 1 ] && grep -q "Verdict: INFECTED" "$D/check.txt" && ls "$D"/out/*.tar.gz >/dev/null'
 expect "a pipe in place of rc.local is reported, not read" 'grep -q "REVIEW  *odd-file  */etc/rc.local" "$D/check.txt"'
-timeout 60 sh "$T" --root "$D/m" --upper "$D/u" --lower "$OWO" -o "$D/out" --fix >"$D/fix.txt" 2>&1; rc=$?
+timeout 60 env PATH="$TRIAGE_PATH" $TRIAGE_SH "$T" --root "$D/m" --upper "$D/u" --lower "$OWO" -o "$D/out" --fix >"$D/fix.txt" 2>&1; rc=$?
 expect "--fix ends too and removes the malware (exit $rc)" '[ $rc != 124 ] && [ ! -e "$D/m/etc/config/.gl" ]'
 umount "$D/m"
 

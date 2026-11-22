@@ -1,0 +1,60 @@
+# Runs the tests on every push and pull request, twice: with the tools of the build
+# machine, and with busybox as shell and as the only tools, which is what the script meets
+# on a router or KVM. A busybox awk that reads "t (b)" as a function call is the kind of
+# difference this is for (issue 11).
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  script:
+    name: Script (${{ matrix.tools }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tools: [system, busybox]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: sh -n gl-helper-triage.sh
+
+      - name: Install busybox
+        if: matrix.tools == 'busybox'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q busybox-static
+          busybox | head -n 1
+          # one directory with every busybox applet under its own name, and nothing else
+          mkdir -p "$RUNNER_TEMP/bb"
+          for a in $(busybox --list); do ln -s "$(command -v busybox)" "$RUNNER_TEMP/bb/$a"; done
+          echo "TRIAGE_SH=busybox sh" >>"$GITHUB_ENV"
+          echo "TRIAGE_PATH=$RUNNER_TEMP/bb" >>"$GITHUB_ENV"
+
+      - name: Run the tests
+        # as root in its own mount namespace: the tests mount overlay filesystems, and the
+        # runners do not allow that in an unprivileged user namespace
+        run: sudo --preserve-env=TRIAGE_SH,TRIAGE_PATH unshare -m bash tests/run-tests.sh
+
+  worker:
+    name: Worker and dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The built dashboard matches its source
+        run: |
+          cd worker
+          node build.mjs
+          git diff --exit-code -- src/dashboard.js
+      - name: Run the tests
+        run: node worker/test/run.mjs
