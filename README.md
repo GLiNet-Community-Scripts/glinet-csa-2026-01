@@ -419,7 +419,8 @@ At the end of a run the script offers to send a short report to the community, s
 we can see which models and firmware versions were hit and when. It offers this on a
 device without indicators too: those reports show which devices were not hit. At the end of its
 run it says in a few lines what the report contains and sends it only after you answer
-`y`; `v` shows the complete report first. Without a terminal (for example through
+`y`; `v` first shows everything that would be sent: each part explained, your own lines
+word for word, and the complete report. Without a terminal (for example through
 `ssh ... 'sh -s'`) it never sends on its own; add `--report` to send. `--show-report`
 prints the complete report and sends nothing, `--no-report` switches the offer off.
 
@@ -471,8 +472,10 @@ When indicators were found, it also contains what the attacker left, as text:
 - the command lines of the implant's and the remote shell's processes.
 
 **Your own lines in those files are part of this**, for example a line you added to
-`rc.local` or the crontab. The script always prints these lines word for word before it
-asks. Read them, and answer `n` if one of them is a password or token.
+`rc.local` or the crontab. Before it asks, the script says how many such lines the report
+holds; `v` prints them word for word, with the rest of the report. Read them, and answer
+`n` if one of them is a password or token. (Up to 2.41 the lines were always printed in
+full, which on some devices ran over several screens and pushed the result out of sight.)
 
 The report carries a **device ID**, so that several reports from one device count once.
 It is a hash of the hardware address of the first network interface; the address itself

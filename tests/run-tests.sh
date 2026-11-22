@@ -594,12 +594,13 @@ if command -v node >/dev/null 2>&1; then
 	expect "clean: this version, a router, no findings, GoodCloud not known" '[ "$(readcode "$D/check.txt" 1 csa.gl-i.net)" = "v=$V p=r k= g=x n=0 f=0 rv=0" ]'
 	readcode "$D/check2.txt" 1 csa.gl-i.net
 	expect "pipe, changed rc.local and a backdoor server: their kinds, GoodCloud on" '[ "$(readcode "$D/check2.txt" 1 csa.gl-i.net)" = "v=$V p=r k=pp.bh.pe g=1 n=0 f=0 rv=0" ]'
-	expect "after --fix the second address still names what was found, and says the fix is incomplete" '[ "$(readcode "$D/fix.txt" 1 example.org/x)" = "v=$V p=r k=pp.bh.pe g=1 n=0 f=0 rv=0" ] && [ "$(readcode "$D/fix.txt" 2 example.org/x)" = "v=$V p=r k=pp.bh.pe g=1 n=0 f=3 rv=0" ]'
+	expect "after --fix the address still names what was found, and says the fix is incomplete" '[ "$(readcode "$D/fix.txt" 1 example.org/x)" = "v=$V p=r k=pp.bh.pe g=1 n=0 f=3 rv=0" ]'
 else
 	echo "  SKIP: reading the codes back needs node"
 fi
-expect "the address stands right under the verdict, before the GoodCloud advice and the report" 'grep -A8 "Verdict:" "$D/check.txt" | grep -q "csa.gl-i.net/#" && [ "$(grep -n "csa.gl-i.net/#" "$D/check.txt" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^== GoodCloud" "$D/check.txt" | head -n 1 | cut -d: -f1)" ]'
-expect "with --fix it is given again under the verdict after the clean-up" '[ "$(grep -c "https://example.org/x/#" "$D/fix.txt")" = 2 ]'
+expect "the result with its address comes after the GoodCloud advice, the address right under the verdict" 'grep -A8 "Verdict:" "$D/check.txt" | grep -q "csa.gl-i.net/#" && [ "$(grep -n "^== GoodCloud" "$D/check.txt" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^== Result" "$D/check.txt" | head -n 1 | cut -d: -f1)" ] && [ "$(grep -c "^== GoodCloud" "$D/check.txt")" = 1 ]'
+expect "on a device with traces the next steps follow the result" '[ "$(grep -n "^== Result" "$D/check2.txt" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^== Next steps" "$D/check2.txt" | head -n 1 | cut -d: -f1)" ]'
+expect "with --fix the address is given once, under the verdict after the clean-up" '[ "$(grep -c "https://example.org/x/#" "$D/fix.txt")" = 1 ] && grep -A25 "^== Result after remediation" "$D/fix.txt" | grep -q "https://example.org/x/#" && [ "$(grep -c "^== GoodCloud" "$D/fix.txt")" = 1 ]'
 expect "nothing of a path or a name is in the address" '! grep "csa.gl-i.net/#" "$D/check2.txt" | grep -qi "rc.local\|adguard\|tmp"'
 umount "$D/m"
 

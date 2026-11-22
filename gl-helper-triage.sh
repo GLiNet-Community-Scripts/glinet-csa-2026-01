@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.41
+VERSION=2.42
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 16:28 UTC'
+RELEASED='2026-11-22 16:37 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1254,7 +1254,7 @@ tally() {
 }
 
 # The head is printed before the checks start, the body when they are done.
-report() { report_head; report_body; }
+report() { report_head; report_body; result_block; }
 
 # GoodCloud as it is set now, and the version of its client. GL.iNet staff says the main
 # question is whether it was connected when the commands went out; this shows only the
@@ -1369,6 +1369,13 @@ report_body() {
 			'{printf "   %-16s %s%s%s\n   %16s %s%s%s\n", $1, b, $2, n, "", d, $3, n}' "$TMP/creds" >&3
 		[ "$n_ioc" -gt 0 ] && say "   ${YEL}Indicators were found: treat all of these as copied and revoke them where they are trusted.${N}"
 	fi
+}
+
+# The result: summary, verdict and the address of the page that explains it. Printed after
+# the GoodCloud advice, as the last thing before the next steps and the question about the
+# report: what a reader looks for should be where the output ends, not above two screens
+# of advice.
+result_block() {
 	section "Result"
 	say "   Summary: $(tally IOC) $(tally PERSIST) $(tally REVIEW) $(tally INFO)"
 	[ "$(count_hard)" -gt 0 ] && say "   ${RED}IOC${N}      a known trace of the malware or of a remote shell. --fix removes it."
@@ -1962,7 +1969,7 @@ send_report() {
 # few lines what the report holds. The lines taken from the user's own files and firewall
 # are always shown word for word: they are the only part that can hold a secret of theirs.
 offer_report() {
-	local answer n ioc extra note
+	local answer n ioc extra note nl nr
 	[ "$LIVE" = 1 ] && [ "$REPORT" != no ] && [ -s "$TMP/report.json" ] || return 0
 	if [ "$REPORT" = show ]; then
 		section "Anonymous report (not sent)"
@@ -1971,49 +1978,71 @@ offer_report() {
 	fi
 	ioc=$(sed -n 's/^"ioc": \(.*\),$/\1/p' "$TMP/report.json")
 	section "Anonymous report (optional)"
-	# yellow, so the offer stands apart from the result above; short, "v" shows everything
+	# yellow, so the offer stands apart from the result above. A few lines only: on a
+	# device with a long firewall configuration the full list ran over several screens and
+	# pushed the result out of sight. "v" shows all of it: what each part is, the lines
+	# from the owner's own files word for word, and the complete report.
 	ysay() { say "   ${YEL}$*${N}"; }
 	extra=''
 	grep -q '^"shell_started": "..*",$' "$TMP/report.json" && extra="$extra, shell start and port"
 	n=$(grep -o '"sha256"' "$TMP/report.json" | wc -l | tr -d ' ')
 	[ "$n" -gt 0 ] && extra="$extra, fingerprints of $n file(s)"
 	grep -q '^"commands": \[\],$' "$TMP/report.json" || extra="$extra, the attacker's commands"
+	nl=0; [ -s "$TMP/rlines" ] && nl=$(wc -l <"$TMP/rlines" | tr -d ' ')
+	nr=0; [ -s "$TMP/revlines" ] && nr=$(wc -l <"$TMP/revlines" | tr -d ' ')
 	if [ "$ioc" = 0 ]; then
 		ysay "Nothing known was found. Sending that helps too: it shows which devices were not hit."
-		ysay "Sent: model, firmware, time of the check and that no known traces were found."
+		ysay "Sent: model, firmware, time of the check, the cloud settings (on or off) and that no"
+		ysay "known traces were found."
 	else
 		ysay "Help the community see which devices were hit and how."
-		ysay "Sent: model, firmware, time of the check and the $ioc known traces above."
-		[ -n "$extra" ] && ysay "Also: ${extra#, }."
+		ysay "Sent: model, firmware, time of the check, the cloud settings (on or off) and the $ioc"
+		ysay "known traces above${extra:+; also ${extra#, }}."
 	fi
-	grep -q '^"device_id": "..*"$' "$TMP/report.json" && ysay "And a device ID (a hash, not an address), so repeated reports count once."
+	[ "$nr" -gt 0 ] && ysay "Also what was listed for review: $nr paths, with fingerprints of the files."
+	if [ "$nl" -gt 0 ]; then
+		ysay "${B}Also $nl lines of your own autostart files and firewall, word for word.${N}"
+		ysay "Look at them with v first: if one holds a password or token of yours, do not send."
+	fi
 	# the note leaves the device: show it as the report holds it, after jstr's filter
 	note=$(sed -n 's/^"note": "\(.*\)",$/\1/p' "$TMP/report.json")
 	if [ -n "$note" ]; then
 		ysay "And your note, as it will be sent:"
 		printf '        %s\n' "$note" >&3
 	fi
-	if [ -s "$TMP/rlines" ]; then
-		ysay "And these lines from your autostart files (rc.local in full) and firewall:"
-		sed 's/^/        /' "$TMP/rlines" >&3
-		ysay "If one of them is a password or token of yours, do not send."
-	fi
-	if [ -s "$TMP/revlines" ]; then
-		ysay "And what was listed for review, as kind and path, with fingerprint and times for files:"
-		sed 's/^/        /' "$TMP/revlines" >&3
-		ysay "If a path here says more about you than you want to share, do not send."
-	fi
-	ysay "And whether GoodCloud and AstroWarp are on, whether the device is bound to a GoodCloud"
-	ysay "account (yes or no, never the account), and whether remote SSH and web access are on."
-	ysay "Not sent: host name, IP or MAC addresses, keys, the content of any other file."
+	ysay "Not sent: host name, IP or MAC addresses, keys, account names."
+	# everything, for "v"
+	report_details() {
+		say ""
+		ysay "What the report holds:"
+		ysay "- model, firmware, script version, time of the check, time since the last start"
+		ysay "- the kinds of the known traces and their paths; for malware files a fingerprint and times"
+		grep -q '^"device_id": "..*"$' "$TMP/report.json" && ysay "- a device ID (a hash, not an address), so repeated reports count once"
+		ysay "- whether GoodCloud and AstroWarp are on, whether the device is bound to a GoodCloud"
+		ysay "  account (yes or no, never the account), whether remote SSH and web access are on"
+		if [ -s "$TMP/rlines" ]; then
+			ysay "- these lines from your autostart files (rc.local in full) and firewall:"
+			sed 's/^/        /' "$TMP/rlines" >&3
+			ysay "  If one of them is a password or token of yours, do not send."
+		fi
+		if [ -s "$TMP/revlines" ]; then
+			ysay "- what was listed for review, as kind and path, with fingerprint and times for files:"
+			sed 's/^/        /' "$TMP/revlines" >&3
+			ysay "  If a path here says more about you than you want to share, do not send."
+		fi
+		ysay "Not sent: host name, IP or MAC addresses, keys, the content of any other file."
+		say ""
+		ysay "The complete report, as it would be sent:"
+		sed 's/^/      /' "$TMP/report.json" >&3
+	}
 	if [ "$REPORT" != yes ]; then
 		if [ -t 0 ] && [ -t 3 ]; then
 			while :; do
 				say ""
-				printf '   %sSend it? [y/N, v = show the complete report]%s ' "$B" "$N" >&3
+				printf '   %sSend it? [y/N, v = show everything that would be sent]%s ' "$B" "$N" >&3
 				read -r answer || answer=
 				case $answer in
-				v | V) sed 's/^/      /' "$TMP/report.json" >&3 ;;
+				v | V) report_details ;;
 				y | Y | yes | Yes | YES) break ;;
 				*) say "   Not sent."; return 0 ;;
 				esac
@@ -2030,8 +2059,11 @@ offer_report() {
 # Said at the end of every run, whatever was found: the attack came in through GoodCloud,
 # and by reports of 22 November devices are still being hit. The code that was used is on
 # the device and runs whenever the cloud client runs, with AstroWarp on or off.
+CLOUD_SAID=0
 cloud_advice() {
 	local gc
+	[ "$CLOUD_SAID" = 1 ] && return 0
+	CLOUD_SAID=1
 	gc=$(goodcloud_state); gc=${gc%% *}
 	section "GoodCloud"
 	if [ "$gc" = off ]; then
@@ -2142,12 +2174,16 @@ detect "$TMP/findings"
 case $MODE in
 check)
 	report_body
+	cloud_advice
+	result_block
 	[ "$(count IOC)" -gt 0 ] && { recommend; finish 1; }
 	finish 0
 	;;
 archive)
 	report_body
 	collect
+	cloud_advice
+	result_block
 	[ "$(count IOC)" -gt 0 ] && finish 1
 	finish 0
 	;;
@@ -2157,13 +2193,16 @@ fix)
 	{ [ -n "$ARCHIVE" ] && [ -s "$ARCHIVE" ]; } || die "no verified archive, refusing to change anything"
 	if [ "$(count_gl)" = 0 ]; then
 		fix
+		cloud_advice
+		result_block
 		{ [ "$(count_bd)" -gt 0 ] || [ "$(count_cmd)" -gt 0 ]; } && { recommend; finish 1; }
 		finish 0
 	fi
 	fix
 	FIXRC=$?
 	sleep 2
-	section "Re-check after remediation"
+	cloud_advice
+	section "Result after remediation"
 	detect "$TMP/findings.after"
 	if [ "$(count_gl)" -gt 0 ]; then
 		grep "^IOC${TAB}" "$FIND" | awk -F '\t' '{printf "   still present: %s %s %s\n", $2, $3, $4}' >&3
