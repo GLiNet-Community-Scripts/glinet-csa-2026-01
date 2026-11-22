@@ -85,7 +85,9 @@ const FIELDS_V8 = { ...FIELDS_V7, cloud_bound: onoff, rtty_ssh: onoff, rtty_web:
 // Since script 2.34 (schema 9): a note of the sender's own, given with --note, for people
 // who report many devices: where a report comes from, before or after a clean-up, a
 // repeat. Empty without one. Plain text; the dashboard shows it as text.
-const FIELDS_V9 = { ...FIELDS_V8, note: txt(120) };
+// Also the time the cloud handler's state file was created, its first call: the file's
+// access time, sent only where the filesystem does not update it (noatime), else empty.
+const FIELDS_V9 = { ...FIELDS_V8, note: txt(120), state_file_first: time };
 
 async function sealDeviceId(env, id) {
   if (!env.DEVICE_SALT || !id) return '';
