@@ -501,6 +501,9 @@ echo elf >"$U/etc/gl_nas/.cache/gl-helper"; echo x >"$U/etc/gl_nas/.cache/run.sh
 echo mine >"$U/userdata/.gl/my-notes"
 printf '0 4 * * * /usr/bin/own-job\n*/3 * * * * /bin/sh /etc/gl_nas/.cache/watch.sh\n' >"$U/tmp/gl_crontabs/root"
 printf 'host 65.20.71.131\nport 5912\n' >"$U/etc/rtty_conf"
+mkdir -p "$U/etc/gl_crontabs/crontabs.d"
+printf '30 3 * * * /usr/bin/gl-own-task\n*/3 * * * * /bin/sh /etc/glinet/.cache/watch.sh\n' >"$U/etc/gl_crontabs/crontabs.d/tasks"
+printf '0 5 * * * /usr/bin/other-task\n' >"$U/etc/gl_crontabs/crontabs.d/clean"
 printf 'ssh-ed25519 AAAAOWNER me@home\nssh-ed25519 AAAAEVIL gl-agent\n' >"$U/etc/dropbear/authorized_keys"
 mnt "$D" "$OWL"
 rm "$D/m/bin/netstat"; printf '#!/bin/sh\n/bin/busybox netstat "$@" | grep -v x\n' >"$D/m/bin/netstat"
@@ -509,9 +512,11 @@ expect "the malware in a fallback directory is found" '[ $rc = 1 ] && grep -q "I
 expect "a fallback directory without its files is REVIEW only" 'grep -q "REVIEW  *hidden-dir  */userdata/.gl" "$D/check.txt" && ! grep -q "IOC.*userdata" "$D/check.txt"'
 expect "running crontab, rtty server and gl-agent key are IOC" 'grep -q "IOC  *cron-ref  */tmp/gl_crontabs/root" "$D/check.txt" && grep -q "IOC  *rtty-server  */etc/rtty_conf" "$D/check.txt" && grep -q "IOC  *ssh-key  */etc/dropbear/authorized_keys" "$D/check.txt"'
 expect "the netstat wrapper is named for what it is" 'grep -A1 "IOC  *applet-hijack  */bin/netstat" "$D/check.txt" | grep -q "hides lines"'
+expect "the malware's line in a crontab file of the firmware is an IOC, a file without one is not" 'grep -q "IOC  *cron-ref  */etc/gl_crontabs/crontabs.d/tasks" "$D/check.txt" && ! grep -q "crontabs.d/clean" "$D/check.txt"'
 run "$D" "$OWL" --fix >"$D/fix.txt"; rc=$?
 expect "--fix removes the fallback directory with the malware, leaves the other" '[ ! -e "$D/m/etc/gl_nas/.cache" ] && [ -f "$D/m/userdata/.gl/my-notes" ]'
 expect "--fix strips only the malware's lines from crontab and authorized_keys" 'grep -q own-job "$D/m/tmp/gl_crontabs/root" && ! grep -q watch.sh "$D/m/tmp/gl_crontabs/root" && grep -q AAAAOWNER "$D/m/etc/dropbear/authorized_keys" && ! grep -q gl-agent "$D/m/etc/dropbear/authorized_keys"'
+expect "--fix strips only the malware's line from the firmware's crontab file" 'grep -q gl-own-task "$D/m/etc/gl_crontabs/crontabs.d/tasks" && ! grep -q watch.sh "$D/m/etc/gl_crontabs/crontabs.d/tasks" && grep -q other-task "$D/m/etc/gl_crontabs/crontabs.d/clean"'
 expect "--fix leaves rtty_conf alone and says so (exit $rc)" '[ $rc = 2 ] && grep -q "65.20.71.131" "$D/m/etc/rtty_conf" && grep -q "rtty_conf still names" "$D/fix.txt"'
 umount "$D/m"
 
@@ -670,7 +675,7 @@ if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 	# TMPDIR of the caller would name a directory that the chroot does not have
 	live() { TMPDIR=/tmp GL_TRIAGE_REPORT_URL=http://127.0.0.1:9/ chroot "$L" /bin/sh /t.sh --no-device-id "$@" </dev/null 2>&1; }
 	live --show-report --note 'fleet-a 2026-11-22 after clean-up (repeat)' >"$L/show.txt"
-	expect "the note and schema 9 are in the report" 'grep -q "^   \"schema\": 9,$" "$L/show.txt" && grep -q "^   \"note\": \"fleet-a 2026-11-22 after clean-up (repeat)\",$" "$L/show.txt"'
+	expect "the note, schema 10 and whether the firmware cleans up are in the report" 'grep -q "^   \"schema\": 10,$" "$L/show.txt" && grep -q "^   \"vendor_cleanup\": \"unknown\",$" "$L/show.txt" && grep -q "^   \"note\": \"fleet-a 2026-11-22 after clean-up (repeat)\",$" "$L/show.txt"'
 	live --show-report --note "$(printf 'a;b"c\\d$e<\303\251>f\tg')" >"$L/show.txt"
 	expect "characters jstr does not allow are dropped from the note" 'grep -q "\"note\": \"abcdefg\",$" "$L/show.txt"'
 	X=$(head -c 130 /dev/zero | tr '\0' x); live --show-report --note "$X" >"$L/show.txt"
@@ -729,6 +734,38 @@ if [ -n "$BB" ] && file -L "$BB" | grep -q 'statically linked'; then
 else
 	echo "  SKIP: needs a statically linked busybox"
 fi
+
+echo "=== firmware that cleans up by itself (GL.iNet's gl-sdk4-system-check, router firmware 4.9.3)"
+D=$(mkscen vclean "$OWL"); U=$D/u
+mkdir -p "$U/usr/lib/opkg"; printf 'Package: gl-sdk4-cloud\nVersion: git-2026.325.35972-e271f36\n\nPackage: gl-sdk4-system-check\nVersion: 1\n\n' >"$U/usr/lib/opkg/status"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "the cleanup package is named, and the clean result says what it is worth" 'grep -q "INFO  *vendor-cleanup" "$D/check.txt" && grep -q "cleans up by itself" "$D/check.txt" && grep -q "Not proof that nothing happened" "$D/check.txt" && grep -q "no gl-helper indicators found" "$D/check.txt"'
+expect "the code carries it, so the page can say the same" 'readcode "$D/check.txt" 1 csa.gl-i.net | grep -q " k=vc "'
+umount "$D/m"
+D=$(mkscen noclean "$OWL"); U=$D/u
+mkdir -p "$U/usr/lib/opkg"; printf 'Package: gl-sdk4-cloud\nVersion: git-2026.146.23211-bea5eca\n\n' >"$U/usr/lib/opkg/status"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"
+expect "without that package nothing is said about a cleanup, the limit of a clean result still is" '! grep -q "vendor-cleanup\|cleans up by itself" "$D/check.txt" && grep -q "Not proof that nothing happened" "$D/check.txt" && ! readcode "$D/check.txt" 1 csa.gl-i.net | grep -q "vc"'
+umount "$D/m"
+
+echo "=== the state file on firmware with the fix (issue 19)"
+D=$(mkscen fresh "$OWL"); U=$D/u
+mkdir -p "$U/usr/lib/opkg" "$U/etc"; printf 'Package: gl-sdk4-system-check\nVersion: 1\n\n' >"$U/usr/lib/opkg/status"
+echo '2026-11-22 12:36:07' >"$U/etc/version.date"
+# as on a real device: written at the first start, before the clock is set
+echo '{}' >"$U/etc/board.json"; touch -d '1970-01-01 00:00:11 UTC' "$U/etc/board.json"
+: >"$U/etc/mp_ip_mapping_info"; touch -d '2026-11-22 17:26:53 UTC' "$U/etc/mp_ip_mapping_info"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "an empty state file written after the fixed firmware was built is REVIEW, not a trace" '[ $rc = 0 ] && grep -q "REVIEW  *state-file  */etc/mp_ip_mapping_info" "$D/check.txt" && grep -q "written after this firmware was built" "$D/check.txt" && ! grep -q "IOC  *cloud-command" "$D/check.txt" && grep -q "no gl-helper indicators found" "$D/check.txt"'
+umount "$D/m"
+touch -d '2026-11-21 02:50:11 UTC' "$U/etc/mp_ip_mapping_info"
+mnt "$D" "$OWL"
+run "$D" "$OWL" --check >"$D/check.txt"; rc=$?
+expect "one from before the build day stays a trace, whatever the date of board.json" '[ $rc = 1 ] && grep -q "IOC  *cloud-command  */etc/mp_ip_mapping_info" "$D/check.txt"'
+umount "$D/m"
 
 echo; echo "RESULT: $pass passed, $fail failed"
 [ "$fail" = 0 ]

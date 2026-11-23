@@ -312,6 +312,29 @@ Anyone can send made-up reports; the worker only checks their shape and size (4 
 the Cloudflare dashboard, add a rate limiting rule for the path
 `/csa-2026-01-report`, for example 10 requests per minute per IP address.
 
+## Schema validation in front of the worker
+
+`openapi.json` describes the one address the script posts to, for Cloudflare's schema
+validation (Security, API Shield, Schema validation: upload the file). Cloudflare then
+checks a report before the worker runs: only the known fields, each of its type, length and
+characters.
+
+- The file is the union of schema versions 1 to 10: the fields of version 1 are required,
+  the later ones allowed. The worker stays the stricter check and requires every field of
+  the version a report names.
+- Check the size limit of your plan first. Cloudflare inspects a body only up to a size
+  that depends on the plan (at the time of writing: Free 1 KiB, Pro and Business 8 KiB,
+  Enterprise 128 KiB), and a larger body counts as a violation. Reports are up to 48 KiB;
+  of those received so far, four in ten are larger than 1 KiB and a few larger than
+  8 KiB. Below Enterprise, "Block" therefore stops real reports, however right the schema
+  is. Then leave the validation off or at "Log": the worker checks every report anyway.
+- Start with the action "Log", look at what it would have stopped, then switch to "Block".
+  The script does not show a failed send as an error, so a wrong rule loses reports unseen.
+- It covers `POST /csa-2026-01-report` only. Leave the action for addresses that are not
+  in the schema at "none": the dashboard and the export live under the same path.
+- A new schema version goes into `openapi.json` and into Cloudflare before a script sends
+  it, like the worker itself. The tests fail when a field is missing in the file.
+
 ## Tests
 
 ```bash
@@ -393,6 +416,36 @@ A new form of the address must be understood by the page before the script print
 deploy the worker first, then publish the script.
 
 After a change to the page: `node build.mjs`, which also writes `src/result.js`.
+
+## The table for the advisory
+
+`https://csa.gl-i.net/2026-01/reported.json` gives the models and firmware versions on
+which the reports show traces of the attack of 20 November. The advisory on gl-i.net reads
+it and adds it to the table it keeps by hand. Open to all, no login:
+
+```json
+{ "advisory": "CSA-2026-01", "as_of": "2026-11-22T18:30Z", "min_devices": 5,
+  "models": [ { "model": "mt6000", "sku": "GL-MT6000", "kind": "Router", "firmware": ["4.8.3", "4.9.1"] } ] }
+```
+
+Nobody reads this list before a public page shows it, and anyone can send a report. So a
+model and version are listed only when all of this holds:
+
+- At least five different devices reported traces on them. Only reports with a device id
+  count; without one, two reports of the same device cannot be told apart. Reports of the
+  first day, sent by scripts that had no id yet, therefore do not count here.
+- The firmware archive knows the model, and the version looks like a version.
+- The firmware is older than the attack. A trace on a build from 20 November on was
+  brought along by an upgrade or is something new; both are for a person to look at, and
+  for the table kept by hand.
+
+A device counts for the firmware of its first report with traces, so that checking,
+upgrading and checking again does not move a trace to the new firmware. "Traces" means
+what the dashboard counts under "With traces": the older backdoor is left out.
+
+The list says nothing per device or per report, and no numbers. It is worked out at most
+every 15 minutes and kept in KV in between. It needs the reports in D1; without the
+database the address answers 503, and the advisory shows its own table alone.
 
 ## Known release files
 

@@ -198,7 +198,7 @@ const NAMES = {
   pq: 'IOC  process  (crond -i /tmp/.log)', pi: 'IOC  process', ps: 'IOC  process  (remote shell)', pp: 'IOC  pipe  /tmp/f', cs: 'IOC  connection', cm: 'IOC  connection',
   fw: 'IOC  fw-rule', cc: 'IOC  cloud-command  /etc/mp_ip_mapping_info', it: 'IOC  installer-trace',
   bi: 'IOC  backdoor-init', bf: 'IOC  backdoor-file', bk: 'IOC  backdoor-keep', bh: 'IOC  backdoor-host', bp: 'IOC  backdoor-proc',
-  pe: 'PERSIST  persistence', none: 'Summary: IOC=0', rs: 'Running since …', rv: 'REVIEW  …',
+  pe: 'PERSIST  persistence', vc: 'INFO  vendor-cleanup', none: 'Summary: IOC=0', rs: 'Running since …', rv: 'REVIEW  …',
 };
 const MALWARE = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'cm'], SHELL = ['ps', 'pp', 'cs'];
 // which steps go with which result; "gc" stands for the GoodCloud step that fits the setting
@@ -284,6 +284,7 @@ const T = {
       bh: ['A server of the backdoor is named in the configuration', 'A configuration file names one of the servers the backdoor reports to.'],
       bp: ['The backdoor is running', 'Its programs are active on the device right now.'],
       pe: ['Your autostart files differ from the firmware’s', 'The files that run at every start are no longer the firmware’s. That is common and usually your own doing. It is no trace by itself.'],
+      vc: ['This firmware cleaned up at its first start', 'GL.iNet’s fixed firmware deletes known traces of the malware when it starts for the first time. So this result does not show what was on the device before the update.'],
       none: ['No known trace', 'The script looked at files, autostart entries, running programs, the firewall and open connections. It compared them with everything known about this attack and the older backdoor.'],
       rs: ['The device was restarted since 19 November', 'A remote access and what it leaves in memory are gone after a restart. The script can only see what is still there.'],
       rv: ['{n} other changes to look at', 'The script lists everything that differs from the firmware and that it cannot place. Almost always these are your own settings and installed programs. They are not traces of the attack.'],
@@ -302,8 +303,8 @@ const T = {
       clients: ['Look at the devices behind the router', 'Computers and other devices that used this router could be reached from it. Check them for unknown programs and accounts, the important ones first.'],
       kvmhost: ['Check the computer connected to the KVM', 'A KVM can see the screen and type on the keyboard of the computer it is connected to. Look there for unknown software, accounts and autostart entries.'],
       offline: ['Take the device off the internet until it is reflashed', 'The backdoor’s second program runs in memory and takes commands from outside. If you cannot unplug it, block these names in your network: adguardns.com, adguardns.org, lede-openproject.org, adxinsight.com, openwrt-project.org.'],
-      update: ['Install the fixed firmware when it is offered', 'In the anonymous reports no router on firmware 4.11 shows traces. Install GL.iNet’s security firmware for your model as soon as it is available.'],
-      kvmupdate: ['Install GL.iNet’s security firmware', 'Install the latest firmware for your KVM model as soon as it is available.'],
+      update: ['Install GL.iNet’s security firmware', 'GL.iNet has been releasing it model by model since 22 November and says it closes the hole the attack came through. It also deletes known traces at its first start. So save your evidence before you install it, and check again afterwards.'],
+      kvmupdate: ['Install GL.iNet’s security firmware', 'GL.iNet released it on 22 November: 1.10.3, or 1.8.7 for the RMQ1. Save your evidence before you install it, and check again afterwards.'],
       again: ['Run the script again in a few days', 'It changes several times a day as the community learns more. A device an early version called clean may not be.'],
       sure: ['If GoodCloud was on during the attack, consider a reset anyway', 'The script found nothing. But after a restart nothing can be ruled out. A factory reset and new passwords are the safe choice.'],
     },
@@ -381,6 +382,7 @@ const T = {
       bh: ['Ein Server der Hintertür steht in der Konfiguration', 'Eine Konfigurationsdatei nennt einen der Server, bei denen sich die Hintertür meldet.'],
       bp: ['Die Hintertür läuft', 'Ihre Programme sind gerade auf dem Gerät aktiv.'],
       pe: ['Deine Autostart-Dateien weichen von der Firmware ab', 'Die Dateien, die bei jedem Start laufen, sind nicht mehr die der Firmware. Das kommt oft vor und ist meist deine eigene Änderung. Allein ist es keine Spur.'],
+      vc: ['Diese Firmware hat beim ersten Start aufgeräumt', 'GL.iNets korrigierte Firmware löscht bekannte Spuren der Malware, wenn sie zum ersten Mal startet. Das Ergebnis zeigt deshalb nicht, was vor dem Update auf dem Gerät war.'],
       none: ['Keine bekannte Spur', 'Das Skript hat Dateien, Autostart-Einträge, laufende Programme, die Firewall und offene Verbindungen geprüft. Es hat sie mit allem verglichen, was über diesen Angriff und die ältere Hintertür bekannt ist.'],
       rs: ['Das Gerät wurde seit dem 19. November neu gestartet', 'Ein Fernzugang und was er im Arbeitsspeicher hinterlässt, sind nach einem Neustart verschwunden. Das Skript sieht nur, was noch da ist.'],
       rv: ['{n} weitere Änderungen zum Ansehen', 'Das Skript listet alles auf, was von der Firmware abweicht und was es nicht einordnen kann. Fast immer sind das deine eigenen Einstellungen und installierten Programme. Es sind keine Spuren des Angriffs.'],
@@ -399,8 +401,8 @@ const T = {
       clients: ['Die Geräte hinter dem Router ansehen', 'Computer und andere Geräte, die diesen Router benutzt haben, waren von ihm aus erreichbar. Prüfe sie auf unbekannte Programme und Konten, die wichtigen zuerst.'],
       kvmhost: ['Den Computer prüfen, der am KVM hängt', 'Ein KVM sieht den Bildschirm und tippt auf der Tastatur des Computers, an dem es hängt. Suche dort nach unbekannter Software, Konten und Autostart-Einträgen.'],
       offline: ['Das Gerät vom Internet nehmen, bis die Firmware neu installiert ist', 'Das zweite Programm der Hintertür läuft im Arbeitsspeicher und nimmt Befehle von außen an. Wenn du es nicht abstecken kannst, sperre diese Namen in deinem Netz: adguardns.com, adguardns.org, lede-openproject.org, adxinsight.com, openwrt-project.org.'],
-      update: ['Die korrigierte Firmware installieren, sobald sie angeboten wird', 'In den anonymen Berichten zeigt kein Router mit Firmware 4.11 Spuren. Installiere die Sicherheits-Firmware von GL.iNet für dein Modell, sobald es sie gibt.'],
-      kvmupdate: ['Die Sicherheits-Firmware von GL.iNet installieren', 'Installiere die neueste Firmware für dein KVM-Modell, sobald es sie gibt.'],
+      update: ['Die Sicherheits-Firmware von GL.iNet installieren', 'GL.iNet veröffentlicht sie seit dem 22. November Modell für Modell und sagt, dass sie die Lücke schließt, durch die der Angriff kam. Beim ersten Start löscht sie außerdem bekannte Spuren. Sichere deshalb vorher deine Beweise und prüfe danach noch einmal.'],
+      kvmupdate: ['Die Sicherheits-Firmware von GL.iNet installieren', 'GL.iNet hat sie am 22. November veröffentlicht: 1.10.3, für das RMQ1 1.8.7. Sichere vorher deine Beweise und prüfe danach noch einmal.'],
       again: ['Das Skript in ein paar Tagen noch einmal laufen lassen', 'Es ändert sich mehrmals täglich, weil die Community dazulernt. Ein Gerät, das eine frühe Version sauber nannte, muss es nicht sein.'],
       sure: ['War GoodCloud während des Angriffs an, erwäge trotzdem ein Zurücksetzen', 'Das Skript hat nichts gefunden. Nach einem Neustart lässt sich aber nichts ausschließen. Sicher bist du mit Werkseinstellungen und neuen Passwörtern.'],
     },
@@ -477,6 +479,7 @@ const T = {
       bh: ['配置里出现了后门的服务器', '有一个配置文件里写着后门报到用的服务器之一。'],
       bp: ['后门正在运行', '它的程序此刻正在设备上活动。'],
       pe: ['你的开机自启动文件与固件自带的不同', '每次开机执行的文件不是固件原本自带的版本。这种情况很常见，通常是你自己改的；单凭这一点不算痕迹。'],
+      vc: ['此固件在首次启动时已自动清理', 'GL.iNet 的修复版固件在首次启动时会删除已知的恶意软件痕迹。因此本结果无法说明更新之前设备上有什么。'],
       none: ['没有已知痕迹', '脚本把文件、开机自启动项、正在运行的程序、防火墙和网络连接，逐一与这次攻击以及更早的那个后门的全部已知特征做了比对。'],
       rs: ['设备在 11 月 19 日之后重启过', '远程访问通道以及它留在内存里的东西，重启后都会消失。脚本只能看到现在还在的东西。'],
       rv: ['另外还列出了 {n} 处改动，供你自己查看', '脚本会把所有与固件不同、又无法归类的地方都列出来。这些几乎总是你自己的设置和安装的程序，并不是这次攻击的痕迹。'],
@@ -495,8 +498,8 @@ const T = {
       clients: ['检查路由器后面的设备', '使用过这台路由器的电脑和其他设备，都可能从路由器上被访问到。请检查它们有没有陌生的程序和账号，先查重要的设备。'],
       kvmhost: ['检查连接在 KVM 上的电脑', 'KVM 能看到所连电脑的屏幕，也能操作它的键盘。请在那台电脑上检查有没有陌生的软件、账号和开机自启动项。'],
       offline: ['在重新刷写固件之前，让设备断开互联网', '后门的第二个程序在内存里运行，并接收外部发来的命令。如果无法拔掉网线，请在你的网络里屏蔽这些域名：adguardns.com、adguardns.org、lede-openproject.org、adxinsight.com、openwrt-project.org。'],
-      update: ['修复版固件一发布就安装', '在匿名报告中，没有一台运行 4.11 固件的路由器出现痕迹。你的型号一有 GL.iNet 的安全固件，就请尽快安装。'],
-      kvmupdate: ['安装 GL.iNet 的安全固件', '你的 KVM 型号一有最新固件，就请尽快安装。'],
+      update: ['安装 GL.iNet 的安全固件', 'GL.iNet 自 11 月 22 日起按型号陆续发布，并表示它修补了攻击所利用的漏洞。它还会在首次启动时删除已知痕迹。因此请先保存证据再安装，安装后再检查一次。'],
+      kvmupdate: ['安装 GL.iNet 的安全固件', 'GL.iNet 已于 11 月 22 日发布：1.10.3，RMQ1 为 1.8.7。请先保存证据再安装，安装后再检查一次。'],
       again: ['过几天再运行一次脚本', '随着社区了解的情况越来越多，脚本每天都会更新好几次。早期版本判定为干净的设备，不一定真的干净。'],
       sure: ['如果攻击期间 GoodCloud 是开启的，仍然建议考虑恢复出厂设置', '虽然没有发现痕迹，但重启之后什么都无法排除。恢复出厂设置并更换密码是最稳妥的做法。'],
     },
@@ -527,7 +530,7 @@ if (!T[lang]) { const want = (navigator.languages || [navigator.language || 'en'
 // The alphabet leaves out I, L, O and U; a typed I or L counts as 1, an O as 0.
 // The script holds the same order (RESULT_KINDS); the tests compare the two.
 const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-const ORDER = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'ps', 'pp', 'cs', 'cm', 'fw', 'cc', 'it', 'bi', 'bf', 'bk', 'bh', 'bp', 'pe'];
+const ORDER = ['mk', 'ah', 'pr', 'kr', 'cr', 'sk', 'rt', 'pq', 'pi', 'ps', 'pp', 'cs', 'cm', 'fw', 'cc', 'it', 'bi', 'bf', 'bk', 'bh', 'bp', 'pe', 'vc'];
 // Five more characters may follow: model and firmware version, so that the page can say
 // whether newer firmware exists. Four hold 20 bits (7 the model as its place in MODELS,
 // 2 the first number of the version minus one, 5 the second, 5 the third, 1 a test
@@ -572,7 +575,7 @@ function decode(text) {
 }
 // The same the other way round, for what someone ticks by hand.
 function encode(c) {
-  let bits = Number(c.minor).toString(2).padStart(7, '0') + ({ r: '01', k: '10' }[c.p] || '00') + ORDER.map((x) => (c.k.includes(x) ? '1' : '0')).join('') + '00'
+  let bits = Number(c.minor).toString(2).padStart(7, '0') + ({ r: '01', k: '10' }[c.p] || '00') + ORDER.map((x) => (c.k.includes(x) ? '1' : '0')).join('').padEnd(24, '0')
     + ({ 1: '01', 0: '10' }[c.g] || '00') + (c.n === '1' ? '1' : '0') + ({ 2: '01', 3: '10' }[c.f] || '00') + (c.rv ? '01' : '00');
   let out = '', sum = 0;
   for (let i = 0; i < 8; i++) { const x = parseInt(bits.slice(i * 5, i * 5 + 5), 2); sum += (i + 1) * x; out += B32[x]; }
@@ -629,7 +632,7 @@ function render() {
   const hero = el('header', null, 'hero'); hero.dataset.tone = TONE[cls.main];
   hero.append(el('p', fill(c.v === 'hand' ? t.eyebrowHand : t.eyebrow, o), 'eyebrow'), el('h1', fill(res[1], o)), el('p', fill(res[2], o), 'lead'), el('span', res[0], 'verdict'));
   const chips = el('div', null, 'chips'), gc = el('span', t.gcLabel + ': ', 'chip'); gc.append(el('b', t.gc[c.g])); chips.append(gc);
-  { const n = c.k.filter((k) => k !== 'pe').length; if (n) { const x = el('span', 'IOC: ', 'chip ioc'); x.append(el('b', String(n))); chips.prepend(x); } }
+  { const n = c.k.filter((k) => k !== 'pe' && k !== 'vc').length; if (n) { const x = el('span', 'IOC: ', 'chip ioc'); x.append(el('b', String(n))); chips.prepend(x); } }
   if (c.v !== 'hand') chips.append(el('span', t.rs[c.n], 'chip'));
   hero.append(chips); page.append(hero);
 
@@ -657,7 +660,7 @@ function render() {
   // what those words mean.
   const list = c.k.length ? [...c.k] : ['none'];
   if (c.n === '1' && c.v !== 'hand') list.push('rs'); if (c.rv) list.push('rv');
-  const typeOf = (k) => (k === 'none' ? 'ok' : k === 'rs' ? 'note' : k === 'rv' ? 'review' : k === 'pe' ? 'persist' : 'ioc'), types = [...new Set(list.map(typeOf))];
+  const typeOf = (k) => (k === 'none' ? 'ok' : k === 'rs' || k === 'vc' ? 'note' : k === 'rv' ? 'review' : k === 'pe' ? 'persist' : 'ioc'), types = [...new Set(list.map(typeOf))];
   page.append(el('h2', t.hFound));
   const lg = el('p', null, 'legend');
   for (const ty of ['ioc', 'persist', 'review']) if (types.includes(ty)) { const x = el('span'); x.append(el('b', t.types[ty][0], 'tag ' + ty), ' ' + t.legend[ty]); lg.append(x); }
