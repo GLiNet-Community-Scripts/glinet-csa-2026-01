@@ -693,7 +693,7 @@ const NOT_HIJACK = /^applet-hijack \/usr\/sbin\/tailscaled?$/;
 const NOT_SELF = /^(backdoor-host|backdoor-init|persist-ref) \/\S*gl-helper-triage\.sh$/;
 const BD_FILE = /^\/(bin\/ulogd|usr\/bin\/monitord)$/;
 function shape(x) {
-  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', review_items: [], goodcloud: '', cloud_client: '', astrowarp: '', state_file_size: null, cloud_bound: '', rtty_ssh: '', rtty_web: '', note: '', state_file_first: '', ...x.report };
+  const r = { files: [], persistence: [], fw_rules: [], commands: [], state_file_time: '', review_items: [], goodcloud: '', cloud_client: '', astrowarp: '', state_file_size: null, cloud_bound: '', rtty_ssh: '', rtty_web: '', note: '', state_file_first: '', vendor_cleanup: '', ...x.report };
   // script 2.16 and 2.17 took an updated Tailscale for a replaced system tool; not a trace
   const fp = (f) => NOT_HIJACK.test(f) || NOT_SELF.test(f);
   if (r.findings.some(fp)) { r.ioc = Math.max(0, r.ioc - r.findings.filter(fp).length); r.findings = r.findings.filter((f) => !fp(f)); r.files = r.files.filter((f) => !/^\/usr\/sbin\/tailscaled?$/.test(f.path)); }
@@ -701,7 +701,12 @@ function shape(x) {
   // sent its time and called the device clean. The reports show the rule holds (no router
   // has such a file from before the attack, and its times fall into the attack's waves),
   // so it is applied here to the older reports too.
-  if (r.platform === 'openwrt' && r.astrowarp !== 'on' && (r.state_file_size === null || r.state_file_size === 0) && ts(r.state_file_time) >= ATTACK_FROM && !r.findings.some((f) => f.startsWith('cloud-command'))) {
+  // Firmware built after the attack began has the fix. Script 2.46 still called an empty
+  // state file a trace there, though the firmware's own SD-WAN module can write it at its
+  // first start (issue 19). A state file from the build day on is no trace on such firmware.
+  const built = (/(\d{4}-\d\d-\d\d)\s*$/.exec(r.firmware || '') || [])[1] || '', fresh = built >= '2026-11-20' && String(r.state_file_time || '').slice(0, 10) >= built;
+  if (fresh && r.findings.some((f) => f.startsWith('cloud-command'))) { r.ioc = Math.max(0, r.ioc - r.findings.filter((f) => f.startsWith('cloud-command')).length); r.findings = r.findings.filter((f) => !f.startsWith('cloud-command')); }
+  if (!fresh && r.platform === 'openwrt' && r.astrowarp !== 'on' && (r.state_file_size === null || r.state_file_size === 0) && ts(r.state_file_time) >= ATTACK_FROM && !r.findings.some((f) => f.startsWith('cloud-command'))) {
     r.findings = [...r.findings, 'cloud-command /etc/mp_ip_mapping_info']; r.ioc += 1; r.derived = true;
   }
   // Remote SSH and web access are stored settings, "on" by default on many firmware
@@ -1020,7 +1025,7 @@ function cloudSettings(base) {
   const box = $('cloudSet'); box.replaceChildren();
   const tb = el('table'), hd = el('tr'); for (const [t, c] of [['Setting', ''], ['With traces', 'n'], ['Older backdoor', 'n']]) hd.append(el('th', t, c));
   tb.append(hd); let any = false, thin = false;
-  for (const [name, key] of [['GoodCloud', 'goodcloud'], ['Bound to an account', 'cloud_bound'], ['Remote SSH', 'rtty_ssh'], ['Remote web access', 'rtty_web'], ['AstroWarp', 'astrowarp']]) for (const v of ['on', 'off']) {
+  for (const [name, key] of [['GoodCloud', 'goodcloud'], ['Bound to an account', 'cloud_bound'], ['Remote SSH', 'rtty_ssh'], ['Remote web access', 'rtty_web'], ['Firmware with GL.iNet’s cleanup', 'vendor_cleanup'], ['AstroWarp', 'astrowarp']]) for (const v of ['on', 'off']) {
     const rows = base.filter((r) => r[key] === v); if (!rows.length) continue; any = true;
     const h = rows.filter((r) => r.ioc > 0).length, bd = rows.filter((r) => r.bd).length, tr = el('tr'), w = el('td', null, 'n');
     w.append(el('b', Math.round(h / rows.length * 100) + '%'), el('small', ` ${h} of ${rows.length}`, 'dim'));

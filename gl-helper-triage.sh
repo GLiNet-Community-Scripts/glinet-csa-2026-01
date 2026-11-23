@@ -43,10 +43,10 @@
 # --fix only touches IOC items and their persistence. REVIEW items are archived and
 # reported, never changed. This is a stopgap: a factory reset is still recommended.
 
-VERSION=2.45
+VERSION=2.48
 # When this version went out, in UTC. Changed together with VERSION. The guide on the
 # website reads both lines to show the current version and how long ago it came out.
-RELEASED='2026-11-22 17:04 UTC'
+RELEASED='2026-11-22 22:53 UTC'
 
 # Where the malware lives and what it puts there. The first two directories are the ones
 # GL.iNet's cleanup in the KVM firmware knows. The rest comes from the installer itself
@@ -1066,6 +1066,15 @@ check_tmp() {
 	f=$(r tmp/gl_crontabs/root)
 	safe "$f" && grep -qE "$IOC_RE" "$f" 2>/dev/null &&
 		add IOC cron-ref /tmp/gl_crontabs/root "the running crontab starts the malware: $(grep -E "$IOC_RE" "$f" | head -n 2 | tr '\n' ' ' | cut -c1-160)"
+	# The firmware keeps crontab files of its own in /etc/gl_crontabs/crontabs.d, and they
+	# survive a restart. GL.iNet's cleanup (router firmware 4.9.3) removes the malware's lines
+	# there too, so they are looked for here as well; --fix drops those lines and no others.
+	for f in "$(r etc/gl_crontabs/crontabs.d)"/*; do
+		safe "$f" && grep -qE "$IOC_RE" "$f" 2>/dev/null &&
+			add IOC cron-ref "/etc/gl_crontabs/crontabs.d/${f##*/}" "a crontab file of the firmware starts the malware: $(grep -E "$IOC_RE" "$f" | head -n 2 | tr '\n' ' ' | cut -c1-160)"
+	done
+	# GL.iNet's fixed router firmware cleans up by itself at its first start
+	vendor_cleanup && add INFO vendor-cleanup gl-sdk4-system-check "this firmware removes known traces of the malware at its first start (GL.iNet's cleanup)"
 	# the remote terminal service pointed at the attacker's server
 	f=$(r etc/rtty_conf)
 	safe "$f" && grep -qE "$KVM_IP_RE" "$f" 2>/dev/null &&
@@ -1082,7 +1091,16 @@ check_tmp() {
 		aw=off; astrowarp_on && aw=on
 		w="written $(shown_time "$t")"
 		a=$(file_atime "$f"); [ -n "$a" ] && w="first call $(shown_time "$a"), last call $(shown_time "$t")"
-		if [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
+		# Firmware with the fix refuses the attack's command, so a state file written after that
+		# firmware first started is not the attack's. One owner found it written at the first
+		# start after the upgrade, in the same seconds as the SD-WAN module's other state files
+		# (/etc/mp_connection_info, /etc/mphosts; issue 19). "After" is told by the day the
+		# firmware was built. A file that tells the first start, /etc/board.json, is no help:
+		# it is written before the clock is set and carries a date in 1970 on real devices.
+		if [ "$n" = 0 ] && [ "$aw" = off ] && vendor_cleanup && a=$(built_epoch) &&
+			[ "$(date -u -r "$f" +%s 2>/dev/null || echo 0)" -ge "$a" ]; then
+			add REVIEW state-file /etc/mp_ip_mapping_info "$w, empty: written after this firmware was built. This firmware has the fix and refuses the attack's command; its SD-WAN module can write the file at its own start. Not counted as a trace"
+		elif [ "$n" = 0 ] && [ "$aw" = off ] && awk -v a="$t" -v b="$ATTACK_FROM" 'BEGIN { exit !(a >= b) }'; then
 			add IOC cloud-command /etc/mp_ip_mapping_info "$w, empty, AstroWarp off: a crafted command from the cloud ran here, as in the reported attack. This trace survives a restart"
 		else
 			add REVIEW state-file /etc/mp_ip_mapping_info "$w, $n bytes, AstroWarp $aw: the cloud handler for SD-WAN IP mapping ran then. The reported attack came through it; normal if you use AstroWarp"
@@ -1231,6 +1249,31 @@ count_bd() { awk -F '\t' '$1=="IOC" && $2 ~ /^backdoor-/' "$FIND" | wc -l | tr -
 # the malware's files, so a device started since the attacks began is clean now, which
 # says nothing about before (issue 5; GL.iNet staff say the same of their quick check).
 RESTART_FROM='2026-11-19 00:00:00 UTC'
+# GL.iNet's fixed router firmware (4.9.3 on) brings the package gl-sdk4-system-check. Its
+# script /etc/uci-defaults/00-system-check runs once, at the first start after the update:
+# where /etc/config/.gl exists it deletes that directory, the malware's line in rc.local
+# and its cron lines, and it always puts /etc/init.d/urandom_seed back. So on such
+# firmware the traces this script looks for may be gone, and a clean result says nothing
+# about the time before the update. The script is deleted after it ran; the package stays
+# in the list of installed packages, and the base image keeps the script.
+vendor_cleanup() {
+	rd "$(r usr/lib/opkg/status)" | grep -qx 'Package: gl-sdk4-system-check' && return 0
+	[ -n "$LOWER" ] && exists "$(l etc/uci-defaults/00-system-check)"
+}
+# The start of the day this firmware was built, in seconds, from /etc/version.date. Only
+# the day is taken: the file does not say which time zone its time is in.
+built_epoch() {
+	local d s
+	d=$(rd "$(r etc/version.date)" | cut -c1-10)
+	case $d in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) return 1 ;; esac
+	s=$(date -u -d "$d 00:00:00" +%s 2>/dev/null) || return 1
+	case $s in '' | *[!0-9]*) return 1 ;; esac
+	echo "$s"
+}
+vendor_cleanup_state() {
+	if vendor_cleanup; then echo on; elif safe "$(r usr/lib/opkg/status)"; then echo off; else echo unknown; fi
+}
+
 restart_note() {
 	local up bt
 	[ "$LIVE" = 1 ] || return 0
@@ -1415,6 +1458,12 @@ result_block() {
 	else
 		say "   ${GRN}${B}Verdict: no gl-helper indicators found${N}"
 		restart_note
+		if vendor_cleanup; then
+			say "   ${YEL}This firmware cleans up by itself: at its first start it deletes the malware's known${N}"
+			say "   ${YEL}traces. So this result does not show what was on the device before the update.${N}"
+		fi
+		say "   ${D}Not proof that nothing happened: several functions of the cloud client took commands,${N}"
+		say "   ${D}and a trace is known for one of them only (the state file). Others may leave none.${N}"
 	fi
 	# directly under the verdict, not at the end: whoever stops the run at the question
 	# about the report has seen it by then
@@ -1539,7 +1588,7 @@ collect() {
 	# Always copy the finding paths (merged view) and key files.
 	list=$TMP/copylist
 	awk -F '\t' '$3 ~ /^\// {print substr($3,2)}' "$FIND" >"$list"
-	for f in etc/mp_ip_mapping_info etc/rtty_conf tmp/gl_crontabs $FW_PATHS $MARKER_DIRS $MARKER_DIRS_ALT $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
+	for f in etc/mp_ip_mapping_info etc/rtty_conf tmp/gl_crontabs etc/gl_crontabs $FW_PATHS $MARKER_DIRS $MARKER_DIRS_ALT $PERSIST etc/crontabs root/.ssh etc/dropbear/authorized_keys \
 		etc/passwd etc/group etc/sysupgrade.conf lib/upgrade/keep.d; do echo "$f"; done >>"$list"
 	mkdir -p "$E/files/merged"
 	sort -u "$list" | while IFS= read -r f; do
@@ -1937,7 +1986,7 @@ build_report() {
 	ssize=-1; safe "$(r etc/mp_ip_mapping_info)" && ssize=$(cat "$(r etc/mp_ip_mapping_info)" 2>/dev/null | wc -c | tr -d ' ')
 	cat >"$TMP/report.json" <<EOF
 {
-"schema": 9,
+"schema": 10,
 "tool": $(jstr "$VERSION" 16),
 "platform": $(jstr "$PLATFORM" 48),
 "model": $(jstr "${model:-unknown}"),
@@ -1967,6 +2016,7 @@ build_report() {
 "state_file_first": $(jstr "$sfirst"),
 "review_items": [$revs],
 "note": $(jstr "$NOTE" 120),
+"vendor_cleanup": $(jstr "$(vendor_cleanup_state)" 8),
 "device_id": $(jstr "$devid")
 }
 EOF
@@ -2039,6 +2089,7 @@ offer_report() {
 		grep -q '^"device_id": "..*"$' "$TMP/report.json" && ysay "- a device ID (a hash, not an address), so repeated reports count once"
 		ysay "- whether GoodCloud and AstroWarp are on, whether the device is bound to a GoodCloud"
 		ysay "  account (yes or no, never the account), whether remote SSH and web access are on"
+		ysay "- whether the firmware brings GL.iNet's own cleanup"
 		if [ -s "$TMP/rlines" ]; then
 			ysay "- these lines from your autostart files (rc.local in full) and firewall:"
 			sed 's/^/        /' "$TMP/rlines" >&3
@@ -2137,8 +2188,8 @@ cloud_advice() {
 # stands after "#", a part of the address a browser does not send. The page holds the
 # same tables; the worker's tests compare them, and the tests here read every code back.
 RESULT_URL=${GL_TRIAGE_RESULT_URL:-https://csa.gl-i.net/}
-RESULT_CODES='marker=mk applet-hijack=ah persist-ref=pr keep-ref=kr cron-ref=cr ssh-key=sk rtty-server=rt pipe=pp fw-rule=fw cloud-command=cc installer-trace=it backdoor-init=bi backdoor-file=bf backdoor-keep=bk backdoor-host=bh backdoor-proc=bp persistence=pe process-quick=pq process-shell=ps process-implant=pi connection-shell=cs connection-malware=cm'
-RESULT_KINDS='mk ah pr kr cr sk rt pq pi ps pp cs cm fw cc it bi bf bk bh bp pe'
+RESULT_CODES='marker=mk applet-hijack=ah persist-ref=pr keep-ref=kr cron-ref=cr ssh-key=sk rtty-server=rt pipe=pp fw-rule=fw cloud-command=cc installer-trace=it backdoor-init=bi backdoor-file=bf backdoor-keep=bk backdoor-host=bh backdoor-proc=bp persistence=pe process-quick=pq process-shell=ps process-implant=pi connection-shell=cs connection-malware=cm vendor-cleanup=vc'
+RESULT_KINDS='mk ah pr kr cr sk rt pq pi ps pp cs cm fw cc it bi bf bk bh bp pe vc'
 # the models as firmware.gl-i.net names them; new ones go at the end, the order never changes
 RESULT_MODELS='be10000 be14000 be3600 be9300 e5800 mg1300 mt3000 mt3600be mt5000 mt6000 axt1800 be6500 sft1200 x3000 xe3000 ax1800 mt2500 x2000 a1300 b3000 ar300m ar300m16 ar750 ar750s b1300 e750 mt1300 mt300n-v2 x300b x750 xe300 ap1300 ar150 b2200 mifi mt300a mt300n mv1000 s1300 sf1200 usb150 x1200 n300 vixmini s10 s20ble s20otbr s200 rm1 rm10 rm10rc rm1pe rm1v2 rm4pe rmq1'
 result_link() {
@@ -2146,7 +2197,7 @@ result_link() {
 	# what was found before any clean-up: that is what the owner has to know about
 	now=$FIND; FIND=$TMP/findings
 	k=$(awk -F '\t' -v map="$RESULT_CODES" 'BEGIN { n = split(map, a, " "); for (i = 1; i <= n; i++) { split(a[i], kv, "="); c[kv[1]] = kv[2] } }
-		$1 == "IOC" || $1 == "PERSIST" {
+		$1 == "IOC" || $1 == "PERSIST" || ($1 == "INFO" && $2 == "vendor-cleanup") {
 			x = $2
 			if (x == "process") { if ($4 ~ /^GL.iNet.s quick check/) x = "process-quick"; else if ($4 ~ /^remote shell/) x = "process-shell"; else x = "process-implant" }
 			if (x == "connection") { if ($4 ~ /reported remote shell/) x = "connection-shell"; else x = "connection-malware" }

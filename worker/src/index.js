@@ -17,7 +17,7 @@ const list = (max, item) => (v) => Array.isArray(v) && v.length <= max && v.ever
 
 // Every field is required; anything else in a report is refused.
 const FIELDS = {
-  schema: (v) => v === 1 || v === 2 || v === 3 || v === 4 || v === 5 || v === 6 || v === 7 || v === 8 || v === 9,
+  schema: (v) => Number.isInteger(v) && v >= 1 && v <= 10,
   tool: str(16),
   platform: str(48),
   model: str(64),
@@ -90,6 +90,14 @@ const FIELDS_V8 = { ...FIELDS_V7, cloud_bound: onoff, rtty_ssh: onoff, rtty_web:
 // access time, sent only where the filesystem does not update it (noatime), else empty.
 const FIELDS_V9 = { ...FIELDS_V8, note: txt(120), state_file_first: time };
 
+// Since script 2.46 (schema 10): whether the firmware brings GL.iNet's own cleanup (package
+// gl-sdk4-system-check, router firmware 4.9.3 on). It deletes the malware's known traces
+// at the first start, so a clean report from such a device says nothing about the time
+// before the update.
+const FIELDS_V10 = { ...FIELDS_V9, vendor_cleanup: onoff };
+// for the test that openapi.json, the schema Cloudflare checks reports against, knows every field
+export const REPORT_FIELDS = Object.keys(FIELDS_V10);
+
 async function sealDeviceId(env, id) {
   if (!env.DEVICE_SALT || !id) return '';
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DEVICE_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -102,7 +110,7 @@ const text = (body, status = 200) =>
 
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
-  const fields = report.schema === 9 ? FIELDS_V9 : report.schema === 8 ? FIELDS_V8 : report.schema === 7 ? FIELDS_V7 : report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
+  const fields = report.schema === 10 ? FIELDS_V10 : report.schema === 9 ? FIELDS_V9 : report.schema === 8 ? FIELDS_V8 : report.schema === 7 ? FIELDS_V7 : report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
   for (const key of Object.keys(report)) if (!(key in fields)) return `unknown field ${key.slice(0, 32)}`;
   for (const [key, ok] of Object.entries(fields)) if (!ok(report[key])) return `bad or missing field ${key}`;
   return null;
@@ -456,12 +464,111 @@ async function resultPage(request, env, ctx) {
   });
 }
 
+// ---------------------------------------------------------------- the reported table
+// For the advisory on gl-i.net: on which models and firmware versions the attack of
+// 20 November left traces, by the reports. Open to all, so it says no more than the table
+// on that page does: model and firmware version, nothing per device and nothing per report.
+// Anyone can send a report, and nobody reads this list before it is shown. So a model and
+// version get in only when
+//   - at least five different devices reported traces on them. Only reports with a device
+//     id count: without one, two reports of one device cannot be told apart;
+//   - the firmware archive knows the model, and the version has the usual shape;
+//   - the firmware is older than the attack. A trace on a build from 20 November on was
+//     either brought along by an upgrade or is something new, and both need a person.
+// A device counts for the firmware of its first report with traces: who checks, upgrades
+// and checks again must not move the trace to the new firmware.
+// "Traces" as the dashboard counts them: the older backdoor apart, two known false alarms
+// of early scripts out, and the cloud handler's state file as a trace also where the
+// script that sent the report did not know it yet.
+// Worked out at most every 15 minutes and kept in KV in between.
+const REPORTED_KEY = 'reported/csa-2026-01';
+const REPORTED_MIN = 5;
+const REPORTED_EVERY = 900_000;
+const ATTACK_DAY = '2026-11-20';
+const NOT_TRACE = /^(applet-hijack \/usr\/sbin\/tailscaled?|(backdoor-host|backdoor-init|persist-ref) \/\S*gl-helper-triage\.sh)$/;
+const verKey = (v) => v.replace(/\d+/g, (n) => n.padStart(5, '0'));
+
+function attackTrace(r) {
+  const f = Array.isArray(r.findings) ? r.findings.filter((x) => typeof x === 'string') : [];
+  const not = f.filter((x) => NOT_TRACE.test(x) || x.startsWith('backdoor-')).length;
+  if ((Number(r.ioc) || 0) - not > 0) return true;
+  const at = Date.parse(String(r.state_file_time || '').replace(' UTC', 'Z').replace(' ', 'T'));
+  return r.platform === 'openwrt' && r.astrowarp !== 'on' && (r.state_file_size == null || r.state_file_size === 0) && at >= Date.parse(ATTACK_DAY);
+}
+
+// rows: one per report, oldest first. fw: the models of the firmware list.
+export function reportedTable(rows, fw, min = REPORTED_MIN) {
+  const first = new Map();
+  for (const r of rows) {
+    if (typeof r.dev !== 'string' || !r.dev || first.has(r.dev) || !attackTrace(r)) continue;
+    first.set(r.dev, r);
+  }
+  const cells = new Map();
+  for (const [dev, r] of first) {
+    const kind = r.platform === 'openwrt' ? 'Router' : String(r.platform).startsWith('glkvm') ? 'KVM' : '';
+    const model = String(r.model || '').toLowerCase().replace(/^gl\.?inet\s+/, '').replace(/^gl-/, '').replace(/\s*\(.*\)$/, '');
+    const parts = String(r.firmware || '').trim().split(/\s+/);
+    const version = (/^v?(\d{1,2}\.\d{1,3}(?:\.\d{1,3})?(?:-op\d{2})?)$/i.exec(parts[0]) || [])[1];
+    if (!kind || !version || !Object.hasOwn(fw, model)) continue;
+    // the day the firmware was built, as newer scripts send it; else the day the archive
+    // gives for that version
+    const built = (/^\d{4}-\d\d-\d\d$/.exec(parts[parts.length - 1]) || [])[0] || ([fw[model].r, fw[model].b].find((x) => x && x[0] === version) || [])[1] || '';
+    if (built >= ATTACK_DAY) continue;
+    const key = model + ' ' + version, c = cells.get(key) || { model, kind, version, devs: new Set() };
+    c.devs.add(dev); cells.set(key, c);
+  }
+  const models = new Map();
+  for (const c of cells.values()) {
+    if (c.devs.size < min) continue;
+    const m = models.get(c.model) || { model: c.model, sku: 'GL-' + c.model.toUpperCase(), kind: c.kind, firmware: [] };
+    m.firmware.push(c.version); models.set(c.model, m);
+  }
+  return [...models.values()].sort((a, b) => (a.model < b.model ? -1 : 1)).map((m) => ({ ...m, firmware: m.firmware.sort((a, b) => (verKey(a) < verKey(b) ? -1 : 1)) }));
+}
+
+async function refreshReported(env, ctx, have) {
+  try {
+    const fw = await firmwareList(env, ctx);
+    if (!fw || !fw.models) throw new Error('no firmware list');
+    const x = (f) => `json_extract(report, '$.${f}')`;
+    // only what the table needs, and only reports that can count
+    const { results } = await env.DB.prepare(
+      `SELECT ${x('device_id')} AS dev, ${x('model')} AS model, ${x('firmware')} AS firmware, ${x('platform')} AS platform, ${x('ioc')} AS ioc, ${x('findings')} AS findings, ` +
+        `${x('astrowarp')} AS astrowarp, ${x('state_file_size')} AS state_file_size, ${x('state_file_time')} AS state_file_time FROM reports ` +
+        `WHERE ${x('device_id')} != '' AND (${x('ioc')} > 0 OR ${x('state_file_time')} != '') ORDER BY received, id`,
+    ).all();
+    for (const r of results) { try { r.findings = JSON.parse(r.findings || '[]'); } catch { r.findings = []; } }
+    const next = { checked: Date.now(), body: { advisory: 'CSA-2026-01', as_of: new Date().toISOString().slice(0, 16) + 'Z', min_devices: REPORTED_MIN, models: reportedTable(results, fw.models) } };
+    await env.REPORTS.put(REPORTED_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    // keep what there is, and try again in a few minutes rather than on every call
+    if (have) await env.REPORTS.put(REPORTED_KEY, JSON.stringify({ ...have, checked: Date.now() - REPORTED_EVERY + 180_000 }));
+    return have || null;
+  }
+}
+
+async function reported(request, env, ctx) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
+  if (!env.DB) return text('not available', 503);
+  let have = null;
+  try { have = JSON.parse((await env.REPORTS.get(REPORTED_KEY)) || 'null'); } catch { have = null; }
+  if (!have) have = await refreshReported(env, ctx, null);
+  else if (Date.now() - have.checked > REPORTED_EVERY) ctx.waitUntil(refreshReported(env, ctx, have));
+  if (!have) return text('not available', 503);
+  return new Response(request.method === 'HEAD' ? null : JSON.stringify(have.body) + '\n', {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=300', 'access-control-allow-origin': '*', 'x-content-type-options': 'nosniff' },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const { pathname, hostname } = new URL(request.url);
     // the result page; the long form of the address leads to the short one (a browser
     // keeps the part after "#" across the redirect)
     if (pathname === '/2026-01/') return resultPage(request, env, ctx);
+    // the table for the advisory: models and firmware versions with traces, by the reports
+    if (pathname === '/2026-01/reported.json') return reported(request, env, ctx);
     if (/^\/(csa-)?2026-01\/?$/.test(pathname)) return Response.redirect(new URL('/2026-01/', request.url).href, 302);
     // On csa.gl-i.net the page is also the front door: csa.gl-i.net/#AA006011D is what the
     // script prints. A code typed without the "#" arrives as the path; the page then moves

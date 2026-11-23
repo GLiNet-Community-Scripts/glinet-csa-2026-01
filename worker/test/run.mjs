@@ -1,6 +1,6 @@
 // node worker/test/run.mjs          run the tests
 // node worker/test/run.mjs serve    serve the worker on 127.0.0.1:8787 with a KV in memory
-import worker, { validate } from '../src/index.js';
+import worker, { validate, reportedTable, REPORT_FIELDS } from '../src/index.js';
 import http from 'node:http';
 
 import { readFileSync } from 'node:fs';
@@ -39,7 +39,9 @@ const good3 = {
   fw_rules: ['nat: -A SDWAN_IP_MAPPING -d 127.0.0.1/32 -j DNAT --to-destination 127.0.0.1'],
   commands: ['sh -c iptables -t nat -A SDWAN_IP_MAPPING -d 127.0.0.1 -j DNAT --to-destination 127.0.0.1;(while true;do rm -f /tmp/f;done) "x" \\ &'],
 };
+const posted = [];
 const call = (method, body, headers = {}, path = '/csa-2026-01-report') =>
+  (method === 'POST' && path === '/csa-2026-01-report' && typeof body === 'string' && posted.push(body), 0) ||
   worker.fetch(new Request(`https://example.org${path}`, { method, body, headers }), env, { waitUntil() {} });
 
 if (process.argv[2] === 'serve') {
@@ -54,6 +56,25 @@ if (process.argv[2] === 'serve') {
 } else {
   let failed = 0;
   const expect = (name, ok) => { console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}`); if (!ok) failed++; };
+  // openapi.json: the schema Cloudflare checks a report against before the worker sees it.
+  // It must let through every report the worker takes, or reports get lost unseen.
+  const oas = JSON.parse(readFileSync(new URL('../openapi.json', import.meta.url), 'utf8')), top = oas.components.schemas.Report;
+  const fits = (s, v) => {
+    if (s.$ref) s = oas.components.schemas[s.$ref.split('/').pop()];
+    if (s.enum) return s.enum.includes(v);
+    if (s.type === 'string') return typeof v === 'string' && v.length <= s.maxLength && new RegExp(s.pattern).test(v);
+    if (s.type === 'integer') return Number.isInteger(v) && v >= s.minimum && v <= s.maximum;
+    if (s.type === 'boolean') return typeof v === 'boolean';
+    if (s.type === 'array') return Array.isArray(v) && v.length <= s.maxItems && v.every((x) => fits(s.items, x));
+    if (s.type === 'object') return v !== null && typeof v === 'object' && !Array.isArray(v) && s.required.every((k) => k in v) && Object.keys(v).every((k) => k in s.properties && fits(s.properties[k], v[k]));
+    return false;
+  };
+  globalThis.fitsOpenApi = (v) => fits(top, v);
+  expect('the schema for Cloudflare knows every field of a report and every schema version', Object.keys(top.properties).sort().join() === [...REPORT_FIELDS].sort().join() && top.properties.schema.enum.every((n) => validate({ ...good, schema: n }) !== 'bad or missing field schema') && validate({ ...good, schema: top.properties.schema.enum.length + 1 }) === 'bad or missing field schema');
+  const v10 = { ...good3, schema: 10, device_id: '', goodcloud: 'on', cloud_client: '', astrowarp: 'off', state_file_size: -1, review_items: [], cloud_bound: 'unknown', rtty_ssh: 'off', rtty_web: 'off', note: '', state_file_first: '', vendor_cleanup: 'on', files: [{ ...file, ctime: file.mtime }] };
+  expect('schema 10 says whether the firmware cleans up by itself; the worker and the schema for Cloudflare both take it', validate(v10) === null && fits(top, v10) && validate({ ...v10, vendor_cleanup: 'yes' }) !== null && !fits(top, { ...v10, vendor_cleanup: 'yes' }) && validate((({ vendor_cleanup, ...r }) => r)(v10)) !== null);
+  expect('it lets the reports of schema 1, 2 and 3 through', fits(top, good) && fits(top, good2) && fits(top, good3));
+  expect('it stops an unknown field, a missing one, markup and a wrong type', !fits(top, { ...good, hostname: 'x' }) && !fits(top, { ...good, tool: undefined }) && !fits(top, (({ ioc, ...r }) => r)(good)) && !fits(top, { ...good, model: '<script>' }) && !fits(top, { ...good, ioc: '3' }) && !fits(top, { ...good2, files: [{ ...file, extra: 1 }] }));
   expect('a complete report is valid', validate(good) === null);
   expect('stores a good report', (await call('POST', JSON.stringify(good), { 'cf-connecting-ip': '203.0.113.9' })).status === 200 && store.size === 2);
   expect('stored value has only the report and a time', (() => { const v = JSON.parse([...store.values()][0]); return Object.keys(v).join() === 'received,report' && !JSON.stringify(v).includes('203.0.113.9'); })());
@@ -221,9 +242,9 @@ if (process.argv[2] === 'serve') {
     expect('a single wrong character is caught in at least 98 of 100 cases', caught / tried >= 0.98);
     let swaps = 0, swapped = 0; for (let i = 0; i < 8; i++) { if (code[i] === code[i + 1]) continue; swaps++; if (decode(code.slice(0, i) + code[i + 1] + code[i] + code.slice(i + 2)) === null) swapped++; }
     expect('two neighbouring characters typed the wrong way round are caught', swaps > 0 && swapped === swaps);
-    expect('every kind of finding has its place in the code, each once', ORDER.length === 22 && new Set(ORDER).size === 22 && ORDER.every((k) => NAMES[k]));
+    expect('every kind of finding has its place in the code, each once', ORDER.length <= 24 && new Set(ORDER).size === ORDER.length && ORDER.every((k) => NAMES[k]));
     const all = decode(encode({ minor: 127, p: 'k', k: ORDER, g: '0', n: '1', f: '3', rv: 1 }));
-    expect('the largest code holds everything', all.v === '2.127' && all.p === 'k' && all.k.length === 22 && all.g === '0' && all.n === '1' && all.f === '3');
+    expect('the largest code holds everything', all.v === '2.127' && all.p === 'k' && all.k.length === ORDER.length && all.g === '0' && all.n === '1' && all.f === '3');
     expect('the page reads a code after "#", a code typed as the path, and the long form of 2.39', parse('#' + code, '/').k.length === 2 && parse('', '/' + code.toLowerCase()).v === '2.41' && parse('#v=2.39&p=r&r=a&k=cc.fw&g=1&n=0', '/2026-01/').k.join('.') === 'cc.fw');
     expect('nothing in the address is the list to tick, a wrong code says so', parse('', '/').v === '' && !parse('', '/').bad && !parse('', '/2026-01/').bad && parse('#' + code.slice(0, 8) + (code[8] === 'A' ? 'B' : 'A'), '/').bad === true && parse('#%3Cscript%3Ealert(1)', '/').v === '');
     // the second part of the code: model and firmware version
@@ -239,7 +260,7 @@ if (process.argv[2] === 'serve') {
     const shModels = (/^RESULT_MODELS='([^']+)'$/m.exec(readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8')) || [])[1];
     if (shModels) expect('the script numbers the models in the same order as the page', shModels === MODELS.join(' ') && MODELS.length <= 127 && new Set(MODELS).size === MODELS.length);
     const shKinds = (/^RESULT_KINDS='([^']+)'$/m.exec(readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8')) || [])[1];
-    if (shKinds) expect('the script puts the kinds of findings into the code in the same order as the page', shKinds === ORDER.join(' '));
+    if (shKinds) expect('the script puts the kinds of findings into the code in the order of the page; the page may know more, at the end', (ORDER.join(' ') + ' ').startsWith(shKinds + ' '));
     const front = await worker.fetch(new Request('https://csa.example.org/'), env, { waitUntil() {} }), typed = await worker.fetch(new Request('https://csa.example.org/' + code), env, { waitUntil() {} });
     expect('on the csa host the page is the front door, also for a code typed without "#"', front.status === 200 && (await front.text()).includes('const B32') && typed.status === 200 && (await call('GET', undefined, {}, '/' + code)).headers.get('content-type').startsWith('text/plain'));
     console.log('sample code: ' + code + '-' + ext);
@@ -305,6 +326,7 @@ if (process.argv[2] === 'serve') {
   const auth = { authorization: 'Bearer test-token' }, mig = (q = '') => call('POST', undefined, auth, '/csa-2026-01-report/migrate' + q);
   expect('migrate refuses without a database', (await mig()).status === 400);
   expect('migrate by GET says to use POST', (await call('GET', undefined, auth, '/csa-2026-01-report/migrate')).status === 405);
+  expect('the reported table needs the database', (await call('GET', undefined, {}, '/2026-01/reported.json')).status === 503);
   env.DB = d1();
   expect('migrate needs the token', (await call('POST', undefined, {}, '/csa-2026-01-report/migrate')).status === 404);
   const m1 = await (await mig()).json();
@@ -343,6 +365,46 @@ if (process.argv[2] === 'serve') {
   const ex = await call('GET', undefined, auth, '/csa-2026-01-report/export');
   expect('export works on D1', ex.status === 200 && (await ex.text()).split('\n').filter(Boolean).length === 500 && ex.headers.get('x-next-cursor') !== '');
   expect('a bad report is still refused on D1', (await call('POST', JSON.stringify({ ...good, hostname: 'x' }))).status === 400);
+  // ---- the table for the advisory: models and firmware versions with traces
+  {
+    let n = 0;
+    const rep = (dev, o = {}, received = '2026-11-22T12:00:00.000Z') => ins.run('rep' + String(n++).padStart(4, '0'), received, JSON.stringify({ schema: 9, platform: 'openwrt', model: 'mt6000', firmware: '4.8.3 release2 build 540 2026-10-02', ioc: 2, findings: ['marker /etc/config/.gl', 'fw-rule nat'], astrowarp: 'off', state_file_size: -1, state_file_time: '', ...(dev ? { device_id: dev } : {}), ...o }));
+    const five = (tag, o, received) => { for (let i = 0; i < 5; i++) rep(tag + i, o, received); };
+    five('a');                                                                          // listed
+    for (let i = 0; i < 3; i++) rep('b' + i, { model: 'be9300', firmware: '4.10.1' });  // three devices ...
+    for (let i = 0; i < 5; i++) rep('b9', { model: 'be9300', firmware: '4.10.1' });     // ... and a fourth, five times
+    for (let i = 0; i < 5; i++) rep('', { model: 'be9300', firmware: '4.9.0' });        // no device id
+    five('c', { model: 'zz9' });                                                        // not a model of the archive
+    five('d', { firmware: '4.7.13', findings: ['backdoor-file /bin/ulogd', 'backdoor-init /etc/init.d/urandom_seed'] }); // the older backdoor only
+    five('e', { firmware: '4.10.0 release1', ioc: 0, findings: [], state_file_size: 0, state_file_time: '2026-11-21 00:10:00 UTC' }); // the state file alone
+    five('f', { firmware: '4.12.0 release1 build 700 2026-11-21' });                    // built after the attack
+    five('g', { firmware: '4.8.2' }, '2026-11-21T09:00:00.000Z');                       // checked ...
+    five('g', { firmware: '4.9.9' }, '2026-11-22T15:00:00.000Z');                       // ... upgraded, checked again
+    five('h', { firmware: '<script>' }); five('i', { platform: 'unknown', firmware: '4.6.0' });
+    const tab = (ctx = { waitUntil() {} }) => worker.fetch(new Request('https://csa.example.org/2026-01/reported.json'), env, ctx);
+    const r1 = await tab(), raw1 = await r1.text(), t1 = JSON.parse(raw1);
+    expect('the reported table is open to all, as JSON that any page may read', r1.status === 200 && r1.headers.get('content-type').startsWith('application/json') && r1.headers.get('access-control-allow-origin') === '*');
+    expect('it names the advisory, the time and the threshold', t1.advisory === 'CSA-2026-01' && /^\d{4}-\d\d-\d\dT\d\d:\d\dZ$/.test(t1.as_of) && t1.min_devices === 5);
+    expect('a model and firmware are listed from five devices on, versions in the order of their numbers', t1.models.length === 1 && t1.models[0].model === 'mt6000' && t1.models[0].sku === 'GL-MT6000' && t1.models[0].kind === 'Router' && t1.models[0].firmware.join() === '4.8.2,4.8.3,4.10.0');
+    expect('four devices are not enough, however often one of them reports; reports without an id do not count', !raw1.includes('be9300'));
+    expect('unknown models, the older backdoor alone, odd versions and firmware built after the attack stay out', !/zz9|4\.7\.13|4\.12\.0|script|4\.6\.0/.test(raw1));
+    expect('a device counts for the firmware of its first report with traces', !raw1.includes('4.9.9'));
+    expect('the table holds nothing but model, kind and versions', Object.keys(t1).join() === 'advisory,as_of,min_devices,models' && Object.keys(t1.models[0]).join() === 'model,sku,kind,firmware' && !/a0|rep00/.test(raw1));
+    rep('b4', { model: 'be9300', firmware: '4.10.1' });
+    expect('the table is kept: a new report does not change it at once', !(await (await tab()).text()).includes('be9300'));
+    const kept = JSON.parse(store.get('reported/csa-2026-01')); store.set('reported/csa-2026-01', JSON.stringify({ ...kept, checked: 0 }));
+    let later; const stale = await (await tab({ waitUntil(p) { later = p; } })).text(); await later;
+    expect('after a quarter of an hour it is worked out again, behind the answer', !stale.includes('be9300') && (await (await tab()).text()).includes('"sku":"GL-BE9300","kind":"Router","firmware":["4.10.1"]'));
+    expect('the table cannot be written to', (await worker.fetch(new Request('https://csa.example.org/2026-01/reported.json', { method: 'POST', body: '{}' }), env, { waitUntil() {} })).status === 405);
+    const kvm = (v, i) => ({ dev: 'k' + v + i, platform: 'glkvm-RM1', model: 'rm1', firmware: 'V' + v + ' release1', ioc: 1, findings: ['process implant'] });
+    const rows = [...[0, 1, 2, 3, 4].map((i) => kvm('1.10.1', i)), ...[0, 1, 2, 3, 4].map((i) => kvm('1.10.3', i))];
+    const k = reportedTable(rows, { rm1: { r: ['1.10.3', '2026-11-22'] } });
+    expect('where the report gives no build day, the archive does: a release from after the attack stays out', k.length === 1 && k[0].kind === 'KVM' && k[0].sku === 'GL-RM1' && k[0].firmware.join() === '1.10.1');
+  }
+  // every report these tests posted: what the worker took, the schema must let through
+  let took = 0, lost = 0;
+  for (const body of posted) { let r; try { r = JSON.parse(body); } catch { continue; } if (validate(r) === null) { took++; if (!globalThis.fitsOpenApi(r)) lost++; } }
+  expect(`the schema for Cloudflare lets through all ${took} reports of these tests that the worker takes`, took >= 5 && lost === 0);
   globalThis.fetch = realFetch;
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);
