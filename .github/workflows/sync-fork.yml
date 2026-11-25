@@ -113,7 +113,7 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            git log --pretty=format:'%h %s' "${BASE_REF}..upstream/${UPSTREAM_BRANCH}" | head -100 > sync-commits.txt
+            git log --pretty=format:'%h %s' "${BASE_REF}..upstream/${UPSTREAM_BRANCH}" | head -100 > "${RUNNER_TEMP}/sync-commits.txt"
           fi
 
       - name: Build sync commit
@@ -167,7 +167,7 @@ jobs:
             exit 1
           fi
 
-          COMMIT_COUNT=$(wc -l < sync-commits.txt | tr -d ' ')
+          COMMIT_COUNT=$(wc -l < "${RUNNER_TEMP}/sync-commits.txt" | tr -d ' ')
           git commit -q -m "chore(sync): upstream ${NEW_SHA:0:7} (${COMMIT_COUNT} commits)" \
             -m "Squashed sync of ${{ steps.upstream.outputs.repo }}@${UPSTREAM_BRANCH} at ${NEW_SHA}." \
             -m "Local content preserved (-X ours); .github/workflows kept from this fork."
@@ -193,7 +193,7 @@ jobs:
           UPSTREAM_BRANCH: ${{ steps.upstream.outputs.branch }}
           UPSTREAM_SHA: ${{ steps.build.outputs.upstream_sha }}
         run: |
-          COMMITS=$(sed 's/^/- /' sync-commits.txt 2>/dev/null | head -50)
+          COMMITS=$(sed 's/^/- /' "${RUNNER_TEMP}/sync-commits.txt" 2>/dev/null | head -50)
           {
             echo "Hourly sync of \`${UPSTREAM_REPO}/${UPSTREAM_BRANCH}\` into this fork."
             echo ""
@@ -211,7 +211,7 @@ jobs:
             echo "${COMMITS:-_none listed_}"
             echo ""
             echo "_Opened by \`.github/workflows/sync-fork.yml\` and merged automatically._"
-          } > pr-body.md
+          } > "${RUNNER_TEMP}/pr-body.md"
 
           # REST, not `gh pr create`: the Actions token is refused on the GraphQL
           # createPullRequest mutation but is permitted on POST /repos/{owner}/{repo}/pulls.
@@ -220,7 +220,7 @@ jobs:
             -f title="chore(sync): upstream ${UPSTREAM_SHA:0:7} $(date -u '+%Y-%m-%d %H:%M') UTC" \
             -f head="$SYNC_BRANCH" \
             -f base="$BASE_BRANCH" \
-            -f body="$(cat pr-body.md)" 2>&1)
+            -f body="$(cat "${RUNNER_TEMP}/pr-body.md")" 2>&1)
           RC=$?
           set -e
           if [ "$RC" -ne 0 ]; then
