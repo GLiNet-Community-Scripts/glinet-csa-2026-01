@@ -33,7 +33,8 @@ Older wrangler versions spell the command `kv:namespace create`.
 npx wrangler deploy
 ```
 
-This prints the worker's address, `https://csa-2026-01-report.<your-subdomain>.workers.dev`.
+With `workers_dev = false`, as in the template, the worker has no address yet; it gets
+one in the next section.
 
 ```bash
 npx wrangler secret put EXPORT_TOKEN
@@ -53,8 +54,9 @@ and deploy again:
 routes = [{ pattern = "app.gl-i.net/csa-2026-01-report*", zone_name = "gl-i.net" }]
 ```
 
-If `app.gl-i.net` is not behind Cloudflare, use the `workers.dev` address and change
-`REPORT_URL` in `gl-helper-triage.sh`.
+If `app.gl-i.net` is not behind Cloudflare, set `workers_dev = true`, use the
+`workers.dev` address and change `REPORT_URL` in `gl-helper-triage.sh`. The rules of the
+zone (see "Protect it") do not apply to that address.
 
 ## Check it
 
@@ -80,6 +82,12 @@ reports. D1, Cloudflare's database, allows 100,000 written rows a day, and the d
 gets all reports with a few queries instead of one read per report. The worker uses D1
 as soon as a database is bound as `DB`, and KV until then. The KV namespace stays: the
 script download keeps its copy there.
+
+The free plan also allows 100,000 KV reads and 100,000 calls of the worker a day. The
+script, the firmware list and the reported table are therefore read through the memory
+of the worker, each key at most once a minute. When KV refuses reads anyway, the script
+download sends the client to GitHub, `reported.json` answers 503 and the result page
+goes without the firmware list. Against the limit on calls only the paid plan helps.
 
 1. Create the database. The command prints a `database_id`.
 
@@ -158,6 +166,27 @@ one KV entry when there is no database. They can be read at `<worker>/dashboard/
 with the dashboard's login. Over time they form a list of what is known to be harmless,
 which the script could one day ask for; nothing does that yet.
 
+### Suggestions
+
+A suggestion is a mark that waits for a yes: a finding that an analysis of the reports
+takes for probably safe, with its reason and the fingerprints it covers. It hides nothing.
+The "Review" page lists open suggestions above the marks. "Confirm safe" turns one into a
+mark in your name, for exactly its fingerprints and with its reason; "Decline" keeps it
+on the server with your name, so that the same suggestion loaded again does not come
+back. The finding then stays listed as before.
+
+Suggestions come in as SQL and need D1. The list itself stays outside the repository,
+because its paths and fingerprints come from the reports:
+
+```bash
+node tools/suggestions-sql.mjs suggestions.json > suggestions.sql
+npx wrangler d1 execute csa-2026-01 --remote --file=suggestions.sql
+```
+
+`suggestions.json` is `[{ "key": "kind path", "note": "why", "hashes": [...] }, ...]`, each
+entry checked as the dashboard checks a mark. A key that is already there, as a suggestion
+or as a declined one, is left as it is. They are kept in the D1 table `suggestions`.
+
 ## Telling devices apart
 
 From script 2.9 a report carries a device id, so that ten reports from one device are not
@@ -212,6 +241,28 @@ curl -sI https://app.gl-i.net/csa-2026-01-fix
 
 shows `x-script-commit` when the worker answers, and `location:` when the redirect is
 still in place.
+
+## The script's signature
+
+`sh gl-helper-triage.sh --update` takes a new version only with a signature that fits a
+key built into the script. The pieces:
+
+- **The key.** Made once with `signify -G -n -p csa-update.pub -s csa-update.sec`. The two
+  lines of the `.sec` file are the secret `UPDATE_SIGNING_KEY` of the repository. The
+  base64 line of the `.pub` file stands in `UPDATE_KEYS` in the script and in
+  `UPDATE_KEYS` in `src/index.js`; a test compares the two. A second key is the spare:
+  its `.sec` file is kept offline, its public line stands next to the first.
+- **Signing.** The workflow "Publish script" signs the script after every push to `main`
+  that changes it and posts the signature to `/csa-2026-01-fix.sig`.
+- **The worker.** It checks the signature itself, against the script it serves and the
+  public keys, and keeps it with the fingerprint of that script. It hands it out at
+  `https://app.gl-i.net/csa-2026-01-fix.sig` only while that script is served; otherwise it
+  answers 404 and `--update` leaves the device's script alone. Posting needs no secret:
+  nothing but a real signature is taken.
+
+To replace a lost or stolen key: make a new pair, sign one release by hand with the spare
+key so that devices take it, and put the new public line into the script and the worker
+with that release.
 
 ## Dashboard for the team
 
@@ -308,9 +359,21 @@ the table. The names of the menus in the Cloudflare dashboard change now and the
 
 ## Protect it
 
-Anyone can send made-up reports; the worker only checks their shape and size (4 KB). In
-the Cloudflare dashboard, add a rate limiting rule for the path
-`/csa-2026-01-report`, for example 10 requests per minute per IP address.
+Anyone can send made-up reports; the worker only checks their shape and size (48 KiB).
+The spending limit for Workers ends every call once it is reached, and with it every KV
+and D1 access, but it does not count KV and D1 themselves. Two settings keep made-up
+calls from costing anything:
+
+- A rate limiting rule in the `gl-i.net` zone (Security, WAF, Rate limiting rules),
+  counted per IP address, for the paths where every call reaches KV or D1:
+  `/csa-2026-01-report`, `/csa-2026-01-fix.sig` and `/csa-2026-01-fix/refresh`. On the
+  Free plan of the zone a rule can match only the path, counts over 10 seconds and
+  blocks for 10 seconds; 3 requests per 10 seconds leave room for the script and for the
+  publish workflow, which calls every 35 seconds. The worker takes reports only at
+  `/csa-2026-01-report`; a POST to any other address stores nothing, so that one path
+  covers them all.
+- `workers_dev = false` and `preview_urls = false` in `wrangler.toml`: the rules of the
+  zone apply only to its own addresses, and the `workers.dev` address would skip them.
 
 ## Schema validation in front of the worker
 
@@ -446,6 +509,29 @@ what the dashboard counts under "With traces": the older backdoor is left out.
 The list says nothing per device or per report, and no numbers. It is worked out at most
 every 15 minutes and kept in KV in between. It needs the reports in D1; without the
 database the address answers 503, and the advisory shows its own table alone.
+
+Each run reads only the reports received since the last one (with two minutes of
+overlap), through the index on `received`. Which device had its first report with traces
+on which firmware is kept in KV under `reported/csa-2026-01-devices`, with how far the
+reports have been read. When the rules for a trace change in the code, or that entry is
+missing, the next run reads all reports once. To force that, delete the entry:
+`npx wrangler kv key delete --remote --binding REPORTS reported/csa-2026-01-devices`.
+
+## Version and table for the pages on gl-i.net
+
+`https://csa.gl-i.net/2026-01/live.json` gives what the advisory and the fix guide show
+between two builds, in one small answer: the version of the script served now with its
+release time, and the table above. A reader's browser asks for it once per page, instead
+of fetching the whole script for its version and the table in a second call.
+
+```json
+{ "script": { "version": "2.55", "released": "2026-11-24T14:41:00Z" },
+  "reported": { "advisory": "CSA-2026-01", "as_of": "2026-11-25T08:22Z", "min_devices": 5, "models": [] } }
+```
+
+It takes nothing in: GET and HEAD only, parameters, headers and bodies are not read, and
+it answers the same to everyone. A part that is not known is `null`. Browsers may keep it
+for a minute. Deploy the worker before the website uses the address.
 
 ## Known release files
 
