@@ -3,7 +3,10 @@ name: Sync Fork with Upstream (Hourly)
 # Keeps this fork current with its parent repository.
 # - Runs every hour, plus on demand.
 # - Local content is preserved: on any conflicting change the fork's version wins (-X ours),
-#   and this fork's .github/workflows files are restored after the merge.
+#   and this fork's .github/workflows files are kept as they are.
+# - The sync is committed as a single squashed commit. Upstream commits are NOT imported into
+#   the fork's history: the Actions token cannot push a commit that touches a workflow file,
+#   and upstream's own commits do touch them. Squashing keeps that history out.
 # - Delivery is via pull request which is then merged automatically (no force-push, no direct
 #   write to the default branch).
 
@@ -13,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run - build the sync branch but do not push, open a PR, or merge'
+        description: 'Dry run - build the sync commit but do not push, open a PR, or merge'
         type: boolean
         default: false
       protect_workflows:
@@ -33,6 +36,9 @@ concurrency:
   group: sync-fork-hourly
   cancel-in-progress: false
 
+env:
+  STATE_FILE: .github/sync-state.json
+
 jobs:
   sync:
     name: Sync fork via PR
@@ -40,6 +46,10 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO }}
+      # Scheduled runs have no inputs object; `null == false` is true in Actions expressions,
+      # so the default must be spelled out as "only a dispatch can turn this off".
+      PROTECT_WORKFLOWS: ${{ github.event_name == 'workflow_dispatch' && inputs.protect_workflows == false && 'false' || 'true' }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true && 'true' || 'false' }}
     steps:
       - name: Detect upstream repository
         id: upstream
@@ -80,80 +90,123 @@ jobs:
           git checkout -B "$BASE_BRANCH" "origin/${BASE_BRANCH}"
           echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-          BEHIND=$(git rev-list --count "HEAD..upstream/${UPSTREAM_BRANCH}")
+          # The last upstream commit this fork actually ingested. Without it the merge base
+          # would stay at the original fork point and every run would re-apply all history.
+          STATE_SHA=""
+          if [ -f "$STATE_FILE" ]; then
+            STATE_SHA=$(jq -r '.sha // empty' "$STATE_FILE" 2>/dev/null || true)
+          fi
+          if [ -n "$STATE_SHA" ] && git cat-file -e "${STATE_SHA}^{commit}" 2>/dev/null; then
+            BASE_REF="$STATE_SHA"
+          else
+            BASE_REF="HEAD"
+            STATE_SHA=""
+          fi
+          echo "state_sha=$STATE_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+
+          BEHIND=$(git rev-list --count "${BASE_REF}..upstream/${UPSTREAM_BRANCH}")
           echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
-          echo "Fork is behind ${UPSTREAM_REPO}/${UPSTREAM_BRANCH} by ${BEHIND} commit(s)."
+          echo "Fork is behind ${UPSTREAM_REPO}/${UPSTREAM_BRANCH} by ${BEHIND} commit(s) since ${BASE_REF:0:7}."
 
           if [ "$BEHIND" -eq 0 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
+            git log --pretty=format:'%h %s' "${BASE_REF}..upstream/${UPSTREAM_BRANCH}" | head -100 > sync-commits.txt
           fi
 
-      - name: Build sync branch
+      - name: Build sync commit
         id: build
         if: steps.check.outputs.skip == 'false'
         env:
           UPSTREAM_BRANCH: ${{ steps.upstream.outputs.branch }}
           BASE_SHA: ${{ steps.check.outputs.base_sha }}
           BASE_BRANCH: ${{ steps.check.outputs.base }}
-          PROTECT_WORKFLOWS: ${{ inputs.protect_workflows == false && 'false' || 'true' }}
         run: |
           SYNC_BRANCH="sync/upstream-${GITHUB_RUN_ID}"
           echo "branch=$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
           git checkout -b "$SYNC_BRANCH"
 
-          # Merge upstream. "-X ours" keeps this fork's content wherever a hunk conflicts,
-          # so local edits are never silently replaced by upstream.
-          if ! git merge --no-ff --no-edit -X ours "upstream/${UPSTREAM_BRANCH}"; then
-            echo "::error::Merge failed unexpectedly (conflicts should have been resolved with -X ours)."
-            git merge --abort || true
+          NEW_SHA=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
+          echo "upstream_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
+
+          # Squash-merge: content comes across, upstream commits do not. "-X ours" keeps this
+          # fork's content wherever upstream changed the same hunk.
+          if ! git merge --squash -X ours "upstream/${UPSTREAM_BRANCH}"; then
+            echo "::error::Squash merge failed unexpectedly (conflicts should resolve to ours)."
+            git reset --hard >/dev/null
             exit 1
           fi
 
           # Restore this fork's workflow files, which are deliberately not synced.
           if [ "$PROTECT_WORKFLOWS" = "true" ]; then
-            git rm -r --ignore-unmatch .github/workflows >/dev/null
+            git rm -r -f --ignore-unmatch .github/workflows >/dev/null
             if git cat-file -e "${BASE_SHA}:.github/workflows" 2>/dev/null; then
-              git restore --source="$BASE_SHA" --staged --worktree .github/workflows
+              git checkout "$BASE_SHA" -- .github/workflows
             fi
             git add -A .github
-            if ! git diff --cached --quiet; then
-              git commit -m "chore(sync): keep fork workflow files"
-            fi
           fi
+
+          # Record how far upstream we have come, so the next run only looks at new commits.
+          mkdir -p "$(dirname "$STATE_FILE")"
+          jq -n --arg upstream "${{ steps.upstream.outputs.repo }}" \
+                --arg branch "$UPSTREAM_BRANCH" \
+                --arg sha "$NEW_SHA" \
+                --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{upstream:$upstream, branch:$branch, sha:$sha, synced_at:$at}' > "$STATE_FILE"
+          git add -A
+
+          # Guard: the Actions token cannot push a commit that modifies a workflow file.
+          # Anything still touching .github/workflows here would fail the push with a
+          # confusing "refusing to allow a GitHub App to create or update workflow" error.
+          WORKFLOW_CHANGES=$(git diff --cached --name-only | grep -E '^\.github/workflows/' || true)
+          if [ -n "$WORKFLOW_CHANGES" ]; then
+            echo "::error::Staged changes touch .github/workflows; the workflow token cannot push these:"
+            echo "$WORKFLOW_CHANGES"
+            exit 1
+          fi
+
+          COMMIT_COUNT=$(wc -l < sync-commits.txt | tr -d ' ')
+          git commit -q -m "chore(sync): upstream ${NEW_SHA:0:7} (${COMMIT_COUNT} commits)" \
+            -m "Squashed sync of ${{ steps.upstream.outputs.repo }}@${UPSTREAM_BRANCH} at ${NEW_SHA}." \
+            -m "Local content preserved (-X ours); .github/workflows kept from this fork."
 
           CHANGED=$(git diff --name-only "origin/${BASE_BRANCH}...HEAD" | wc -l | tr -d ' ')
           echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
           echo "Files differing from fork ${BASE_BRANCH}: ${CHANGED}"
-
-          git log --oneline "origin/${BASE_BRANCH}..HEAD" > sync-commits.txt || true
-          echo "--- commits to merge ---"
-          cat sync-commits.txt
+          git show --stat --oneline HEAD | head -40
 
       - name: Push sync branch
         id: push
-        if: steps.check.outputs.skip == 'false' && steps.build.outputs.changed != '0' && inputs.dry_run != true
+        if: steps.check.outputs.skip == 'false' && steps.build.outputs.changed != '0' && env.DRY_RUN != 'true'
         run: |
           git push origin "${{ steps.build.outputs.branch }}"
 
       - name: Open pull request
         id: pr
-        if: steps.check.outputs.skip == 'false' && steps.build.outputs.changed != '0' && inputs.dry_run != true
+        if: steps.check.outputs.skip == 'false' && steps.build.outputs.changed != '0' && env.DRY_RUN != 'true'
         env:
           BASE_BRANCH: ${{ steps.check.outputs.base }}
           SYNC_BRANCH: ${{ steps.build.outputs.branch }}
           UPSTREAM_REPO: ${{ steps.upstream.outputs.repo }}
           UPSTREAM_BRANCH: ${{ steps.upstream.outputs.branch }}
+          UPSTREAM_SHA: ${{ steps.build.outputs.upstream_sha }}
         run: |
-          COMMITS=$(cat sync-commits.txt 2>/dev/null | sed 's/^/- /' | head -50)
+          COMMITS=$(sed 's/^/- /' sync-commits.txt 2>/dev/null | head -50)
           {
             echo "Hourly sync of \`${UPSTREAM_REPO}/${UPSTREAM_BRANCH}\` into this fork."
             echo ""
             echo "Local content is preserved: conflicting changes keep the fork's version,"
-            echo "and this fork's \`.github/workflows/\` files are restored after the merge."
+            echo "and this fork's \`.github/workflows/\` files are kept as they are."
             echo ""
-            echo "### Upstream commits"
+            echo "The sync is a single squashed commit. Upstream commits are not imported into"
+            echo "this fork's history — the Actions token cannot push a commit that touches a"
+            echo "workflow file, and upstream's own commits do."
+            echo ""
+            echo "Upstream HEAD: \`${UPSTREAM_SHA}\`"
+            echo ""
+            echo "### Upstream commits ingested"
             echo ""
             echo "${COMMITS:-_none listed_}"
             echo ""
@@ -164,7 +217,7 @@ jobs:
           # createPullRequest mutation but is permitted on POST /repos/{owner}/{repo}/pulls.
           set +e
           RESP=$(gh api -X POST "repos/${GITHUB_REPOSITORY}/pulls" \
-            -f title="chore(sync): merge upstream $(date -u '+%Y-%m-%d %H:%M') UTC" \
+            -f title="chore(sync): upstream ${UPSTREAM_SHA:0:7} $(date -u '+%Y-%m-%d %H:%M') UTC" \
             -f head="$SYNC_BRANCH" \
             -f base="$BASE_BRANCH" \
             -f body="$(cat pr-body.md)" 2>&1)
@@ -204,8 +257,6 @@ jobs:
           git checkout -B "$TEST_BRANCH" "origin/${BASE_BRANCH}"
           git commit --allow-empty -m "chore(sync): pipeline self-test (empty commit)"
           git push origin "$TEST_BRANCH"
-
-          echo "--- diagnostics ---"
           set +e
           RESP=$(gh api -X POST "repos/${GITHUB_REPOSITORY}/pulls" \
             -f title="chore(sync): pipeline self-test ${GITHUB_RUN_ID}" \
@@ -214,8 +265,6 @@ jobs:
             -f body="Empty commit from the sync workflow self-test." 2>&1)
           RC=$?
           set -e
-          echo "REST create rc=${RC}"
-          echo "REST create response: ${RESP}"
           if [ "$RC" -ne 0 ]; then
             echo "::error::Pull request creation denied: ${RESP}"
             exit 1
@@ -250,16 +299,16 @@ jobs:
             echo "| Changed files | ${{ steps.build.outputs.changed }} |"
             echo "| PR | ${{ steps.pr.outputs.url || '—' }} |"
             echo "| Self test | ${{ inputs.self_test == true && format('Yes — {0}', steps.selftest.outputs.url) || 'No' }} |"
-            echo "| Dry run | ${{ inputs.dry_run == true && 'Yes' || 'No' }} |"
-            echo "| Protect workflows | ${{ inputs.protect_workflows == false && 'No' || 'Yes' }} |"
+            echo "| Dry run | ${DRY_RUN} |"
+            echo "| Protect workflows | ${PROTECT_WORKFLOWS} |"
             echo "| Run at | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |"
             echo ""
             if [ "${{ steps.check.outputs.skip }}" = "true" ]; then
               echo "_Already up to date — nothing to sync._"
             elif [ "${{ steps.build.outputs.changed }}" = "0" ]; then
               echo "_Upstream commits carried no content changes for this fork._"
-            elif [ "${{ inputs.dry_run }}" = "true" ]; then
-              echo "_Dry run — sync branch built but not pushed._"
+            elif [ "${DRY_RUN}" = "true" ]; then
+              echo "_Dry run — sync commit built but not pushed._"
             else
               echo "_Sync delivered via pull request and merged._"
             fi
