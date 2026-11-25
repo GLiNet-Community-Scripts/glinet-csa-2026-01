@@ -1,11 +1,15 @@
 // node worker/test/run.mjs          run the tests
 // node worker/test/run.mjs serve    serve the worker on 127.0.0.1:8787 with a KV in memory
-import worker, { validate, reportedTable, REPORT_FIELDS } from '../src/index.js';
+import worker, { validate, reportedTable, firstTraces, TRACE_SQL, REPORT_FIELDS, UPDATE_KEYS, kvMemo } from '../src/index.js';
+import { suggestionsSql } from '../tools/suggestions-sql.mjs';
+import nodeCrypto from 'node:crypto';
 import http from 'node:http';
 
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-const store = new Map(), meta = new Map();
+// The worker keeps KV values in memory for a minute; the tests change KV behind its back,
+// so every change makes it forget.
+const store = new (class extends Map { set(k, v) { kvMemo.clear(); return super.set(k, v); } delete(k) { kvMemo.clear(); return super.delete(k); } })(), meta = new Map();
 // D1 as the worker sees it, backed by a real SQLite database with the real schema
 function d1() {
   const db = new DatabaseSync(':memory:'); db.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8'));
@@ -146,20 +150,23 @@ if (process.argv[2] === 'serve') {
 
   // the script, served from the worker
   const SH = (n) => '#!/bin/sh\n# version ' + n + '\n' + 'x'.repeat(1200);
+  // the question about the newest commit carries the time, so that no cache can answer it
   const gh = { commit: 'a'.repeat(40), calls: 0, down: false };
   const before = globalThis.fetch;
   globalThis.fetch = async (u) => {
     gh.calls++;
     if (gh.down) return new Response('rate limited', { status: 403 });
-    if (String(u) === 'https://github.com/admonstrator/glinet-csa-2026-01.git/info/refs?service=git-upload-pack')
+    if (!gh.norefs && /^https:\/\/github\.com\/admonstrator\/glinet-csa-2026-01\.git\/info\/refs\?service=git-upload-pack&t=\d+$/.test(String(u)))
       return new Response(`001e# service=git-upload-pack\n0000015a${'f'.repeat(40)} HEAD\0multi_ack symref=HEAD:refs/heads/main\n003d${'e'.repeat(40)} refs/heads/feature\n003f${gh.commit} refs/heads/main\n0000`);
+    if (gh.norefs && String(u).includes('/info/refs')) return new Response('slow down', { status: 429 });
+    if (/^https:\/\/api\.github\.com\/repos\/admonstrator\/glinet-csa-2026-01\/commits\/main\?t=\d+$/.test(String(u)) && gh.api) return new Response(gh.commit + '\n');
     if (String(u) === `https://raw.githubusercontent.com/admonstrator/glinet-csa-2026-01/${gh.commit}/gl-helper-triage.sh`) return new Response(SH(gh.commit[0]));
     return new Response('not found', { status: 404 });
   };
   const waits = [];
   const ctx = { waitUntil: (p) => waits.push(p) };
   const fix = (method = 'GET', path = '/csa-2026-01-fix') => worker.fetch(new Request(`https://example.org${path}`, { method }), env, ctx);
-  const age = (ms) => { const v = JSON.parse(store.get('script/csa-2026-01-fix')); v.checked -= ms; store.set('script/csa-2026-01-fix', JSON.stringify(v)); };
+  const age = (ms) => { const v = JSON.parse(store.get('script/csa-2026-01-fix')); v.checked -= ms; store.set('script/csa-2026-01-fix', JSON.stringify(v)); store.delete('script/csa-2026-01-fix.tried'); };
   let r = await fix();
   expect('first download fetches the script from main', r.status === 200 && (await r.text()).startsWith('#!/bin/sh\n# version a') && r.headers.get('x-script-commit') === gh.commit);
   expect('it is not cached by clients', r.headers.get('cache-control') === 'no-store');
@@ -172,6 +179,11 @@ if (process.argv[2] === 'serve') {
   expect('refresh picks up the new commit', r.status === 200 && (await r.text()).trim() === gh.commit && (await (await fix()).text()).includes('# version b'));
   gh.commit = 'c'.repeat(40); age(601_000); r = await fix(); await Promise.all(waits);
   expect('an old copy is served at once and renewed in the background', (await r.text()).includes('# version b') && (await (await fix()).text()).includes('# version c'));
+  gh.norefs = true; gh.commit = 'd'.repeat(40); age(31_000); r = await fix('POST', '/csa-2026-01-fix/refresh');
+  expect('git’s way fails and nothing else answers: the copy stays, and the answer says why', (await r.text()).trim() === 'c'.repeat(40) && /refs: 429.*api: 404/.test(r.headers.get('x-refresh-error') || '') && JSON.parse(store.get('script/csa-2026-01-fix')).commit === 'c'.repeat(40));
+  gh.api = true; age(31_000); r = await fix('POST', '/csa-2026-01-fix/refresh');
+  expect('git’s way fails: the commit comes from GitHub’s API', (await r.text()).trim() === gh.commit && !r.headers.get('x-refresh-error') && (await (await fix()).text()).includes('# version d'));
+  gh.norefs = false; gh.api = false; gh.commit = 'c'.repeat(40); age(31_000); await fix('POST', '/csa-2026-01-fix/refresh');
   gh.down = true; age(601_000); r = await fix(); await Promise.all(waits);
   expect('GitHub down: the stored copy keeps being served', r.status === 200 && (await r.text()).includes('# version c') && (await fix()).status === 200);
   store.delete('script/csa-2026-01-fix'); r = await fix();
@@ -180,6 +192,12 @@ if (process.argv[2] === 'serve') {
   expect('a report cannot be posted to the script address', (await worker.fetch(new Request('https://example.org/csa-2026-01-fix', { method: 'POST', body: JSON.stringify(good) }), env, ctx)).status === 405);
   expect('the stored script is not listed as a report', !(await (await call('GET', undefined, { authorization: 'Bearer test-token' }, '/csa-2026-01-report/export')).text()).includes('#!/bin/sh'));
   expect('reports still work', (await call('POST', JSON.stringify(good))).status === 200);
+  {
+    const before = store.size;
+    const elsewhere = await Promise.all(['/', '/x', '/csa-2026-01-report/x', '/csa-2026-01-reports', '/2026-01/'].map((p) => call('POST', JSON.stringify(good), {}, p)));
+    expect('a report sent to any other address is refused and not stored', elsewhere.every((r) => r.status === 405) && store.size === before);
+    expect('the report address with a trailing slash still works', (await call('POST', JSON.stringify(good), {}, '/csa-2026-01-report/')).status === 200);
+  }
   globalThis.fetch = before;
 
   // device id (schema 4)
@@ -205,10 +223,12 @@ if (process.argv[2] === 'serve') {
     const kept = normalize({ tpl: 'compact', custom: true, items: [{ k: 'reports', p: 'overview', w: 30, h: 1 }, { k: 'gone', p: 'overview', w: 4, h: 4 }, { k: 'when', p: 'nowhere', w: 5.4, h: 'x' }], hidden: ['ports', 'gone'] });
     const at = (l, k) => l.items.find((i) => i.k === k);
     expect('a saved layout: unknown cards out, new cards in, sizes inside the grid', kept.tpl === 'compact' && kept.custom && kept.items.length === n && !at(kept, 'gone') && at(kept, 'reports').p === 'overview' && at(kept, 'reports').w === 12 && at(kept, 'reports').h === 2 && at(kept, 'when').p === 'overview' && at(kept, 'when').w === 5 && at(kept, 'when').h === 5 && JSON.stringify(kept.hidden) === '["ports"]');
-    expect('cards stay grouped by page in page order', kept.items.map((i) => PAGES.findIndex((p) => p[0] === i.p)).every((x, i, a) => !i || a[i - 1] <= x) && kept.items.filter((i) => i.p === 'overview').at(-1).k === 'course' && kept.items[0].k === 'reports');
+    expect('cards stay grouped by page in page order', kept.items.map((i) => PAGES.findIndex((p) => p[0] === i.p)).every((x, i, a) => !i || a[i - 1] <= x) && kept.items.filter((i) => i.p === 'overview').at(-1).k === 'healed' && kept.items[0].k === 'reports');
+    const plain = normalize({ tpl: 'large', custom: false, items: [{ k: 'when', p: 'overview', w: 3, h: 3 }], hidden: ['ports'] });
+    expect('a saved layout nobody changed: its template as it is now, hidden cards kept', plain.tpl === 'large' && !plain.custom && JSON.stringify(plain.items) === JSON.stringify(tplItems('large')) && JSON.stringify(plain.hidden) === '["ports"]');
     const old = migrate({ order: ['Reports', 'Is it still going on', 'Ports of the remote shells', 'Malware files', 'When it started', 'What each kind of evidence means'], hidden: ['Ports of the remote shells', 'What each kind of evidence means'], sizes: { 'When it started': 'half', 'Models and firmware': 'full', 'Devices': 'odd' } });
     const ov = old.items.filter((i) => i.p === 'overview').map((i) => i.k).join(' '), atk = old.items.filter((i) => i.p === 'attack').map((i) => i.k).join(' ');
-    expect('the layout of before: its order on each page, its hidden cards and widths', ov === 'hit shell back restart gc going when course' && atk === 'evidence ports files left' && JSON.stringify(old.hidden) === '["ports"]' && at(old, 'when').w === 6 && at(old, 'matrix').w === 12 && at(old, 'devices').w === 4 && old.custom && old.items.length === n);
+    expect('the layout of before: its order on each page, its hidden cards and widths', ov === 'hit shell back restart gc going when course healed' && atk === 'evidence ports files left' && JSON.stringify(old.hidden) === '["ports"]' && at(old, 'when').w === 6 && at(old, 'matrix').w === 12 && at(old, 'devices').w === 4 && old.custom && old.items.length === n);
     expect('nothing to take over: the standard template', JSON.stringify(migrate(null).items) === JSON.stringify(fresh.items) && !migrate('x').custom); }
   // the list of known release files is built into the page, and every entry is a SHA-256 with a name
   { const { DASHBOARD } = await import('../src/dashboard.js'); const m = /const KNOWN = (\{.*?\});/.exec(DASHBOARD); let known = {}; try { known = JSON.parse(m[1]); } catch { /* stays empty */ }
@@ -347,6 +367,31 @@ if (process.argv[2] === 'serve') {
   expect('a change from another site or as a form is refused', (await lab(safe1, { 'content-type': 'application/json', origin: 'https://evil.example' })).status === 403 && (await lab(safe1, { 'content-type': 'text/plain', origin: 'https://example.org' })).status === 403);
   expect('refuses markup in key or note, an unknown verdict and a bad fingerprint', (await lab({ ...safe1, key: '<b>' })).status === 400 && (await lab({ ...safe1, note: 'x\u0000' })).status === 400 && (await lab({ ...safe1, verdict: 'whatever' })).status === 400 && (await lab({ ...safe1, hashes: ['zz'] })).status === 400);
   expect('an empty verdict removes the label', Object.keys((await (await lab({ ...safe1, verdict: '' })).json()).labels).length === 0);
+  // suggestions: loaded as SQL, answered on the dashboard
+  {
+    const h1 = 'b'.repeat(64), h2 = 'c'.repeat(64);
+    const list = [{ key: 'changed /etc/init.d/samba4', note: 'Vendor pattern: same file on 1000 devices.', hashes: [h1] }, { key: 'new-link /usr/bin/login to=/bin/busybox', note: 'Link to busybox.', hashes: [] }, { key: 'hidden /lib/wifi/.first_time_boot', note: 'Empty marker file.', hashes: [h2] }];
+    const sql = suggestionsSql(list, { by: 'test analysis', at: '2026-11-24T15:00:00.000Z' });
+    env.DB.raw.exec(sql);
+    const j0 = await (await d('labels')).json();
+    expect('suggestions come with the labels and hide nothing', Object.keys(j0.suggestions).length === 3 && Object.keys(j0.labels).length === 0 && j0.suggestions['changed /etc/init.d/samba4'].hashes[0] === h1 && j0.suggestions['changed /etc/init.d/samba4'].by === 'test analysis' && j0.suggestions['changed /etc/init.d/samba4'].declined_by === '');
+    const yes = await (await lab({ key: list[0].key, verdict: 'safe', note: list[0].note, hashes: list[0].hashes })).json();
+    expect('a yes turns a suggestion into a label in the name of who said it', yes.labels[list[0].key].by === claims.email && yes.labels[list[0].key].hashes[0] === h1 && yes.labels[list[0].key].note === list[0].note && !yes.suggestions[list[0].key]);
+    const no = await (await lab({ key: list[1].key, verdict: 'decline', note: '', hashes: [] })).json();
+    expect('a no keeps the suggestion with who declined it, and sets no label', no.suggestions[list[1].key].declined_by === claims.email && /^2\d{3}-/.test(no.suggestions[list[1].key].declined_at) && !no.labels[list[1].key]);
+    env.DB.raw.exec(suggestionsSql(list.map((s) => ({ ...s, note: 'again' })), { by: 'second run' }));
+    const j1 = await (await d('labels')).json();
+    expect('loading the same suggestions again changes none that is there or declined', j1.suggestions[list[1].key].declined_by === claims.email && j1.suggestions[list[2].key].note === 'Empty marker file.' && j1.suggestions[list[0].key].note === 'again' && j1.labels[list[0].key].note === list[0].note);
+    expect('a no from another site is refused', (await lab({ key: list[2].key, verdict: 'decline', note: '', hashes: [] }, { 'content-type': 'application/json', origin: 'https://evil.example' })).status === 403);
+    const db = env.DB; delete env.DB;
+    expect('without the database there are no suggestions to answer', (await lab({ key: list[2].key, verdict: 'decline', note: '', hashes: [] })).status === 400 && Object.keys((await (await d('labels')).json()).suggestions).length === 0);
+    env.DB = db;
+    let thrown = 0;
+    for (const bad of [[{ key: '<b>x</b>', note: 'n', hashes: [] }], [{ key: 'changed /etc/x', note: 'ü', hashes: [] }], [{ key: 'changed /etc/x', note: 'n', hashes: ['zz'] }], [{ key: 'changed /etc/x', note: 'n', hashes: [] }, { key: 'changed /etc/x', note: 'n', hashes: [] }]]) try { suggestionsSql(bad); } catch { thrown++; }
+    expect('the SQL tool refuses what the dashboard would refuse, and a key twice', thrown === 4);
+    expect('a quote in a note cannot end the SQL string', (() => { env.DB.raw.exec(suggestionsSql([{ key: 'changed /etc/quote', note: "it's fine'); DROP TABLE labels; --", hashes: [] }])); return env.DB.raw.prepare('SELECT note FROM suggestions WHERE key = ?').get('changed /etc/quote').note.startsWith("it's") && env.DB.raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'labels'").get().n === 1; })());
+    env.DB.raw.exec('DELETE FROM labels; DELETE FROM suggestions');
+  }
   expect('a label is not taken for a report', (await (await d('data')).json()).items.length === kvReports);
   const all1 = (await (await d('data')).json());
   expect('dashboard reads the moved reports from D1', all1.items.length === kvReports && all1.cursor === '' && all1.items[0].report.model === 'GL-AXT1800');
@@ -390,21 +435,84 @@ if (process.argv[2] === 'serve') {
     expect('unknown models, the older backdoor alone, odd versions and firmware built after the attack stay out', !/zz9|4\.7\.13|4\.12\.0|script|4\.6\.0/.test(raw1));
     expect('a device counts for the firmware of its first report with traces', !raw1.includes('4.9.9'));
     expect('the table holds nothing but model, kind and versions', Object.keys(t1).join() === 'advisory,as_of,min_devices,models' && Object.keys(t1.models[0]).join() === 'model,sku,kind,firmware' && !/a0|rep00/.test(raw1));
-    rep('b4', { model: 'be9300', firmware: '4.10.1' });
+    const devices = () => JSON.parse(store.get('reported/csa-2026-01-devices'));
+    const upto = devices().upto;
+    expect('it keeps the first report with traces of each device and how far it has read', /^[0-9a-f]{64}$/.test(devices().rules) && upto === env.DB.raw.prepare('SELECT max(received) AS m FROM reports').get().m && devices().devices.some((d) => d.join() === 'a0,openwrt,mt6000,4.8.3 release2 build 540 2026-10-02'));
+    // stored a moment after a later report: the overlap still catches it
+    rep('b4', { model: 'be9300', firmware: '4.10.1' }, new Date(Date.parse(upto) - 60_000).toISOString());
     expect('the table is kept: a new report does not change it at once', !(await (await tab()).text()).includes('be9300'));
-    const kept = JSON.parse(store.get('reported/csa-2026-01')); store.set('reported/csa-2026-01', JSON.stringify({ ...kept, checked: 0 }));
-    let later; const stale = await (await tab({ waitUntil(p) { later = p; } })).text(); await later;
-    expect('after a quarter of an hour it is worked out again, behind the answer', !stale.includes('be9300') && (await (await tab()).text()).includes('"sku":"GL-BE9300","kind":"Router","firmware":["4.10.1"]'));
+    const stale = async () => { const kept = JSON.parse(store.get('reported/csa-2026-01')); store.set('reported/csa-2026-01', JSON.stringify({ ...kept, checked: 0 })); let later; const t = await (await tab({ waitUntil(p) { later = p; } })).text(); await later; return t; };
+    expect('after a quarter of an hour it is worked out again, behind the answer', !(await stale()).includes('be9300') && (await (await tab()).text()).includes('"sku":"GL-BE9300","kind":"Router","firmware":["4.10.1"]'));
+    const plan = env.DB.raw.prepare('EXPLAIN QUERY PLAN ' + TRACE_SQL).all('a', 'b').map((r) => r.detail).join();
+    expect('it reads the reports through the index on the time of receipt', /^SEARCH reports USING INDEX reports_received \(received>\? AND received<\?\)$/.test(plan));
+    // the older reports are not read again: a change to them shows only once the rules change
+    env.DB.raw.exec("UPDATE reports SET report = json_set(report, '$.ioc', 0, '$.findings', json('[]')) WHERE json_extract(report, '$.device_id') LIKE 'a_'");
+    await stale();
+    expect('a later run reads only the reports received since', (await (await tab()).text()).includes('"firmware":["4.8.2","4.8.3","4.10.0"]'));
+    store.set('reported/csa-2026-01-devices', JSON.stringify({ ...devices(), rules: 'older rules' })); await stale();
+    expect('when the rules change, all reports are read again', (await (await tab()).text()).includes('"firmware":["4.8.2","4.10.0"]'));
     expect('the table cannot be written to', (await worker.fetch(new Request('https://csa.example.org/2026-01/reported.json', { method: 'POST', body: '{}' }), env, { waitUntil() {} })).status === 405);
+    // ---- live.json: the version of the script and the table, for the pages on gl-i.net
+    {
+      const live = (path = '/2026-01/live.json', init) => worker.fetch(new Request('https://csa.example.org' + path, init), env, { waitUntil() {} });
+      await env.REPORTS.put('script/csa-2026-01-fix', JSON.stringify({ commit: 'lv', body: "#!/bin/sh\nVERSION=7.80\nRELEASED='2026-11-25 08:41 UTC'\n", checked: Date.now() }));
+      const r = await live(), raw = await r.text(), j = JSON.parse(raw), table = await (await tab()).json();
+      expect('live.json gives the version, its release time and the reported table in one answer', r.status === 200 && Object.keys(j).join() === 'script,reported' && j.script.version === '7.80' && j.script.released === '2026-11-25T08:41:00Z' && JSON.stringify(j.reported) === JSON.stringify(table));
+      expect('any page may read it, it is kept a minute and read as JSON only', r.headers.get('access-control-allow-origin') === '*' && r.headers.get('cache-control') === 'public, max-age=60' && r.headers.get('x-content-type-options') === 'nosniff' && r.headers.get('content-type').startsWith('application/json'));
+      const odd = await (await live('/2026-01/live.json?script=<b>&reported=1', { headers: { cookie: 'x=<b>', 'x-forwarded-for': '<b>' } })).text();
+      expect('live.json takes nothing from the request: parameters and headers change nothing', odd === raw);
+      expect('nothing can be sent to it', (await live('/2026-01/live.json', { method: 'POST', body: '{"script":1}' })).status === 405 && (await live('/2026-01/live.json', { method: 'PUT', body: 'x' })).status === 405 && (await live('/2026-01/live.json', { method: 'DELETE' })).status === 405);
+      await env.REPORTS.put('script/csa-2026-01-fix', JSON.stringify({ commit: 'lv', body: '#!/bin/sh\nVERSION=<b>\n', checked: Date.now() }));
+      expect('a version of an odd shape is not handed on', JSON.parse(await (await live()).text()).script === null);
+      await env.REPORTS.put('script/csa-2026-01-fix', 'null');
+    }
     const kvm = (v, i) => ({ dev: 'k' + v + i, platform: 'glkvm-RM1', model: 'rm1', firmware: 'V' + v + ' release1', ioc: 1, findings: ['process implant'] });
     const rows = [...[0, 1, 2, 3, 4].map((i) => kvm('1.10.1', i)), ...[0, 1, 2, 3, 4].map((i) => kvm('1.10.3', i))];
-    const k = reportedTable(rows, { rm1: { r: ['1.10.3', '2026-11-22'] } });
+    const k = reportedTable(firstTraces(rows), { rm1: { r: ['1.10.3', '2026-11-22'] } });
     expect('where the report gives no build day, the archive does: a release from after the attack stays out', k.length === 1 && k[0].kind === 'KVM' && k[0].sku === 'GL-RM1' && k[0].firmware.join() === '1.10.1');
   }
   // every report these tests posted: what the worker took, the schema must let through
   let took = 0, lost = 0;
   for (const body of posted) { let r; try { r = JSON.parse(body); } catch { continue; } if (validate(r) === null) { took++; if (!globalThis.fitsOpenApi(r)) lost++; } }
   expect(`the schema for Cloudflare lets through all ${took} reports of these tests that the worker takes`, took >= 5 && lost === 0);
+  // ---- the signature of the script, for its --update
+  {
+    const pair = () => { const { publicKey, privateKey } = nodeCrypto.generateKeyPairSync('ed25519'), num = nodeCrypto.randomBytes(8); return { num, privateKey, pub: Buffer.concat([Buffer.from('Ed'), num, publicKey.export({ type: 'spki', format: 'der' }).subarray(-32)]).toString('base64') }; };
+    const sign = (k, body) => 'untrusted comment: signature\n' + Buffer.concat([Buffer.from('Ed'), k.num, nodeCrypto.sign(null, Buffer.from(body), k.privateKey)]).toString('base64') + '\n';
+    const k1 = pair(), k2 = pair(), other = pair(), v1 = '#!/bin/sh\nVERSION=7.77\n# naïve: not only ASCII\n', v2 = '#!/bin/sh\nVERSION=7.78\n';
+    const serve = (body) => env.REPORTS.put('script/csa-2026-01-fix', JSON.stringify({ commit: 'c-' + body.length, body, checked: Date.now() }));
+    const sig = (method, body) => call(method, body, {}, '/csa-2026-01-fix.sig');
+    await serve(v1); env.UPDATE_PUBLIC_KEYS = k1.pub + ' ' + k2.pub;
+    expect('no signature is handed out before one was handed in', (await sig('GET')).status === 404);
+    expect('a signature made with another key, or for another text, is refused', (await sig('POST', sign(other, v1))).status === 400 && (await sig('POST', sign(k1, v2))).status === 400 && (await sig('POST', 'junk')).status === 400 && (await sig('GET')).status === 404);
+    const put = await sig('POST', sign(k1, v1)), got = await sig('GET');
+    expect('a signature that fits the script served now is taken and handed out as it came', put.status === 200 && (await put.text()).trim() === 'c-' + v1.length && got.status === 200 && (await got.text()) === sign(k1, v1));
+    expect('the spare key signs as well', (await sig('POST', sign(k2, v1))).status === 200);
+    await serve(v2);
+    expect('once another script is served, the old signature is no longer handed out', (await sig('GET')).status === 404 && (await sig('POST', sign(k1, v2))).status === 200 && (await sig('GET')).status === 200);
+    delete env.UPDATE_PUBLIC_KEYS;
+    const shKeys = (/^UPDATE_KEYS='([^']*)'$/m.exec(readFileSync(new URL('../../gl-helper-triage.sh', import.meta.url), 'utf8')) || [null, null])[1];
+    expect('the worker checks signatures with the keys the script carries', shKeys !== null && shKeys.split(/\s+/).filter(Boolean).join(' ') === UPDATE_KEYS.join(' ') && (UPDATE_KEYS.length > 0 || (await sig('POST', sign(k1, v2))).status === 400));
+    await env.REPORTS.put('script/csa-2026-01-fix', 'null'); await env.REPORTS.put('script/csa-2026-01-fix.sig', 'null');
+  }
+  // ---- KV read through memory, and KV that refuses reads
+  {
+    const kvRead = env.REPORTS.get; let reads = 0;
+    await env.REPORTS.put('script/csa-2026-01-fix', JSON.stringify({ commit: 'kv', body: '#!/bin/sh\nVERSION=7.79\n', checked: Date.now() }));
+    env.REPORTS.get = async (k) => { reads++; return kvRead(k); };
+    for (let i = 0; i < 5; i++) { await call('GET', undefined, {}, '/2026-01/'); await call('GET', undefined, {}, '/csa-2026-01-fix'); await call('GET', undefined, {}, '/2026-01/reported.json'); }
+    expect('fifteen calls to the public addresses read each key from KV once', reads === 3);
+    env.REPORTS.get = async () => { throw new Error('KV GET failed: 429 Too Many Requests'); };
+    const fromMemory = await call('GET', undefined, {}, '/csa-2026-01-fix');
+    expect('when KV refuses reads, what is known stays served', fromMemory.status === 200 && (await fromMemory.text()).includes('VERSION=7.79'));
+    kvMemo.clear();
+    const scans = env.DB.prepare; let dbCalls = 0; env.DB.prepare = (sql) => { dbCalls++; return scans(sql); };
+    const gone = await call('GET', undefined, {}, '/csa-2026-01-fix'), tab = await call('GET', undefined, {}, '/2026-01/reported.json'), page = await call('GET', undefined, {}, '/2026-01/');
+    expect('with nothing known, the script download goes to GitHub', gone.status === 302 && gone.headers.get('location') === 'https://raw.githubusercontent.com/admonstrator/glinet-csa-2026-01/main/gl-helper-triage.sh');
+    expect('the reported table answers 503 rather than reading all reports on every call', tab.status === 503 && dbCalls === 0);
+    expect('the result page is still served, without a firmware list', page.status === 200 && (await page.text()).includes('const FIRMWARE = null;'));
+    env.DB.prepare = scans; env.REPORTS.get = kvRead;
+  }
   globalThis.fetch = realFetch;
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);

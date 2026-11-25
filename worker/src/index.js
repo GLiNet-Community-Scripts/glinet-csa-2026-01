@@ -126,6 +126,33 @@ const LATEST_KEY = 'meta/csa-2026-01-latest';
 // From KV, reports are therefore handed out 40 at a time. A D1 query is one subrequest.
 const PAGE = 40;
 const DB_PAGE = 500;
+
+// The values the public addresses need (script, firmware list, reported table) are read
+// from KV through the memory of this copy of the worker: each key at most once a minute,
+// not on every call. The free plan allows 100,000 KV reads a day, and every visitor of the
+// advisory and of the result page used to cost one or two. KV itself keeps a value up to
+// a minute at each location, so nothing gets older than it already could. When KV refuses
+// a read, the last value known here is used; with none, the read fails and the caller
+// decides what to do without it.
+export const kvMemo = new Map();
+const KV_MEMO_MS = 60_000;
+async function kvGet(env, key, fresh = false) {
+  const m = kvMemo.get(key);
+  if (m && !fresh && Date.now() - m.at < KV_MEMO_MS) return m.value;
+  try {
+    const value = await env.REPORTS.get(key);
+    kvMemo.set(key, { at: Date.now(), value });
+    return value;
+  } catch (e) {
+    if (!m) throw e;
+    m.at = Date.now(); // ask KV again in a minute
+    return m.value;
+  }
+}
+async function kvPut(env, key, value) {
+  await env.REPORTS.put(key, value);
+  kvMemo.set(key, { at: Date.now(), value });
+}
 const row = (r) => ({ id: r.id, received: r.received, report: JSON.parse(r.report) });
 const kvLoad = async (env, names) =>
   (await Promise.all(names.map(async (name) => [name, await env.REPORTS.get(name)]))).filter((x) => x[1]).map(([id, v]) => ({ id, ...JSON.parse(v) }));
@@ -165,12 +192,44 @@ const labels = {
   },
 };
 
+// Suggestions: findings that an analysis of the reports takes for probably safe, each with
+// its reason and the fingerprints it covers. A suggestion hides nothing. It waits until
+// someone on the team confirms it, which sets a label in that person's name and removes
+// the suggestion, or declines it, which keeps it with who said no, so that loading the same
+// suggestions again does not bring it back. They come in as SQL (tools/suggestions-sql.mjs),
+// so only with D1; the dashboard cannot add one.
+export const SUGGESTIONS_TABLE = 'CREATE TABLE IF NOT EXISTS suggestions (key TEXT PRIMARY KEY, note TEXT NOT NULL, hashes TEXT NOT NULL, by TEXT NOT NULL, at TEXT NOT NULL, declined_by TEXT NOT NULL DEFAULT \'\', declined_at TEXT NOT NULL DEFAULT \'\')';
+let suggestionsTable = false;
+const suggestions = {
+  async ready(env) {
+    if (suggestionsTable) return;
+    await env.DB.prepare(SUGGESTIONS_TABLE).run();
+    suggestionsTable = true;
+  },
+  async all(env) {
+    if (!env.DB) return {};
+    await suggestions.ready(env);
+    const { results } = await env.DB.prepare('SELECT key, note, hashes, by, at, declined_by, declined_at FROM suggestions').all();
+    return Object.fromEntries(results.map((r) => [r.key, { note: r.note, hashes: JSON.parse(r.hashes), by: r.by, at: r.at, declined_by: r.declined_by, declined_at: r.declined_at }]));
+  },
+  // answered with a yes: the label carries it from now on
+  async drop(env, key) {
+    if (!env.DB) return;
+    await suggestions.ready(env);
+    await env.DB.prepare('DELETE FROM suggestions WHERE key = ?1').bind(key).run();
+  },
+  async decline(env, key, user) {
+    await suggestions.ready(env);
+    await env.DB.prepare("UPDATE suggestions SET declined_by = ?2, declined_at = ?3 WHERE key = ?1 AND declined_by = ''").bind(key, user, new Date().toISOString()).run();
+  },
+};
+
 // A label as the dashboard sends it. The key is a kind and a path as the reports carry
-// them; the note is plain text and shown as text.
+// them; the note is plain text and shown as text. "decline" answers a suggestion with no.
 export function validLabel(body) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return 'not an object';
   if (!(typeof body.key === 'string' && body.key.length >= 3 && body.key.length <= 200 && SAFE.test(body.key))) return 'bad key';
-  if (!['safe', ''].includes(body.verdict)) return 'bad verdict';
+  if (!['safe', '', 'decline'].includes(body.verdict)) return 'bad verdict';
   if (!(typeof body.note === 'string' && body.note.length <= 200 && /^[\x20-\x7e]*$/.test(body.note))) return 'bad note';
   if (!(Array.isArray(body.hashes) && body.hashes.length <= 60 && body.hashes.every((h) => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h)))) return 'bad hashes';
   return null;
@@ -270,6 +329,8 @@ async function migrate(request, env) {
   const items = await kvLoad(env, page.keys.map((k) => k.name));
   const insert = env.DB.prepare('INSERT OR IGNORE INTO reports (id, received, report) VALUES (?1, ?2, ?3)');
   if (items.length) await env.DB.batch(items.map((x) => insert.bind(x.id, x.received, JSON.stringify(x.report))));
+  // older reports came in: the reported table reads them all again
+  if (items.length) await env.REPORTS.put(REPORTED_DEVICES_KEY, 'null');
   const total = await env.DB.prepare('SELECT count(*) AS n FROM reports').first('n');
   return new Response(JSON.stringify({ copied: items.length, in_database: total, cursor: page.list_complete ? '' : page.cursor }) + '\n', {
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
@@ -312,7 +373,8 @@ async function dashboard(request, env, data) {
   if (!user) return text('not found', 404);
   if (data === 'labels') {
     const out = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
-    if (request.method === 'GET') return out({ labels: await labels.all(env), you: user });
+    const both = async () => out({ labels: await labels.all(env), suggestions: await suggestions.all(env), you: user });
+    if (request.method === 'GET') return both();
     // a change: only from the dashboard itself. A form on another site cannot send JSON,
     // and the browser names the page a request comes from.
     if (!(request.headers.get('content-type') || '').startsWith('application/json') || request.headers.get('origin') !== new URL(request.url).origin) return text('not from the dashboard', 403);
@@ -320,8 +382,14 @@ async function dashboard(request, env, data) {
     try { body = JSON.parse((await request.text()).slice(0, 8192)); } catch { return text('not JSON', 400); }
     const bad = validLabel(body);
     if (bad) return text(bad, 400);
+    if (body.verdict === 'decline') {
+      if (!env.DB) return text('suggestions need the database', 400);
+      await suggestions.decline(env, body.key, user);
+      return both();
+    }
     await labels.set(env, body.key, body.verdict ? { verdict: body.verdict, note: body.note, hashes: body.hashes, by: user, at: new Date().toISOString() } : null);
-    return out({ labels: await labels.all(env), you: user });
+    if (body.verdict) await suggestions.drop(env, body.key);
+    return both();
   }
   if (!data) {
     return new Response(DASHBOARD, {
@@ -358,27 +426,51 @@ const SCRIPT = 'gl-helper-triage.sh';
 const SCRIPT_KEY = 'script/csa-2026-01-fix';
 const RAW_MAIN = `https://raw.githubusercontent.com/${REPO}/main/${SCRIPT}`;
 
-async function refreshScript(env, force) {
-  const have = JSON.parse((await env.REPORTS.get(SCRIPT_KEY)) || 'null');
-  if (have && !force && Date.now() - have.checked < 600_000) return have;
-  if (have && Date.now() - have.checked < 30_000) return have;
+// Which commit main points to. First the way git asks; where that fails, GitHub's API.
+// Both addresses change with every call, so that no cache in between can answer.
+async function newestCommit(errors) {
   try {
-    const refs = await fetch(`https://github.com/${REPO}.git/info/refs?service=git-upload-pack`, { headers: { 'user-agent': 'git/2.43.0' } });
+    const refs = await fetch(`https://github.com/${REPO}.git/info/refs?service=git-upload-pack&t=${Date.now()}`, { headers: { 'user-agent': 'git/2.43.0', 'cache-control': 'no-cache' } });
     const commit = ((await refs.text()).match(/([0-9a-f]{40}) refs\/heads\/main\n/) || [])[1];
-    if (!refs.ok || !commit) throw new Error('no commit');
+    if (refs.ok && commit) return commit;
+    errors.push(`refs: ${refs.status}${commit ? '' : ', no main in the answer'}`);
+  } catch (e) { errors.push('refs: ' + String((e && e.message) || e)); }
+  try {
+    const api = await fetch(`https://api.github.com/repos/${REPO}/commits/main?t=${Date.now()}`, { headers: { 'user-agent': 'csa-2026-01-worker', accept: 'application/vnd.github.sha' } });
+    const commit = (await api.text()).trim();
+    if (api.ok && /^[0-9a-f]{40}$/.test(commit)) return commit;
+    errors.push(`api: ${api.status}`);
+  } catch (e) { errors.push('api: ' + String((e && e.message) || e)); }
+  return '';
+}
+// When a refresh was last tried without success. Kept apart from the script: writing the
+// copy back to note the time could put an older script over a newer one stored meanwhile.
+const TRIED_KEY = 'script/csa-2026-01-fix.tried';
+async function refreshScript(env, force) {
+  const have = JSON.parse((await kvGet(env, SCRIPT_KEY, true)) || 'null');
+  const last = Math.max(have ? have.checked : 0, Number((await kvGet(env, TRIED_KEY, true)) || 0));
+  if (have && !force && Date.now() - last < 600_000) return have;
+  if (have && Date.now() - last < 30_000) return have;
+  const errors = [];
+  try {
+    const commit = await newestCommit(errors);
+    if (!commit) throw new Error('no commit');
     let body = have && have.commit === commit ? have.body : null;
     if (body === null) {
       const raw = await fetch(`https://raw.githubusercontent.com/${REPO}/${commit}/${SCRIPT}`);
       body = await raw.text();
-      if (!raw.ok || !body.startsWith('#!/bin/sh') || body.length < 1000 || body.length > 500_000) throw new Error('no script');
+      if (!raw.ok) throw new Error(`file: ${raw.status}`);
+      if (!body.startsWith('#!/bin/sh') || body.length < 1000 || body.length > 500_000) throw new Error(`file: not the script (${body.length} characters)`);
     }
     const next = { commit, body, checked: Date.now() };
-    await env.REPORTS.put(SCRIPT_KEY, JSON.stringify(next));
+    await kvPut(env, SCRIPT_KEY, JSON.stringify(next));
     return next;
-  } catch {
-    // GitHub not reachable or rate limited: keep what we have, try again later
-    if (have) await env.REPORTS.put(SCRIPT_KEY, JSON.stringify({ ...have, checked: Date.now() - 570_000 }));
-    return have;
+  } catch (e) {
+    // GitHub not reachable or rate limited: keep what there is, try again in half a minute,
+    // and say why to whoever asked for the refresh
+    errors.push(String((e && e.message) || e));
+    try { await kvPut(env, TRIED_KEY, String(Date.now() - 570_000)); } catch { /* the next call tries again */ }
+    return have ? { ...have, error: errors.join('; ').replace(/[^\x20-\x7e]/g, '?').slice(0, 300) } : null;
   }
 }
 
@@ -386,10 +478,14 @@ async function script(request, env, ctx, pathname) {
   if (pathname.endsWith('/refresh')) {
     if (request.method !== 'POST') return text('method not allowed', 405);
     const now = await refreshScript(env, true);
-    return now ? text(now.commit) : text('could not reach GitHub', 502);
+    if (!now) return text('could not reach GitHub', 502);
+    // the commit served now; when the refresh failed, the header says why
+    return new Response(now.commit + '\n', { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...(now.error ? { 'x-refresh-error': now.error } : {}) } });
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
-  let have = JSON.parse((await env.REPORTS.get(SCRIPT_KEY)) || 'null');
+  let have;
+  // KV refuses and nothing is known here: GitHub serves the script, a few minutes behind at most
+  try { have = JSON.parse((await kvGet(env, SCRIPT_KEY)) || 'null'); } catch { return Response.redirect(RAW_MAIN, 302); }
   if (!have) have = await refreshScript(env, true);
   else if (Date.now() - have.checked > 600_000) ctx.waitUntil(refreshScript(env, false));
   // nothing stored and GitHub not reachable from here: send the client to GitHub itself
@@ -398,6 +494,53 @@ async function script(request, env, ctx, pathname) {
     // any page may read the script: the guide on the website shows its current version
     headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-script-commit': have.commit, 'access-control-allow-origin': '*' },
   });
+}
+
+// ---------------------------------------------------------------- the script's signature
+// "--update" of the script takes a new version only when its signature fits a key that is
+// built into the script. The signature is made where the script is published (a workflow
+// in the repository, with the key kept there as a secret) and handed in here. Anyone may
+// hand one in: it is taken only when it fits the script served now and one of the public
+// keys, and such a signature cannot be made without the key. It is kept with the
+// fingerprint of the script it is for and handed out only while that script is served.
+// The format is that of signify and usign: a comment line, then base64 of "Ed", eight
+// bytes that name the key, and the signature (in a public key file: the key).
+const SIG_KEY = 'script/csa-2026-01-fix.sig';
+// the base64 lines of the public keys, the same as UPDATE_KEYS in the script
+export const UPDATE_KEYS = ['RWT3i36dVR3XndIzvtu600f1No34ytWkFYphv+5p49dLKtEUUy3IfIDx', 'RWTjqtEa0VPVvTR3x0I/d2cCw3rN4ly+mVAnwgaEzL3j36CPwUTGhqn1'];
+const unbase64 = (s) => { try { return Uint8Array.from(atob(s), (c) => c.charCodeAt(0)); } catch { return null; } };
+const sha256hex = async (t) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+async function signatureFits(env, sigText, body) {
+  const line = String(sigText).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('untrusted comment:'))[0] || '';
+  const sig = unbase64(line);
+  if (!sig || sig.length !== 74 || sig[0] !== 0x45 || sig[1] !== 0x64) return false;
+  const keys = (env.UPDATE_PUBLIC_KEYS ? String(env.UPDATE_PUBLIC_KEYS).split(/\s+/) : UPDATE_KEYS).filter(Boolean);
+  for (const k of keys) {
+    const pub = unbase64(k);
+    if (!pub || pub.length !== 42 || pub[0] !== 0x45 || pub[1] !== 0x64) continue;
+    if (!pub.slice(2, 10).every((x, i) => x === sig[2 + i])) continue; // made with another key
+    try {
+      const key = await crypto.subtle.importKey('raw', pub.slice(10), { name: 'Ed25519' }, false, ['verify']);
+      if (await crypto.subtle.verify({ name: 'Ed25519' }, key, sig.slice(10), new TextEncoder().encode(body))) return true;
+    } catch { /* not a key this runtime takes */ }
+  }
+  return false;
+}
+async function signature(request, env) {
+  let have = JSON.parse((await kvGet(env, SCRIPT_KEY, true)) || 'null');
+  if (request.method === 'POST') {
+    const sigText = (await request.text()).slice(0, 1024);
+    // the signature may be for a version this worker has not fetched yet
+    if (!have || !(await signatureFits(env, sigText, have.body))) have = await refreshScript(env, true);
+    if (!have) return text('could not reach GitHub', 502);
+    if (!(await signatureFits(env, sigText, have.body))) return text('this signature does not fit the script served now', 400);
+    await kvPut(env, SIG_KEY, JSON.stringify({ sha: await sha256hex(have.body), sig: sigText }));
+    return text(have.commit);
+  }
+  if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
+  const kept = JSON.parse((await kvGet(env, SIG_KEY, true)) || 'null');
+  if (!have || !kept || kept.sha !== (await sha256hex(have.body))) return text('no signature for the script served now', 404);
+  return new Response(request.method === 'HEAD' ? null : kept.sig, { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' } });
 }
 
 // The page that explains a result of the script in plain words, in English, German and
@@ -427,27 +570,38 @@ async function refreshFirmware(env, have) {
     if (Object.keys(models).length < 5) throw new Error('too few models');
     const stamp = new Date(res.headers.get('last-modified') || Date.now()), asof = isNaN(stamp) ? '' : stamp.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
     const next = { checked: Date.now(), asof, models };
-    await env.REPORTS.put(FIRMWARE_KEY, JSON.stringify(next));
+    await kvPut(env, FIRMWARE_KEY, JSON.stringify(next));
     return next;
   } catch {
-    if (have) await env.REPORTS.put(FIRMWARE_KEY, JSON.stringify({ ...have, checked: Date.now() - 3000_000 }));
+    if (have) await kvPut(env, FIRMWARE_KEY, JSON.stringify({ ...have, checked: Date.now() - 3000_000 }));
     return have;
   }
 }
+// When KV refuses and nothing is known here, this fails: no list, rather than the archive
+// asked and the list written on every call.
 async function firmwareList(env, ctx) {
+  const raw = await kvGet(env, FIRMWARE_KEY);
   let have = null;
-  try { have = JSON.parse((await env.REPORTS.get(FIRMWARE_KEY)) || 'null'); } catch { have = null; }
+  try { have = JSON.parse(raw || 'null'); } catch { have = null; }
   if (!have) return refreshFirmware(env, null);
   if (Date.now() - have.checked > 3600_000) ctx.waitUntil(refreshFirmware(env, have));
   return have;
+}
+
+// The version of a stored script and its release time ("2026-11-24T14:41:00Z", or ''), from
+// its VERSION= and RELEASED= lines; null when there is none.
+function servedVersion(have) {
+  const v = have && /^VERSION=(\d{1,2}\.\d{1,3})$/m.exec(have.body);
+  if (!v) return null;
+  const d = /^RELEASED='(\d{4}-\d\d-\d\d) (\d\d:\d\d) UTC'$/m.exec(have.body);
+  return { version: v[1], released: d ? `${d[1]}T${d[2]}:00Z` : '' };
 }
 
 async function resultPage(request, env, ctx) {
   if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
   let current = '';
   try {
-    const have = JSON.parse((await env.REPORTS.get(SCRIPT_KEY)) || 'null');
-    current = ((have && /^VERSION=(\d{1,2}\.\d{1,3})$/m.exec(have.body)) || [])[1] || '';
+    current = (servedVersion(JSON.parse((await kvGet(env, SCRIPT_KEY)) || 'null')) || {}).version || '';
   } catch { /* not known: the page then says nothing about versions */ }
   let fw = null;
   try { fw = await firmwareList(env, ctx); } catch { fw = null; }
@@ -482,6 +636,13 @@ async function resultPage(request, env, ctx) {
 // script that sent the report did not know it yet.
 // Worked out at most every 15 minutes and kept in KV in between.
 const REPORTED_KEY = 'reported/csa-2026-01';
+// Which device had its first report with traces on which firmware, and up to which time of
+// receipt the reports have been read, kept in KV apart from the table. Each run then reads
+// only the reports received since, through the index on "received", not all of them. Two
+// minutes of overlap catch a report stored a moment after a later one. When the rules
+// below change, or the copy is missing, all reports are read once more.
+const REPORTED_DEVICES_KEY = 'reported/csa-2026-01-devices';
+const REPORTED_OVERLAP = 120_000;
 const REPORTED_MIN = 5;
 const REPORTED_EVERY = 900_000;
 const ATTACK_DAY = '2026-11-20';
@@ -496,13 +657,17 @@ function attackTrace(r) {
   return r.platform === 'openwrt' && r.astrowarp !== 'on' && (r.state_file_size == null || r.state_file_size === 0) && at >= Date.parse(ATTACK_DAY);
 }
 
-// rows: one per report, oldest first. fw: the models of the firmware list.
-export function reportedTable(rows, fw, min = REPORTED_MIN) {
-  const first = new Map();
+// rows: one per report, oldest first. Adds each device's first report with traces to "first".
+export function firstTraces(rows, first = new Map()) {
   for (const r of rows) {
     if (typeof r.dev !== 'string' || !r.dev || first.has(r.dev) || !attackTrace(r)) continue;
-    first.set(r.dev, r);
+    first.set(r.dev, { platform: r.platform, model: r.model, firmware: r.firmware });
   }
+  return first;
+}
+
+// first: as firstTraces gives it. fw: the models of the firmware list.
+export function reportedTable(first, fw, min = REPORTED_MIN) {
   const cells = new Map();
   for (const [dev, r] of first) {
     const kind = r.platform === 'openwrt' ? 'Router' : String(r.platform).startsWith('glkvm') ? 'KVM' : '';
@@ -526,39 +691,75 @@ export function reportedTable(rows, fw, min = REPORTED_MIN) {
   return [...models.values()].sort((a, b) => (a.model < b.model ? -1 : 1)).map((m) => ({ ...m, firmware: m.firmware.sort((a, b) => (verKey(a) < verKey(b) ? -1 : 1)) }));
 }
 
+// only what the table needs, and only reports that can count, received in (?1, ?2]
+const xj = (f) => `json_extract(report, '$.${f}')`;
+export const TRACE_SQL =
+  `SELECT ${xj('device_id')} AS dev, ${xj('model')} AS model, ${xj('firmware')} AS firmware, ${xj('platform')} AS platform, ${xj('ioc')} AS ioc, ${xj('findings')} AS findings, ` +
+  `${xj('astrowarp')} AS astrowarp, ${xj('state_file_size')} AS state_file_size, ${xj('state_file_time')} AS state_file_time FROM reports ` +
+  `WHERE received > ?1 AND received <= ?2 AND ${xj('device_id')} != '' AND (${xj('ioc')} > 0 OR ${xj('state_file_time')} != '') ORDER BY received, id`;
+
 async function refreshReported(env, ctx, have) {
   try {
     const fw = await firmwareList(env, ctx);
     if (!fw || !fw.models) throw new Error('no firmware list');
-    const x = (f) => `json_extract(report, '$.${f}')`;
-    // only what the table needs, and only reports that can count
-    const { results } = await env.DB.prepare(
-      `SELECT ${x('device_id')} AS dev, ${x('model')} AS model, ${x('firmware')} AS firmware, ${x('platform')} AS platform, ${x('ioc')} AS ioc, ${x('findings')} AS findings, ` +
-        `${x('astrowarp')} AS astrowarp, ${x('state_file_size')} AS state_file_size, ${x('state_file_time')} AS state_file_time FROM reports ` +
-        `WHERE ${x('device_id')} != '' AND (${x('ioc')} > 0 OR ${x('state_file_time')} != '') ORDER BY received, id`,
-    ).all();
+    const rules = await sha256hex([attackTrace, firstTraces, NOT_TRACE, ATTACK_DAY, TRACE_SQL].join('\n'));
+    // when KV refuses, this throws: better to wait than to read all reports on every call
+    const keptRaw = await env.REPORTS.get(REPORTED_DEVICES_KEY);
+    let kept = null;
+    try { kept = JSON.parse(keptRaw || 'null'); } catch { kept = null; }
+    const again = !kept || kept.rules !== rules || !(Date.parse(kept.upto) > 0) || !Array.isArray(kept.devices);
+    const first = new Map(again ? [] : kept.devices.map(([dev, platform, model, firmware]) => [dev, { platform, model, firmware }]));
+    // the newest report now, read from the index: one row
+    const upto = (await env.DB.prepare('SELECT max(received) AS latest FROM reports').first('latest')) || '';
+    const from = again ? '' : new Date(Date.parse(kept.upto) - REPORTED_OVERLAP).toISOString();
+    const { results } = await env.DB.prepare(TRACE_SQL).bind(from, upto).all();
     for (const r of results) { try { r.findings = JSON.parse(r.findings || '[]'); } catch { r.findings = []; } }
-    const next = { checked: Date.now(), body: { advisory: 'CSA-2026-01', as_of: new Date().toISOString().slice(0, 16) + 'Z', min_devices: REPORTED_MIN, models: reportedTable(results, fw.models) } };
-    await env.REPORTS.put(REPORTED_KEY, JSON.stringify(next));
+    firstTraces(results, first);
+    if (again || upto !== kept.upto) await env.REPORTS.put(REPORTED_DEVICES_KEY, JSON.stringify({ rules, upto, devices: [...first].map(([dev, d]) => [dev, d.platform, d.model, d.firmware]) }));
+    const next = { checked: Date.now(), body: { advisory: 'CSA-2026-01', as_of: new Date().toISOString().slice(0, 16) + 'Z', min_devices: REPORTED_MIN, models: reportedTable(first, fw.models) } };
+    await kvPut(env, REPORTED_KEY, JSON.stringify(next));
     return next;
   } catch {
     // keep what there is, and try again in a few minutes rather than on every call
-    if (have) await env.REPORTS.put(REPORTED_KEY, JSON.stringify({ ...have, checked: Date.now() - REPORTED_EVERY + 180_000 }));
+    if (have) await kvPut(env, REPORTED_KEY, JSON.stringify({ ...have, checked: Date.now() - REPORTED_EVERY + 180_000 }));
     return have || null;
   }
 }
 
-async function reported(request, env, ctx) {
-  if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
-  if (!env.DB) return text('not available', 503);
+// The table as kept, worked out again behind the answer once it is older than a quarter of
+// an hour. null without the database, or when KV refuses and nothing is known here: then
+// the advisory shows its own table.
+async function reportedNow(env, ctx) {
+  if (!env.DB) return null;
+  let raw;
+  try { raw = await kvGet(env, REPORTED_KEY); } catch { return null; }
   let have = null;
-  try { have = JSON.parse((await env.REPORTS.get(REPORTED_KEY)) || 'null'); } catch { have = null; }
+  try { have = JSON.parse(raw || 'null'); } catch { have = null; }
   if (!have) have = await refreshReported(env, ctx, null);
   else if (Date.now() - have.checked > REPORTED_EVERY) ctx.waitUntil(refreshReported(env, ctx, have));
-  if (!have) return text('not available', 503);
-  return new Response(request.method === 'HEAD' ? null : JSON.stringify(have.body) + '\n', {
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=300', 'access-control-allow-origin': '*', 'x-content-type-options': 'nosniff' },
+  return have ? have.body : null;
+}
+
+const openJson = (request, body, maxAge) =>
+  new Response(request.method === 'HEAD' ? null : JSON.stringify(body) + '\n', {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': `public, max-age=${maxAge}`, 'access-control-allow-origin': '*', 'x-content-type-options': 'nosniff' },
   });
+
+async function reported(request, env, ctx) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
+  const body = await reportedNow(env, ctx);
+  return body ? openJson(request, body, 300) : text('not available', 503);
+}
+
+// For the advisory and the fix guide on gl-i.net: the version of the script served now
+// and its release time, with the reported table, in one small answer. Before, a reader's
+// browser fetched the whole script for its version and the table in a second call. Read
+// from memory and KV like the rest; a part that is not known is null.
+async function live(request, env, ctx) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return text('method not allowed', 405);
+  let script = null;
+  try { script = servedVersion(JSON.parse((await kvGet(env, SCRIPT_KEY)) || 'null')); } catch { script = null; }
+  return openJson(request, { script, reported: await reportedNow(env, ctx) }, 60);
 }
 
 export default {
@@ -569,11 +770,14 @@ export default {
     if (pathname === '/2026-01/') return resultPage(request, env, ctx);
     // the table for the advisory: models and firmware versions with traces, by the reports
     if (pathname === '/2026-01/reported.json') return reported(request, env, ctx);
+    // the version of the script and the table, for the pages on gl-i.net
+    if (pathname === '/2026-01/live.json') return live(request, env, ctx);
     if (/^\/(csa-)?2026-01\/?$/.test(pathname)) return Response.redirect(new URL('/2026-01/', request.url).href, 302);
     // On csa.gl-i.net the page is also the front door: csa.gl-i.net/#AA006011D is what the
     // script prints. A code typed without the "#" arrives as the path; the page then moves
     // it behind the "#" itself.
     if (hostname.startsWith('csa.') && (pathname === '/' || /^\/[0-9A-Za-z-]{9,16}$/.test(pathname))) return resultPage(request, env, ctx);
+    if (/\/csa-2026-01-fix\.sig$/.test(pathname)) return signature(request, env);
     if (/\/csa-2026-01-fix(\/|$)/.test(pathname)) return script(request, env, ctx, pathname);
     if (pathname.endsWith('/migrate')) {
       // a browser, or curl without -X POST, sends GET and would only see the text below
@@ -581,7 +785,10 @@ export default {
       return migrate(request, env);
     }
     if (pathname.endsWith('/dashboard/labels') && (request.method === 'GET' || request.method === 'POST')) return dashboard(request, env, 'labels');
-    if (request.method === 'POST') return submit(request, env);
+    // Reports are taken only at the address the script sends to. A POST anywhere else stores
+    // nothing, so a rate limit on this one path (a Cloudflare rule, ahead of the worker)
+    // covers every way in.
+    if (request.method === 'POST' && /^\/csa-2026-01-report\/?$/.test(pathname)) return submit(request, env);
     if (request.method === 'GET' && pathname.endsWith('/export')) return exportReports(request, env);
     if (request.method === 'GET' && /\/dashboard\/?$/.test(pathname)) return dashboard(request, env, false);
     if (request.method === 'GET' && pathname.endsWith('/dashboard/data')) return dashboard(request, env, true);

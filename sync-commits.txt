@@ -1,0 +1,62 @@
+7975623 Worker: reports only at their own address, workers.dev off, notes on the rate limit
+df8cf82 Worker: live.json, the version of the script and the reported table in one answer
+8c56258 Worker README: the free plan's KV reads and calls
+ee425d6 Worker: KV read through memory, and a way on when KV refuses reads
+a0d4563 Worker: the reported table reads only the reports received since its last run
+9d17f29 Merge remote-tracking branch 'origin/main'
+bf41412 Worker: suggestions for the safe list, answered on the dashboard
+b11da96 Dashboard: devices clean on a later check, fixes for phone and tablet
+a2d29fa Result page: new keys after a clean result, GL-RM10 release8, attack window from November 19
+d0fb534 2.55: release time
+ecfa776 2.55: final review fixes
+3b51731 2.55: findings of the targeted re-check
+da92c39 2.55: findings of the second review
+6985c47 2.55: fixes from the full review before release
+650d91c 2.55: --changes lists the files that differ from the base image
+43f376a 2.55: findings of issue 25
+797c943 README: link GL.iNet's SSH guide, switch SSH off again after triage
+304b06b README: cut to the essentials, move the rest into docs/
+86da44f README: move the details into docs/
+3fa39f5 README: shorten long blocks, fix list nesting, American English, link the guide
+d25ef3b README: replace unidiomatic English wording
+3a57bef Script 2.54: released
+38a719b 2.54: echo into firewall.user, KVM boot scripts and relative targets
+77a8b38 2.54: what the third look at the quote reading found
+fcb5dfc 2.54: read quotes per line, with the plain reading kept
+f25155a Script 2.54: what the second look at the review's fixes found
+70ef171 README: what the fixes of the last review change
+e9654ad Script 2.54: --fix without a base image takes out only the malware's lines
+15d6c23 Script 2.54: an empty state file after the build day counts unless the module wrote it
+cf28c63 Script 2.54: owners who block the older backdoor's servers are not infected
+8836f2c Script 2.54: quotes and here-documents are read as sh reads them
+aa75818 Script 2.54: a written cron entry starts the malware again; a plainer note
+59011cf Merge 2.53's command -v fix (20367f5) into 2.54
+20367f5 2.53: command -v and -V start nothing
+9cfe9d9 Merge 2.53's cross-check (03eff0d) into 2.54
+abe977d Script 2.54: the last check of the review's fixes
+03eff0d 2.53: probes, uploads, $( ), commented \ and unblock lines (cross-check)
+ee2f614 Script 2.54: what the check of the review's fixes found
+c46c5da Script 2.54: what the independent review found
+5377213 Script 2.54: the packer's name is found behind NUL bytes under busybox too
+561f123 Script 2.54: RemoteToHome's findings, as far as they show no weakness
+e611b95 Merge remote-tracking branch 'origin/claude/project-thread-cytkke' into claude/project-thread-6uf4fl
+6628dae Script 2.54 (in progress): RemoteToHome's findings that show no weakness
+cfc72bd Script 2.53: what a second review of the whole script found
+80265c5 Script 2.53: what an independent review of the whole script found
+bd3bba4 Script 2.53: a server or path of the malware that is only named is no trace of it
+dd2ae38 Script 2.52: --fix no longer reports a device as clean while /etc/rtty_conf names the attacker's server
+b391d09 Result page: the command that gets the current script is set as a command
+62cfe30 Worker: a second way to the newest commit, and a refresh that says why it failed
+47e8f47 Worker: ask GitHub for the newest commit in a way no cache can answer
+1ff8fdd Script 2.51: every run says how old it is and how to update; the result page too
+6e6fa2c Publish: take the signing key also when only its key line was stored
+8be3157 Script 2.50: --update, with the two public keys built in
+ddec026 README: how the script updates itself, and how its signature is made and kept
+3faac87 A tool the shell runs from inside itself counts as usable
+297504e Tests: show what --update said when its first test fails
+adbfc8b Update: where the signature cannot be checked, say so and ask
+80fc43b An update for the script, taken only with a good signature
+366b507 Script 2.49: names in binary files are read past NUL bytes (issue 24)
+b7e55e5 Script: the rules for every check, written down where the tools are set up
+6161a10 Read names in binary files past NUL bytes (issue 24)
+54fa942 Tests: names behind NUL bytes in binary files (issue 24)
