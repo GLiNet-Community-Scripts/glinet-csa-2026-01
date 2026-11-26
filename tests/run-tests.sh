@@ -887,7 +887,7 @@ mkdir -p "$U/usr/sbin"
 mnt "$D" "$OWS"
 rm "$D/m/usr/sbin/tailscale" "$D/m/usr/sbin/tailscaled"; printf 'ELF 1.104.7-tcbc74fe48-tiny.by.admon.1463 more\n' >"$D/m/usr/sbin/tailscaled"; ln -s /usr/sbin/tailscaled "$D/m/usr/sbin/tailscale"
 run "$D" "$OWS" --check >"$D/check.txt"; rc=$?
-expect "the uncompressed build is recognised by its version string: INFO for both files" '[ $rc = 0 ] && grep -q "INFO  *updater-file  */usr/sbin/tailscaled" "$D/check.txt" && grep -q "INFO  *updater-file  */usr/sbin/tailscale$" "$D/check.txt" && ! grep -q "REVIEW.*tailscale" "$D/check.txt"'
+expect "the uncompressed build is recognized by its version string: INFO for both files" '[ $rc = 0 ] && grep -q "INFO  *updater-file  */usr/sbin/tailscaled" "$D/check.txt" && grep -q "INFO  *updater-file  */usr/sbin/tailscale$" "$D/check.txt" && ! grep -q "REVIEW.*tailscale" "$D/check.txt"'
 printf 'ELF UPX! packed\n' >"$D/m/usr/sbin/tailscaled"
 run "$D" "$OWS" --check >"$D/check.txt"
 expect "a compressed build without the updater's traces stays REVIEW" 'grep -q "REVIEW  *modified-binary  */usr/sbin/tailscaled" "$D/check.txt"'
