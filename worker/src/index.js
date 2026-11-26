@@ -5,6 +5,7 @@
 
 import { DASHBOARD } from './dashboard.js';
 import { RESULT } from './result.js';
+import { KNOWN_RELEASE_HASHES } from './known.js';
 
 const MAX_BYTES = 49152;
 const SAFE = /^[A-Za-z0-9 ._:\/+@=,()-]*$/;
@@ -108,6 +109,32 @@ async function sealDeviceId(env, id) {
 const text = (body, status = 200) =>
   new Response(body + '\n', { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 
+// The body of a request as bytes, at most max of them. A content-length above that is
+// refused before anything is read; otherwise the body is read as a stream and given up as
+// soon as more than max bytes arrived, so a missing or false content-length cannot bring a
+// large body into memory. null: too large.
+async function readCapped(request, max) {
+  const declared = request.headers.get('content-length');
+  if (declared !== null && /^\d+$/.test(declared.trim()) && Number(declared.trim()) > max) return null;
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader(), parts = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      try { await reader.cancel(); } catch { /* the answer is the same */ }
+      return null;
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.byteLength; }
+  return out;
+}
+
 export function validate(report) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return 'not an object';
   const fields = report.schema === 10 ? FIELDS_V10 : report.schema === 9 ? FIELDS_V9 : report.schema === 8 ? FIELDS_V8 : report.schema === 7 ? FIELDS_V7 : report.schema === 6 ? FIELDS_V6 : report.schema === 5 ? FIELDS_V5 : report.schema === 4 ? FIELDS_V4 : report.schema === 3 ? FIELDS_V3 : report.schema === 2 ? FIELDS_V2 : FIELDS;
@@ -157,25 +184,38 @@ const row = (r) => ({ id: r.id, received: r.received, report: JSON.parse(r.repor
 const kvLoad = async (env, names) =>
   (await Promise.all(names.map(async (name) => [name, await env.REPORTS.get(name)]))).filter((x) => x[1]).map(([id, v]) => ({ id, ...JSON.parse(v) }));
 
-// What the team says about a finding that the scripts listed for review: "probably safe",
-// with a note. The dashboard then hides it unless asked. Everyone who may open the
-// dashboard may set and remove a label, and each label records who set it (the address
-// Cloudflare Access signed in). One label per kind and path; it remembers the fingerprints it
-// was given for, so a new file at a path that was called harmless shows up again.
-// Kept in D1 (the table is created on first use) or, without D1, in one KV entry.
+// What the team says about a finding that the scripts listed for review, with a note:
+// "probably safe" (verdict safe: the dashboard then hides it unless asked), "probably not
+// safe" (unsafe) or "known malware" (malware). Everyone who may open the dashboard may set
+// and remove a label, and each label records who set it (the address Cloudflare Access
+// signed in). One label per kind and path; it remembers the fingerprints it was given for,
+// so a new file at a path that was called harmless shows up again, unless the label holds
+// for every file at its path (every). Kept in D1 (the table is created on first use, the
+// column every added to an older one) or, without D1, in one KV entry.
 const LABELS_KEY = 'meta/csa-2026-01-labels';
+export const LABELS_TABLE = 'CREATE TABLE IF NOT EXISTS labels (key TEXT PRIMARY KEY, verdict TEXT NOT NULL, note TEXT NOT NULL, hashes TEXT NOT NULL, by TEXT NOT NULL, at TEXT NOT NULL, every INTEGER NOT NULL DEFAULT 0)';
 let labelsTable = false;
 const labels = {
   async ready(env) {
     if (labelsTable) return;
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS labels (key TEXT PRIMARY KEY, verdict TEXT NOT NULL, note TEXT NOT NULL, hashes TEXT NOT NULL, by TEXT NOT NULL, at TEXT NOT NULL)').run();
+    await env.DB.prepare(LABELS_TABLE).run();
+    // the column every for a table from before it: added once, and any other error of the
+    // ALTER counts, so that the next request tries again (review of 2.61)
+    const has = async () => (await env.DB.prepare('PRAGMA table_info(labels)').all()).results.some((c) => c.name === 'every');
+    if (!(await has())) {
+      try {
+        await env.DB.prepare('ALTER TABLE labels ADD COLUMN every INTEGER NOT NULL DEFAULT 0').run();
+      } catch (e) {
+        if (!(await has())) throw e; // else another isolate added it at the same moment
+      }
+    }
     labelsTable = true;
   },
   async all(env) {
     if (env.DB) {
       await labels.ready(env);
-      const { results } = await env.DB.prepare('SELECT key, verdict, note, hashes, by, at FROM labels').all();
-      return Object.fromEntries(results.map((r) => [r.key, { verdict: r.verdict, note: r.note, hashes: JSON.parse(r.hashes), by: r.by, at: r.at }]));
+      const { results } = await env.DB.prepare('SELECT key, verdict, note, hashes, every, by, at FROM labels').all();
+      return Object.fromEntries(results.map((r) => [r.key, { verdict: r.verdict, note: r.note, hashes: JSON.parse(r.hashes), every: Number(r.every) === 1, by: r.by, at: r.at }]));
     }
     return JSON.parse((await env.REPORTS.get(LABELS_KEY)) || '{}');
   },
@@ -183,12 +223,47 @@ const labels = {
     if (env.DB) {
       await labels.ready(env);
       if (!label) await env.DB.prepare('DELETE FROM labels WHERE key = ?1').bind(key).run();
-      else await env.DB.prepare('INSERT OR REPLACE INTO labels (key, verdict, note, hashes, by, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)').bind(key, label.verdict, label.note, JSON.stringify(label.hashes), label.by, label.at).run();
-      return;
+      else await env.DB.prepare('INSERT OR REPLACE INTO labels (key, verdict, note, hashes, every, by, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)').bind(key, label.verdict, label.note, JSON.stringify(label.hashes), label.every ? 1 : 0, label.by, label.at).run();
+    } else {
+      const all = JSON.parse((await env.REPORTS.get(LABELS_KEY)) || '{}');
+      if (label) all[key] = label; else delete all[key];
+      await env.REPORTS.put(LABELS_KEY, JSON.stringify(all));
     }
-    const all = JSON.parse((await env.REPORTS.get(LABELS_KEY)) || '{}');
-    if (label) all[key] = label; else delete all[key];
-    await env.REPORTS.put(LABELS_KEY, JSON.stringify(all));
+    // after the write: a check that read the marks before it keeps nothing (checkMarks)
+    markCache.gen++;
+    markCache.map = null;
+  },
+};
+
+// Suggestions: findings that an analysis of the reports takes for probably safe, each with
+// its reason and the fingerprints it covers. A suggestion hides nothing. It waits until
+// someone on the team confirms it, which sets a label in that person's name and removes
+// the suggestion, or declines it, which keeps it with who said no, so that loading the same
+// suggestions again does not bring it back. They come in as SQL (tools/suggestions-sql.mjs),
+// so only with D1; the dashboard cannot add one.
+export const SUGGESTIONS_TABLE = 'CREATE TABLE IF NOT EXISTS suggestions (key TEXT PRIMARY KEY, note TEXT NOT NULL, hashes TEXT NOT NULL, by TEXT NOT NULL, at TEXT NOT NULL, declined_by TEXT NOT NULL DEFAULT \'\', declined_at TEXT NOT NULL DEFAULT \'\')';
+let suggestionsTable = false;
+const suggestions = {
+  async ready(env) {
+    if (suggestionsTable) return;
+    await env.DB.prepare(SUGGESTIONS_TABLE).run();
+    suggestionsTable = true;
+  },
+  async all(env) {
+    if (!env.DB) return {};
+    await suggestions.ready(env);
+    const { results } = await env.DB.prepare('SELECT key, note, hashes, by, at, declined_by, declined_at FROM suggestions').all();
+    return Object.fromEntries(results.map((r) => [r.key, { note: r.note, hashes: JSON.parse(r.hashes), by: r.by, at: r.at, declined_by: r.declined_by, declined_at: r.declined_at }]));
+  },
+  // answered with a yes: the label carries it from now on
+  async drop(env, key) {
+    if (!env.DB) return;
+    await suggestions.ready(env);
+    await env.DB.prepare('DELETE FROM suggestions WHERE key = ?1').bind(key).run();
+  },
+  async decline(env, key, user) {
+    await suggestions.ready(env);
+    await env.DB.prepare("UPDATE suggestions SET declined_by = ?2, declined_at = ?3 WHERE key = ?1 AND declined_by = ''").bind(key, user, new Date().toISOString()).run();
   },
 };
 
@@ -232,6 +307,16 @@ export function validLabel(body) {
   if (!['safe', '', 'decline'].includes(body.verdict)) return 'bad verdict';
   if (!(typeof body.note === 'string' && body.note.length <= 200 && /^[\x20-\x7e]*$/.test(body.note))) return 'bad note';
   if (!(Array.isArray(body.hashes) && body.hashes.length <= 60 && body.hashes.every((h) => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h)))) return 'bad hashes';
+  if (body.every !== undefined && typeof body.every !== 'boolean') return 'bad every';
+  return null;
+}
+
+// A file the dashboard puts on the community list as malware, at any path, or takes off it.
+export function validBadHash(body) {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return 'not an object';
+  if (!(typeof body.sha256 === 'string' && /^[0-9a-f]{64}$/.test(body.sha256))) return 'bad sha256';
+  if (!['malware', ''].includes(body.verdict)) return 'bad verdict';
+  if (!(typeof body.note === 'string' && body.note.length <= 200 && /^[\x20-\x7e]*$/.test(body.note))) return 'bad note';
   return null;
 }
 
@@ -287,8 +372,9 @@ const reports = {
 };
 
 async function submit(request, env) {
-  const raw = await request.text();
-  if (raw.length > MAX_BYTES) return text('too large', 413);
+  const body = await readCapped(request, MAX_BYTES);
+  if (!body) return text('too large', 413);
+  const raw = new TextDecoder().decode(body);
   let report;
   try {
     report = JSON.parse(raw);
@@ -371,7 +457,7 @@ export async function accessUser(request, env) {
 async function dashboard(request, env, data) {
   const user = await accessUser(request, env);
   if (!user) return text('not found', 404);
-  if (data === 'labels') {
+  if (data === 'labels' || data === 'bad-hashes') {
     const out = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
     const both = async () => out({ labels: await labels.all(env), suggestions: await suggestions.all(env), you: user });
     if (request.method === 'GET') return both();
@@ -380,6 +466,13 @@ async function dashboard(request, env, data) {
     if (!(request.headers.get('content-type') || '').startsWith('application/json') || request.headers.get('origin') !== new URL(request.url).origin) return text('not from the dashboard', 403);
     let body;
     try { body = JSON.parse((await request.text()).slice(0, 8192)); } catch { return text('not JSON', 400); }
+    if (data === 'bad-hashes') {
+      const wrong = validBadHash(body);
+      if (wrong) return text(wrong, 400);
+      if (!env.DB) return text('the list needs the database', 400);
+      await badHashes.set(env, body.sha256, body.verdict ? { note: body.note || 'marked on the dashboard', by: user, at: new Date().toISOString() } : null);
+      return both();
+    }
     const bad = validLabel(body);
     if (bad) return text(bad, 400);
     if (body.verdict === 'decline') {
@@ -779,6 +872,10 @@ export default {
     if (hostname.startsWith('csa.') && (pathname === '/' || /^\/[0-9A-Za-z-]{9,16}$/.test(pathname))) return resultPage(request, env, ctx);
     if (/\/csa-2026-01-fix\.sig$/.test(pathname)) return signature(request, env);
     if (/\/csa-2026-01-fix(\/|$)/.test(pathname)) return script(request, env, ctx, pathname);
+    // the fingerprint check (docs/lookup.md), for every method: a POST there is never a
+    // report. Only at this one address, like the reports, so that a rate limit on its path
+    // covers every way in.
+    if (pathname === '/csa-2026-01-report/lookup') return lookup(request, env, ctx);
     if (pathname.endsWith('/migrate')) {
       // a browser, or curl without -X POST, sends GET and would only see the text below
       if (request.method !== 'POST') return text('This address needs POST: curl -X POST -H "Authorization: Bearer <EXPORT_TOKEN>" <this address>', 405);

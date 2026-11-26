@@ -4,6 +4,7 @@ import worker, { validate, reportedTable, firstTraces, TRACE_SQL, REPORT_FIELDS,
 import { suggestionsSql } from '../tools/suggestions-sql.mjs';
 import nodeCrypto from 'node:crypto';
 import http from 'node:http';
+import { execFileSync } from 'node:child_process';
 
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -49,14 +50,40 @@ const call = (method, body, headers = {}, path = '/csa-2026-01-report') =>
   worker.fetch(new Request(`https://example.org${path}`, { method, body, headers }), env, { waitUntil() {} });
 
 if (process.argv[2] === 'serve') {
+  // With a D1 in memory and the fingerprint check switched on, so that the script can be
+  // run against the real worker: point it at http://127.0.0.1:8787/csa-2026-01-report/lookup.
+  // A seed file fills the check:
+  //   { "labels": { "<kind> <path>": { "hashes": ["<sha256>", ...] } },
+  //     "bad_hashes": [{ "sha256": "<sha256>", "answer": 1 }] }
+  // each mark set as "probably safe", each entry checked as tools/bad-hashes-sql.mjs does.
+  env.DB = d1(); env.LOOKUP = 'on';
+  if (process.argv[3]) {
+    const seed = JSON.parse(readFileSync(process.argv[3], 'utf8')), at = new Date().toISOString();
+    env.DB.raw.exec(LABELS_TABLE);
+    const put = env.DB.raw.prepare('INSERT OR REPLACE INTO labels (key, verdict, note, hashes, by, at) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const [key, l] of Object.entries(seed.labels || {})) {
+      const label = { key, verdict: 'safe', note: (l && l.note) || 'seed', hashes: (l && l.hashes) || [] }, bad = validLabel(label);
+      if (bad) throw new Error(`seed, label ${key.slice(0, 80)}: ${bad}`);
+      put.run(key, 'safe', label.note, JSON.stringify(label.hashes), 'seed', at);
+    }
+    const bad = seed.bad_hashes || [];
+    if (bad.length) env.DB.raw.exec(badHashesSql(bad.map((e) => ({ note: 'seed', by: 'seed', ...e }))));
+    console.log(`seed: ${Object.keys(seed.labels || {}).length} marks, ${bad.length} bad hashes`);
+  }
+  // the newest report, as the KV entry looked: what serve printed before there was a D1
+  const lastReport = () => { const r = env.DB.raw.prepare('SELECT received, report FROM reports ORDER BY received DESC, id DESC LIMIT 1').get(); return r ? JSON.stringify({ received: r.received, report: JSON.parse(r.report) }) : ''; };
   http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const r = await call(req.method, req.method === 'POST' ? Buffer.concat(chunks) : undefined, req.headers, req.url);
+    const body = await r.text();
     res.writeHead(r.status, Object.fromEntries(r.headers));
-    res.end(await r.text());
-    if (req.method === 'POST') console.log(r.status, [...store.entries()].filter(([k]) => k.startsWith('csa-2026-01/')).at(-1)?.[1] ?? '');
+    res.end(body);
+    // the check: the answer (the worker itself logs nothing of a request)
+    if (new URL(req.url, 'http://x').pathname.endsWith('/csa-2026-01-report/lookup')) console.log(`lookup ${r.status}\n${body}`);
+    else if (req.method === 'POST') console.log(r.status, lastReport());
   }).listen(8787, '127.0.0.1');
+  console.log('serving on http://127.0.0.1:8787/');
 } else {
   let failed = 0;
   const expect = (name, ok) => { console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}`); if (!ok) failed++; };

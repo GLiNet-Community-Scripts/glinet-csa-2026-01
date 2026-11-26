@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # triage-remote.sh - run gl-helper-triage.sh on a GL.iNet KVM or OpenWrt router over SSH
 #
-#   ./triage-remote.sh [--fix] [-p PORT] [-i KEY] [-o DIR] root@DEVICE [root@DEVICE2 ...]
+#   ./triage-remote.sh [--fix] [--lookup | --no-lookup] [-p PORT] [-i KEY] [-o DIR] root@DEVICE [root@DEVICE2 ...]
+#
+# The device has no terminal here, so it never asks. --lookup lets steps 1 and 2 ask the
+# community list about the files listed for review (fingerprints only, docs/lookup.md;
+# each device asks twice); --no-lookup leaves even the hint about it out. --fix does not
+# remove a file the list knows as malware: such a device ends as "remediation incomplete".
 #
 # Per device:
 #   1. check     read-only detection, report printed here
@@ -19,9 +24,9 @@ umask 077
 
 here=$(cd "$(dirname "$0")" && pwd)
 script=$here/gl-helper-triage.sh
-fix=0 outdir=./evidence ssh_opts=()
+fix=0 outdir=./evidence ssh_opts=() lookup=()
 
-usage() { sed -n '2,15s/^# \{0,1\}//p' "$0"; }
+usage() { sed -n '2,20s/^# \{0,1\}//p' "$0"; }
 
 while [[ $# -gt 0 ]]; do
 	case $1 in
@@ -44,7 +49,7 @@ done
 [[ -r $script ]] || { echo "missing $script" >&2; exit 4; }
 mkdir -p "$outdir"
 
-# The device has no terminal on its side, so tell it when ours can show colours.
+# The device has no terminal on its side, so tell it when ours can show colors.
 color=
 [[ -t 1 && -z ${NO_COLOR:-} ]] && color=--color
 
@@ -65,8 +70,12 @@ for target in "$@"; do
 	# shellcheck disable=SC2029 # the options are meant to reach the remote sh
 	run() { ssh ${ssh_opts[@]+"${ssh_opts[@]}"} "${cm[@]}" "$target" "sh -s --$(printf ' %q' "$@")" <"$script"; }
 
-	run --check $color
-	rc=$?
+	# kept, to see whether the fingerprint check found known malware: --fix does not know it
+	run --check $color ${lookup[@]+"${lookup[@]}"} | tee "$ctl/check.txt"
+	rc=${PIPESTATUS[0]}
+	lb=0
+	grep -q 'lookup-bad: a file listed for review' "$ctl/check.txt" && lb=1
+	lbmsg="!! $target: --fix does not remove the file the community list knows as malware: reinstall the firmware without keeping settings."
 	if (( rc >= 4 || rc == 255 )); then
 		echo "!! $target: check failed (exit $rc)"; note 4; continue
 	fi
@@ -75,8 +84,12 @@ for target in "$@"; do
 	name=$outdir/gl-triage-${target#*@}-$ts.tar.gz
 	echo
 	echo "-- pulling evidence to $name"
-	run --archive --stdout >"$name" 2>"$name.log"
+	run --archive --stdout ${lookup[@]+"${lookup[@]}"} >"$name" 2>"$name.log"
 	arc=$?
+	# with --lookup step 2 asks again: known malware it finds counts as well, even when step 1
+	# had no answer (review of 2.60)
+	grep -q 'lookup-bad: a file listed for review' "$name.log" 2>/dev/null && lb=1
+	(( arc == 1 && rc == 0 )) && rc=1
 	if (( arc >= 4 )) || ! gzip -t "$name" 2>/dev/null || ! tar -tzf "$name" >/dev/null 2>&1; then
 		echo "!! $target: evidence archive missing or corrupt (exit $arc, see $name.log)"
 		note 4
@@ -94,6 +107,7 @@ for target in "$@"; do
 	if (( rc == 0 )); then note 0; continue; fi
 	if (( fix == 0 )); then
 		echo "!! $target: IOCs found. Evidence saved. Re-run with --fix to remediate."
+		(( lb )) && echo "$lbmsg"
 		note 1
 		continue
 	fi
@@ -102,6 +116,10 @@ for target in "$@"; do
 	echo "-- remediating $target"
 	run --fix $color
 	frc=$?
+	# no connection: an error like any other, within the exit codes above
+	(( frc == 255 )) && frc=4
+	# --fix does not know the file the list knows as malware: never "remediated" then
+	if (( lb )); then echo "$lbmsg"; (( frc < 3 )) && frc=3; fi
 	note "$frc"
 	case $frc in
 	2) echo "== $target: remediated, no IOC left" ;;
